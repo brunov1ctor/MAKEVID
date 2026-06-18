@@ -43,13 +43,14 @@ class SceneInteraction:
         self._drag_orig = 0
         self._drag_orig_start = 0
         self._drag_group = None
+        self._last_diamond_toggle = None  # (diamond_id, was_marked_before)
 
     # ============================================================
     # DOUBLE-CLICK
     # ============================================================
 
     def on_double_click(self, pos):
-        """Double-click: clip=abre no SO, FX track=toggle all diamonds."""
+        """Double-click: FX track=toggle all diamonds, clip=abre no SO."""
         lbl_w = self.tl.LBL_W
         if pos.x() < lbl_w:
             return False
@@ -62,12 +63,30 @@ class SceneInteraction:
                 project = self.tl.project
                 clips = sorted(project.clips, key=lambda c: c.position)
                 all_ids = {f"diamond_{c.position}" for c in clips if c.position > 0}
+                if not all_ids:
+                    return False
                 if self._marked_diamonds:
                     self._marked_diamonds.clear()
                 else:
                     self._marked_diamonds = set(all_ids)
                 self.tl.redraw()
                 return True
+
+        # Video track: duplo clique abre video no SO
+        if "video" in track_positions:
+            vy, vh = track_positions["video"]
+            if vy <= pos.y() <= vy + vh:
+                from pathlib import Path
+                from makevid.qt.timeline.clip_item import ClipGraphicsItem
+                item = self.scene.itemAt(pos, self.tl._view.transform())
+                while item and item.parentItem():
+                    item = item.parentItem()
+                if item and isinstance(item, ClipGraphicsItem):
+                    clip = item.clip
+                    if clip.video_path and Path(clip.video_path).exists():
+                        import os
+                        os.startfile(clip.video_path)
+                        return True
 
         return False
 
@@ -85,6 +104,9 @@ class SceneInteraction:
         if pos.y() > ruler_h or pos.x() < lbl_w:
             return False
 
+        if not getattr(project, '_storyboard_applied', False):
+            return False
+
         scenes = project.world.scenes
         if not scenes:
             return False
@@ -94,13 +116,18 @@ class SceneInteraction:
             dur = float(scene.get("duration", 5))
             x = lbl_w + int(current_time * zoom)
             if abs(pos.x() - x) < 12:
-                # Copiar prompt para clipboard
+                # Copiar prompt para clipboard e colar no gerador
                 visual = scene.get("visual", "")
                 camera = scene.get("camera", "")
                 prompt = f"{visual}, {camera}" if camera else visual
                 from PySide6.QtWidgets import QApplication
                 clipboard = QApplication.clipboard()
                 clipboard.setText(prompt)
+                # Colar no prompt box do gerador
+                if hasattr(self.tl, 'parent') and callable(self.tl.parent):
+                    app = self.tl.parent()
+                    if hasattr(app, 'generator') and hasattr(app.generator, 'set_prompt'):
+                        app.generator.set_prompt(prompt)
                 return True
             current_time += dur
 
@@ -135,13 +162,14 @@ class SceneInteraction:
 
         # Click em labels laterais
         if pos.x() < lbl_w:
-            if self.label_clicked:
-                # Determinar qual track pelo Y
-                track_positions = self.scene._track_positions
-                for name, (ty, th) in track_positions.items():
-                    if ty <= pos.y() <= ty + th:
+            track_positions = self.scene._track_positions
+            for name, (ty, th) in track_positions.items():
+                if ty <= pos.y() <= ty + th:
+                    if self.label_clicked:
                         self.label_clicked(name)
-                        return True
+                    elif self.track_empty_clicked:
+                        self.track_empty_clicked(name)
+                    return True
             return False
 
         t = (pos.x() - lbl_w) / zoom
@@ -155,47 +183,65 @@ class SceneInteraction:
             self._drag_start_x = pos.x()
             return True
 
-        # Verificar se clicou em item interativo
+        # Track item (audio/fx/voice/sfx/music) — verifica primeiro por tempo
+        # pois itemAt pode retornar um diamond sobreposto ao fx item
+        track_positions = self.scene._track_positions
+        for name, (ty, th) in track_positions.items():
+            if name == "video":
+                continue
+            if ty <= pos.y() <= ty + th:
+                t = (pos.x() - lbl_w) / zoom
+                found_item = self._find_item_at_time(t, name)
+                if found_item:
+                    # Calcular local_x para detectar bordas
+                    ix1 = lbl_w + int(found_item.start_time * zoom)
+                    item_w_px = int(found_item.duration * zoom)
+                    local_x = pos.x() - ix1
+
+                    if local_x <= 6:
+                        self._drag_mode = "item_trim_left"
+                        self._drag_target = found_item
+                        self._drag_start_x = pos.x()
+                        self._drag_orig = found_item.duration
+                        self._drag_orig_start = found_item.start_time
+                    elif (item_w_px - local_x) <= 6:
+                        self._drag_mode = "item_trim_right"
+                        self._drag_target = found_item
+                        self._drag_start_x = pos.x()
+                        self._drag_orig = found_item.duration
+                    else:
+                        self._drag_mode = "item_move"
+                        self._drag_target = found_item
+                        self._drag_start_x = pos.x()
+                        self._drag_orig = found_item.start_time
+                        self._drag_group = self._get_item_group(found_item)
+                    return True
+                # Sem item: verificar diamond, senao abrir menu
+                item = self.scene.itemAt(pos, self.tl._view.transform())
+                while item and item.parentItem():
+                    item = item.parentItem()
+                if item and hasattr(item, '_position'):
+                    diamond_id = f"diamond_{item._position}"
+                    was_marked = diamond_id in self._marked_diamonds
+                    if diamond_id in self._marked_diamonds:
+                        self._marked_diamonds.discard(diamond_id)
+                    else:
+                        self._marked_diamonds.add(diamond_id)
+                    self._last_diamond_toggle = (diamond_id, was_marked)
+                    self.tl.redraw()
+                    return True
+                # Area vazia da track: abrir menu
+                if self.track_empty_clicked:
+                    self.track_empty_clicked(name)
+                elif self.label_clicked:
+                    self.label_clicked(name)
+                return True
+
+        # Verificar se clicou em clip de video via itemAt
         item = self.scene.itemAt(pos, self.tl._view.transform())
-        # Navegar hierarquia para pegar parent item
         while item and item.parentItem():
             item = item.parentItem()
-        # Ignorar items de background (nao-interativos)
-        if item and not isinstance(item, (ClipGraphicsItem, TrackGraphicsItem)) and not hasattr(item, "_position") and not hasattr(item, "track_item"):
-            item = None
 
-        # Track item (audio/fx/voice/sfx/music)
-        if item and (isinstance(item, TrackGraphicsItem) or hasattr(item, "track_item")):
-            ti = item.track_item
-            # Detectar zona: borda esquerda, borda direita, ou corpo
-            if hasattr(item, "rect") and callable(getattr(item, "rect", None)):
-                local_x = pos.x() - item.rect().x()
-                item_w = item.rect().width()
-            else:
-                local_x = pos.x() - item.boundingRect().x()
-                item_w = item.boundingRect().width()
-
-            if local_x <= 6:
-                self._drag_mode = "item_trim_left"
-                self._drag_target = ti
-                self._drag_start_x = pos.x()
-                self._drag_orig = ti.duration
-                self._drag_orig_start = ti.start_time
-            elif (item_w - local_x) <= 6:
-                self._drag_mode = "item_trim_right"
-                self._drag_target = ti
-                self._drag_start_x = pos.x()
-                self._drag_orig = ti.duration
-            else:
-                self._drag_mode = "item_move"
-                self._drag_target = ti
-                self._drag_start_x = pos.x()
-                self._drag_orig = ti.start_time
-                # Capturar grupo (mesmo clip_index)
-                self._drag_group = self._get_item_group(ti)
-            return True
-
-        # Clip de video
         if item and isinstance(item, ClipGraphicsItem):
             clip = item.clip
             local_x = pos.x() - item.rect().x()
@@ -218,35 +264,8 @@ class SceneInteraction:
                 self._drag_orig = clip.position
             return True
 
-        # FX diamond
-        if item and hasattr(item, '_position'):
-            diamond_id = f"diamond_{item._position}"
-            if diamond_id in self._marked_diamonds:
-                self._marked_diamonds.discard(diamond_id)
-            else:
-                self._marked_diamonds.add(diamond_id)
-            self.tl.redraw()
-            return True
-
-        # Click em area vazia de track = abrir menu da track
-        # Mas primeiro verificar se ha item na posicao temporal (fallback)
-        track_positions = self.scene._track_positions
-        for name, (ty, th) in track_positions.items():
-            if ty <= pos.y() <= ty + th:
-                # Buscar item por tempo (fallback se itemAt falhou)
-                found_item = self._find_item_at_time(t, name)
-                if found_item:
-                    self._drag_mode = "item_move"
-                    self._drag_target = found_item
-                    self._drag_start_x = pos.x()
-                    self._drag_orig = found_item.start_time
-                    self._drag_group = self._get_item_group(found_item)
-                    return True
-                if self.track_empty_clicked:
-                    self.track_empty_clicked(name)
-                return True
-
         # Area vazia fora de tracks = mover playhead
+        t = (pos.x() - lbl_w) / zoom
         self.tl.set_playhead(max(0, t))
         self._drag_mode = "playhead"
         self._drag_start_x = pos.x()
@@ -593,6 +612,17 @@ class SceneInteraction:
             return get_audio_duration(item.file_path)
         except Exception:
             return 0
+
+    def _undo_last_diamond_toggle(self):
+        """Desfaz o último toggle de diamond (para double-click funcionar corretamente)."""
+        if not self._last_diamond_toggle:
+            return
+        diamond_id, was_marked = self._last_diamond_toggle
+        if was_marked:
+            self._marked_diamonds.add(diamond_id)
+        else:
+            self._marked_diamonds.discard(diamond_id)
+        self._last_diamond_toggle = None
 
     def _update_drag_guide(self, time_val):
         """Atualiza linha guia + badge durante drag."""

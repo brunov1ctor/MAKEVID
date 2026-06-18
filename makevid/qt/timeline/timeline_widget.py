@@ -62,6 +62,21 @@ class TimelineWidget(QWidget):
 
         QTimer.singleShot(50, self.redraw)
 
+        # Timer global de animação para clips (preview contínuo)
+        self._anim_timer = QTimer(self)
+        self._anim_timer.setInterval(200)
+        self._anim_timer.timeout.connect(self._tick_clip_animation)
+        self._anim_timer.start()
+
+    def _tick_clip_animation(self):
+        """Avança frame de animação dos clips e repinta."""
+        from makevid.qt.timeline.clip_item import ClipGraphicsItem
+        ClipGraphicsItem.tick_animation()
+        # Repintar apenas os clips (sem rebuild completo)
+        for item in self._scene.items():
+            if isinstance(item, ClipGraphicsItem) and item.clip.status == "done":
+                item.update()
+
     def _build_toolbar(self) -> QWidget:
         tb = QWidget()
         tb.setFixedHeight(28)
@@ -122,26 +137,33 @@ class TimelineWidget(QWidget):
         lbl_sp = QLabel("Speed")
         lbl_sp.setStyleSheet(f"color: {C['text3']}; font-size: 8pt;")
         h.addWidget(lbl_sp)
-        btn_sm = QPushButton("-")
-        btn_sm.setFixedSize(18, 18)
+
+        btn_sm = QLabel(" ◀ ")
+        btn_sm.setFixedSize(18, 22)
+        btn_sm.setAlignment(Qt.AlignCenter)
+        btn_sm.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
+        btn_sm.setCursor(Qt.PointingHandCursor)
         btn_sm.setToolTip("Diminuir velocidade")
-        btn_sm.clicked.connect(lambda: self._adjust_speed(-0.25))
+        btn_sm.mousePressEvent = lambda e: self._adjust_speed(-0.25)
         h.addWidget(btn_sm)
 
-        self._speed_entry = QLineEdit("1.0")
-        self._speed_entry.setFixedSize(42, 20)
+        self._speed_entry = QLineEdit("1.00")
+        self._speed_entry.setFixedSize(48, 22)
         self._speed_entry.setAlignment(Qt.AlignCenter)
-        self._speed_entry.setToolTip("Velocidade de reproducao (0.25 a 4.0)")
+        self._speed_entry.setToolTip("Velocidade (0.25 a 4.0)")
         self._speed_entry.setStyleSheet(
-            f"background: {C['input']}; color: {C['text']}; border: 1px solid {C['border']}; "
-            f"font-family: Consolas; font-size: 9pt; border-radius: 3px;")
+            f"background: transparent; color: {C['text']}; border: none; "
+            f"font-family: Consolas; font-size: 10pt; font-weight: bold; padding: 0;")
         self._speed_entry.returnPressed.connect(self._on_speed_enter)
         h.addWidget(self._speed_entry)
 
-        btn_sp = QPushButton("+")
-        btn_sp.setFixedSize(18, 18)
+        btn_sp = QLabel(" ▶ ")
+        btn_sp.setFixedSize(18, 22)
+        btn_sp.setAlignment(Qt.AlignCenter)
+        btn_sp.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
+        btn_sp.setCursor(Qt.PointingHandCursor)
         btn_sp.setToolTip("Aumentar velocidade")
-        btn_sp.clicked.connect(lambda: self._adjust_speed(0.25))
+        btn_sp.mousePressEvent = lambda e: self._adjust_speed(0.25)
         h.addWidget(btn_sp)
 
         self._sep(h)
@@ -241,6 +263,26 @@ class TimelineWidget(QWidget):
     def _adjust_speed(self, delta):
         self.playback_speed = max(0.25, min(4.0, self.playback_speed + delta))
         self._speed_entry.setText(f"{self.playback_speed:.2f}")
+        try:
+            app = self.window()
+            if hasattr(app, 'preview') and app.preview.player.is_playing:
+                app.preview.player.set_speed(self.playback_speed)
+        except Exception:
+            pass
+
+    def _on_speed_enter(self):
+        try:
+            val = float(self._speed_entry.text().replace(",", "."))
+            self.playback_speed = max(0.25, min(4.0, val))
+        except ValueError:
+            pass
+        self._speed_entry.setText(f"{self.playback_speed:.2f}")
+        try:
+            app = self.window()
+            if hasattr(app, 'preview') and app.preview.player.is_playing:
+                app.preview.player.set_speed(self.playback_speed)
+        except Exception:
+            pass
 
     def _on_speed_enter(self):
         try:
@@ -294,29 +336,9 @@ class TimelineWidget(QWidget):
             super().keyPressEvent(event)
 
     def mouseDoubleClickEvent(self, event):
-        """Double-click: clip=abre no SO, FX=toggle all diamonds."""
-        pos = self._view.mapToScene(event.pos())
-        lbl_w = self.LBL_W
-        if pos.x() < lbl_w:
-            return
-
-        # Delegar para interaction (FX track toggle)
-        if self._scene._interaction.on_double_click(pos):
-            return
-
-        # Verificar se clicou em clip
-        item = self._scene.itemAt(pos, self._view.transform())
-        while item and item.parentItem():
-            item = item.parentItem()
-
-        from makevid.qt.timeline.clip_item import ClipGraphicsItem
-        if item and isinstance(item, ClipGraphicsItem):
-            clip = item.clip
-            if clip.video_path and Path(clip.video_path).exists():
-                import os
-                os.startfile(clip.video_path)
-            return
-
+        """Double-click no widget: delegado para a scene via view."""
+        # O evento de double-click dentro da view é tratado pela QGraphicsScene
+        # Este handler só pega clicks fora da view (toolbar area)
         super().mouseDoubleClickEvent(event)
 
     def resizeEvent(self, event):
@@ -446,7 +468,8 @@ class TimelineWidget(QWidget):
                 start = max((i.start_time + i.duration for i in existing), default=self.playhead_pos)
                 self.project.add_track_item(
                     name=path.stem[:20], track="audio",
-                    start_time=start, duration=dur, file_path=str(dest))
+                    start_time=start, duration=dur, file_path=str(dest),
+                    params={"block_name": f"\U0001f4c2 {path.stem[:12]}"})
 
             elif ext in video_exts:
                 # Importar como clip

@@ -860,12 +860,13 @@ class TimelineInteraction:
     def on_double_click_fx_track(self, event):
         """Duplo clique na faixa FX: seleciona/deseleciona todos os losangos."""
         tl = self.tl
-        diamond = self._find_diamond_at(event.x, event.y)
-        if diamond:
-            # Se tem algum marcado, desmarca todos; senao, marca todos
-            if tl._marked_diamonds:
-                self._deselect_all_diamonds()
-            else:
-                self._select_all_diamonds()
-            return True
-        return False
+        clips = sorted(tl.project.clips, key=lambda c: c.position)
+        has_diamonds = any(c.position > 0 for c in clips)
+        if not has_diamonds:
+            return False
+        # Se tem algum marcado, desmarca todos; senao, marca todos
+        if tl._marked_diamonds:
+            self._deselect_all_diamonds()
+        else:
+            self._select_all_diamonds()
+        return True

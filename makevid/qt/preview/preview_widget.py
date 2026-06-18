@@ -603,24 +603,17 @@ class PreviewWidget(QWidget):
         pl.setContentsMargins(6, 6, 6, 6)
         pl.setSpacing(0)
 
-        # Header
+        # Header (só botão fechar discreto)
         hdr = HL()
-        lbl = QLabel(f"CLIP #{clip.position+1}")
-        lbl.setStyleSheet(f"color: {C['gold']}; font-size: 11pt; font-weight: bold; border: none;")
-        hdr.addWidget(lbl)
         hdr.addStretch()
-        btn_x = QPushButton("X")
-        btn_x.setFixedSize(20, 18)
-        btn_x.setStyleSheet(f"background: transparent; color: {C['text3']}; border: none;")
+        btn_x = QPushButton("\u2715")
+        btn_x.setFixedSize(22, 22)
+        btn_x.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {C['text3']}; border: none; font-size: 10pt; }}"
+            f"QPushButton:hover {{ color: #ff4444; }}")
         btn_x.clicked.connect(self._hide_clip_properties)
         hdr.addWidget(btn_x)
         pl.addLayout(hdr)
-
-        # Separador gold
-        sep = QFrame()
-        sep.setFixedHeight(2)
-        sep.setStyleSheet(f"background: {C['gold']}; border: none;")
-        pl.addWidget(sep)
 
         # Scroll com conteudo
         scroll = QScrollArea()

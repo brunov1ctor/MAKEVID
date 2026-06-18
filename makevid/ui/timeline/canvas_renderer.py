@@ -272,12 +272,14 @@ class CanvasRenderer:
                     is_marked = diamond_id in getattr(tl, '_marked_diamonds', set())
                     is_hovered = getattr(tl, '_hover_diamond', None) == diamond_id
 
-                    # Tamanho: maior no hover ou marcado
-                    sz = 12 if (is_hovered or is_marked) else 8
+                    # Tamanho: maior no hover ou marcado, limitado pela altura da faixa
+                    max_sz = max(4, (th // 2) - 3)
+                    sz = min(12, max_sz) if (is_hovered or is_marked) else min(8, max_sz)
 
                     if is_marked:
                         # Marcado: preenchido com cor vibrante + borda neon
-                        c.create_polygon(tx - sz-2, tcy, tx, tcy - sz-2, tx + sz+2, tcy, tx, tcy + sz+2,
+                        osz = min(sz + 2, max_sz + 1)
+                        c.create_polygon(tx - osz, tcy, tx, tcy - osz, tx + osz, tcy, tx, tcy + osz,
                                          fill="", outline="#00ffee", width=1)
                         c.create_polygon(tx - sz, tcy, tx, tcy - sz, tx + sz, tcy, tx, tcy + sz,
                                          fill="#6b3fa0", outline="#bb77ff", width=2)
@@ -289,7 +291,8 @@ class CanvasRenderer:
                                           font=("Segoe UI", 7, "bold"))
                     elif is_hovered:
                         # Hover: destacado com borda colorida
-                        c.create_polygon(tx - sz-2, tcy, tx, tcy - sz-2, tx + sz+2, tcy, tx, tcy + sz+2,
+                        osz = min(sz + 2, max_sz + 1)
+                        c.create_polygon(tx - osz, tcy, tx, tcy - osz, tx + osz, tcy, tx, tcy + osz,
                                          fill="", outline=C["neon_purple"], width=1)
                         c.create_polygon(tx - sz, tcy, tx, tcy - sz, tx + sz, tcy, tx, tcy + sz,
                                          fill="#3a1a6a", outline=C["neon_purple"], width=2)

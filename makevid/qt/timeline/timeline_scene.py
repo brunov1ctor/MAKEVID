@@ -297,6 +297,8 @@ class TimelineScene(QGraphicsScene):
 
     def _draw_storyboard_markers(self, project, zoom, lbl_w, scene_h):
         """Desenha checkpoints do storyboard como marcadores na ruler."""
+        if not getattr(project, '_storyboard_applied', False):
+            return
         scenes = project.world.scenes
         if not scenes:
             return
@@ -361,9 +363,9 @@ class TimelineScene(QGraphicsScene):
                     gitem = TrackGraphicsItem(rep, x, ty, w, th, color)
                 self.addItem(gitem)
 
-                # Badge de layers se grupo > 1
+                # Badge de layers se grupo > 1 (em cima do retangulo)
                 if len(group) > 1:
-                    badge = QGraphicsRectItem(x + 2, ty + 3, 12, 12)
+                    badge = QGraphicsRectItem(x + 2, ty + 2, 12, 12)
                     badge.setPen(QPen(Qt.NoPen))
                     badge.setBrush(QBrush(QColor(color)))
                     badge.setZValue(4)
@@ -371,7 +373,7 @@ class TimelineScene(QGraphicsScene):
                     btxt = QGraphicsTextItem(str(len(group)))
                     btxt.setFont(QFont("Consolas", 7, QFont.Bold))
                     btxt.setDefaultTextColor(QColor("#0a0a0f"))
-                    btxt.setPos(x + 3, ty + 1)
+                    btxt.setPos(x + 3, ty)
                     btxt.setZValue(5)
                     self.addItem(btxt)
 
@@ -381,6 +383,8 @@ class TimelineScene(QGraphicsScene):
 
     def mouseDoubleClickEvent(self, event):
         pos = event.scenePos()
+        # Undo o toggle do primeiro clique antes de selecionar todos
+        self._interaction._undo_last_diamond_toggle()
         if self._interaction.on_double_click(pos):
             event.accept()
             return
@@ -467,12 +471,10 @@ class _DiamondItem(QGraphicsItem):
 
     def hoverEnterEvent(self, event):
         self._hovered = True
-        self.setCursor(Qt.PointingHandCursor)
         self.update()
 
     def hoverLeaveEvent(self, event):
         self._hovered = False
-        self.setCursor(Qt.ArrowCursor)
         self.update()
 
 
@@ -543,6 +545,7 @@ class _FxTrackItem(QGraphicsItem):
         self._hovered = False
         self.setAcceptHoverEvents(True)
         self.setZValue(2)
+
     def boundingRect(self):
         return QRectF(self._x, self._y, self._w, self._h)
 
@@ -601,12 +604,12 @@ class _FxTrackItem(QGraphicsItem):
             for i in range(0, int(ix2 - ix1), 6):
                 painter.drawLine(QPointF(ix1 + i, y + h - 2), QPointF(ix1 + i + 4, y + 2))
 
-        # Label
+        # Label em baixo
         painter.setPen(QPen(color))
         painter.setFont(QFont("Segoe UI", 7, QFont.Bold))
-        painter.drawText(QPointF(x + 5, y + 10), self.track_item.name[:18])
+        painter.drawText(QPointF(x + 5, y + h - 4), self.track_item.name[:18])
 
-        # Trim handles
+        # Trim handles (bordas coloridas)
         painter.setPen(QPen(Qt.NoPen))
         painter.setBrush(QBrush(color))
         painter.drawRect(QRectF(x, y, 4, h))
@@ -614,10 +617,16 @@ class _FxTrackItem(QGraphicsItem):
 
     def hoverEnterEvent(self, event):
         self._hovered = True
-        self.setCursor(Qt.PointingHandCursor)
         self.update()
 
     def hoverLeaveEvent(self, event):
         self._hovered = False
-        self.setCursor(Qt.ArrowCursor)
         self.update()
+
+    def hoverMoveEvent(self, event):
+        """Cursor de resize nas bordas."""
+        local_x = event.scenePos().x() - self._x
+        if local_x <= 6 or (self._w - local_x) <= 6:
+            self.setCursor(Qt.SizeHorCursor)
+        else:
+            self.setCursor(Qt.ArrowCursor)

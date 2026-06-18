@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from PySide6.QtGui import QPixmap, QImage
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Qt
 
 
 class ThumbnailCache:
@@ -13,7 +13,7 @@ class ThumbnailCache:
     def __init__(self):
         self._thumbs: Dict[str, QPixmap] = {}  # clip_id -> pixmap
         self._gif_frames: Dict[str, List[QPixmap]] = {}  # clip_id -> [pixmaps]
-        self._max_gif_frames = 8
+        self._max_gif_frames = 16  # Mais frames para animação fluida
 
     def get_thumb(self, clip, width, height) -> Optional[QPixmap]:
         """Retorna thumbnail do clip (primeiro frame). Cache."""
@@ -24,12 +24,12 @@ class ThumbnailCache:
         if not clip.video_path or not Path(clip.video_path).exists():
             return None
 
-        # Tentar carregar .png com mesmo nome primeiro (mais confiavel)
+        # Tentar carregar .png com mesmo nome primeiro
         try:
             png_path = Path(clip.video_path).with_suffix(".png")
             if png_path.exists():
                 pixmap = QPixmap(str(png_path)).scaled(
-                    width, height, aspectMode=1, mode=1)
+                    width, height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
                 if not pixmap.isNull():
                     self._thumbs[key] = pixmap
                     return pixmap
@@ -40,30 +40,21 @@ class ThumbnailCache:
         try:
             import cv2
             cap = cv2.VideoCapture(str(clip.video_path))
-            if not cap.isOpened():
-                cap.release()
-            else:
+            if cap.isOpened():
                 ret, frame = cap.read()
                 cap.release()
                 if ret and frame is not None:
                     frame_rgb = frame[:, :, ::-1].copy()
                     h, w = frame_rgb.shape[:2]
-                    img = QImage(frame_rgb.data, w, h, w * 3, QImage.Format_RGB888)
-                    pixmap = QPixmap.fromImage(img).scaled(
-                        width, height, aspectMode=1, mode=1)
+                    bytes_per_line = w * 3
+                    img = QImage(frame_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+                    pixmap = QPixmap.fromImage(img.copy()).scaled(
+                        width, height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
                     if not pixmap.isNull():
                         self._thumbs[key] = pixmap
                         return pixmap
-        except Exception:
-            pass
-
-        # Fallback: QPixmap direto (suporta alguns formatos de imagem/video)
-        try:
-            pixmap = QPixmap(str(clip.video_path)).scaled(
-                width, height, aspectMode=1, mode=1)
-            if not pixmap.isNull():
-                self._thumbs[key] = pixmap
-                return pixmap
+            else:
+                cap.release()
         except Exception:
             pass
 
@@ -95,8 +86,8 @@ class ThumbnailCache:
                     frame_rgb = frame[:, :, ::-1].copy()
                     h, w = frame_rgb.shape[:2]
                     img = QImage(frame_rgb.data, w, h, w * 3, QImage.Format_RGB888)
-                    pixmap = QPixmap.fromImage(img).scaled(
-                        width, height, aspectMode=1, mode=1)
+                    pixmap = QPixmap.fromImage(img.copy()).scaled(
+                        width, height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
                     frames.append(pixmap)
                 if len(frames) >= self._max_gif_frames:
                     break

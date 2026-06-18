@@ -162,7 +162,8 @@ class ActionsMixin:
                 pass
             existing = self.project.get_track_items(track_name)
             start = max((i.start_time + i.duration for i in existing), default=self.timeline.playhead_pos)
-            self.project.add_track_item(name=src.stem[:20], track=track_name, start_time=start, duration=dur, file_path=str(dest))
+            self.project.add_track_item(name=src.stem[:20], track=track_name, start_time=start, duration=dur, file_path=str(dest),
+                params={"block_name": f"\U0001f4c2 {src.stem[:12]}"})
         self.project.save(PROJECTS_DIR)
         self.timeline.redraw()
         self._show_generator()
@@ -238,11 +239,13 @@ class ActionsMixin:
             for key, track in [("voices", "voice"), ("ambience", "sfx"), ("music", "music")]:
                 if key in results:
                     paths = results[key] if isinstance(results[key], list) else [results[key]]
+                    icons = {"voices": "\U0001f5e3", "ambience": "\U0001f50a", "music": "\U0001f3b5"}
                     for path in paths:
                         from makevid.core.audio_utils import get_audio_duration
                         dur = get_audio_duration(path) or 3.0
                         self.project.add_track_item(name=key[:8], track=track,
-                            start_time=clip_start, duration=dur, file_path=path, clip_index=idx)
+                            start_time=clip_start, duration=dur, file_path=path, clip_index=idx,
+                            params={"block_name": f"{icons.get(key, '')} {key[:8]}"})
             self.project.save(PROJECTS_DIR)
             def _on_audio_done():
                 self._audio_progress_timer.stop()
@@ -303,11 +306,13 @@ class ActionsMixin:
                 for key, track in [("voices", "voice"), ("ambience", "sfx"), ("music", "music")]:
                     if key in results:
                         paths = results[key] if isinstance(results[key], list) else [results[key]]
+                        icons = {"voices": "\U0001f5e3", "ambience": "\U0001f50a", "music": "\U0001f3b5"}
                         for path in paths:
                             from makevid.core.audio_utils import get_audio_duration
                             dur = get_audio_duration(path) or 3.0
                             self.project.add_track_item(name=key[:8], track=track,
-                                start_time=t, duration=dur, file_path=path, clip_index=si)
+                                start_time=t, duration=dur, file_path=path, clip_index=si,
+                                params={"block_name": f"{icons.get(key, '')} {key[:8]}"})
                 t += plan.scene_duration
             self.project.save(PROJECTS_DIR)
             def _on_all_done():

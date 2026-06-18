@@ -138,6 +138,17 @@ class TimelinePlayerQt(QObject):
         self._close_clips()
         self._stop_audio()
 
+    def set_speed(self, speed):
+        """Altera velocidade em tempo real durante playback."""
+        import time as _time
+        self._speed = max(0.25, min(4.0, speed))
+        if self._playing and not self._paused:
+            current = self._get_current_time()
+            self._start_offset = current
+            self._start_time = _time.time()
+            self._stop_audio()
+            self._start_audio()
+
     def seek_to_time(self, target_time):
         """Seek para tempo específico."""
         target_time = max(0, min(target_time, self._total_dur))
@@ -205,29 +216,35 @@ class TimelinePlayerQt(QObject):
         return None, 0
 
     def _render_frame(self, clip, time_in_clip):
-        if clip.status != "done" or not clip.video_path or not Path(clip.video_path).exists():
-            return
-
-        cap = self._caps.get(clip.id)
-        if not cap:
-            return
-
         import cv2
-        clip_fps = self._clip_fps.get(clip.id, 16)
-        target_frame = int(time_in_clip * clip_fps)
+        import numpy as np
 
-        cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
-        ret, frame = cap.read()
-        if ret:
-            # Aplicar FX
-            fx_items = self._project.get_track_items("fx")
-            if fx_items:
-                from makevid.core.fx_processor import apply_fx_to_frame
-                frame_rgb = frame[:, :, ::-1]
-                frame_rgb = apply_fx_to_frame(frame_rgb, fx_items,
-                                              self._get_current_time(), self._total_dur)
-                frame = frame_rgb[:, :, ::-1]
-            self.frame_ready.emit(frame)
+        frame = None
+        if clip.status == "done" and clip.video_path and Path(clip.video_path).exists():
+            cap = self._caps.get(clip.id)
+            if cap:
+                clip_fps = self._clip_fps.get(clip.id, 16)
+                target_frame = int(time_in_clip * clip_fps)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+                ret, f = cap.read()
+                if ret:
+                    frame = f
+
+        # Clip vazio: frame preto
+        if frame is None:
+            w = getattr(self._project, 'output_width', 832) or 832
+            h = getattr(self._project, 'output_height', 480) or 480
+            frame = np.zeros((h, w, 3), dtype=np.uint8)
+
+        # Aplicar FX
+        fx_items = self._project.get_track_items("fx")
+        if fx_items:
+            from makevid.core.fx_processor import apply_fx_to_frame
+            frame_rgb = frame[:, :, ::-1]
+            frame_rgb = apply_fx_to_frame(frame_rgb, fx_items,
+                                          self._get_current_time(), self._total_dur)
+            frame = frame_rgb[:, :, ::-1]
+        self.frame_ready.emit(frame)
 
     # ============================================================
     # CLIP MANAGEMENT

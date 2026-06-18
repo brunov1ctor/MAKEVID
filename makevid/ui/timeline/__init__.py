@@ -171,7 +171,9 @@ class TimelineWidget:
         total_gaps = gap * 5
         track_space = max(96, available - total_gaps)
 
-        sizes = [max(14, int(track_space * w / total_weight)) for w in weights]
+        # Minimos: VIDEO=30, FX=28 (losangos precisam de espaco), demais=14
+        mins = [30, 28, 14, 14, 14, 14]
+        sizes = [max(m, int(track_space * w / total_weight)) for w, m in zip(weights, mins)]
 
         y = ruler_h + 2
         self.VIDEO_Y = y

@@ -8,10 +8,11 @@ from makevid.qt.theme import C
 
 
 class ClipGraphicsItem(QGraphicsRectItem):
-    """Clip de video na track de video com visual premium."""
+    """Clip de video na track de video com visual premium e animação contínua."""
 
-    # Cache compartilhado entre todas as instancias
     _thumb_cache = None
+    _global_frame_index = 0  # Compartilhado: todos animam sincronizados
+    _anim_timer = None
 
     def __init__(self, clip, x, y, w, h, selected=False):
         super().__init__(x + 1, y + 2, w - 2, h - 4)
@@ -19,10 +20,7 @@ class ClipGraphicsItem(QGraphicsRectItem):
         self._x, self._y, self._w, self._h = x, y, w, h
         self._hovered = False
         self._selected = selected
-        self._gif_index = 0
-        self._gif_timer = None
 
-        # Inicializar cache compartilhado
         if ClipGraphicsItem._thumb_cache is None:
             from makevid.qt.timeline.thumbnails import ThumbnailCache
             ClipGraphicsItem._thumb_cache = ThumbnailCache()
@@ -47,7 +45,7 @@ class ClipGraphicsItem(QGraphicsRectItem):
         self.setZValue(1)
 
     def paint(self, painter: QPainter, option, widget=None):
-        """Custom paint com thumbnail, grip lines e labels."""
+        """Custom paint com animação contínua, grip lines e labels."""
         super().paint(painter, option, widget)
 
         x, y, w, h = self._x + 1, self._y + 2, self._w - 2, self._h - 4
@@ -58,33 +56,34 @@ class ClipGraphicsItem(QGraphicsRectItem):
         try:
             if self.clip.status == "done" and self.clip.video_path and w > 14:
                 from pathlib import Path
-                if Path(self.clip.video_path).exists():
-                    cache = ClipGraphicsItem._thumb_cache
+                from PySide6.QtGui import QPixmap as QP
+                vpath = Path(self.clip.video_path)
+                if vpath.exists():
                     thumb_w = max(10, int(w - hw * 2 - 2))
                     thumb_h = max(10, int(h - 4))
-                    if self._hovered:
-                        frames = cache.get_gif_frames(self.clip, thumb_w, thumb_h)
-                        if frames:
-                            idx = self._gif_index % len(frames)
+                    cache = ClipGraphicsItem._thumb_cache
+                    # Tentar GIF animado (video real com frames diferentes)
+                    frames = cache.get_gif_frames(self.clip, thumb_w, thumb_h)
+                    if frames and len(frames) > 1:
+                        idx = ClipGraphicsItem._global_frame_index % len(frames)
+                        if not frames[idx].isNull():
                             painter.drawPixmap(int(x + hw + 1), int(y + 2), frames[idx])
                             thumb_drawn = True
-                    else:
-                        thumb = cache.get_thumb(self.clip, thumb_w, thumb_h)
-                        if thumb:
-                            painter.drawPixmap(int(x + hw + 1), int(y + 2), thumb)
-                            thumb_drawn = True
+                    # Fallback: PNG estatico
+                    if not thumb_drawn:
+                        png = vpath.with_suffix('.png')
+                        if png.exists():
+                            px = QP(str(png)).scaled(thumb_w, thumb_h,
+                                                    Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+                            if not px.isNull():
+                                painter.drawPixmap(int(x + hw + 1), int(y + 2), px)
+                                thumb_drawn = True
         except Exception:
             pass
 
-        # Fallback: gradiente escuro se thumbnail nao carregou
+        # Fallback: nada extra se thumbnail nao carregou
         if not thumb_drawn and self.clip.status == "done" and w > 14:
-            from PySide6.QtGui import QLinearGradient
-            grad = QLinearGradient(x + hw, y, x + w - hw, y + h)
-            grad.setColorAt(0, QColor("#0a2a1a"))
-            grad.setColorAt(1, QColor("#1a4a2a"))
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QBrush(grad))
-            painter.drawRect(QRectF(x + hw + 1, y + 2, w - hw * 2 - 2, h - 4))
+            pass
 
         # Trim handles (dourados)
         painter.setPen(Qt.NoPen)
@@ -118,25 +117,8 @@ class ClipGraphicsItem(QGraphicsRectItem):
     def hoverEnterEvent(self, event):
         self._hovered = True
         self.setPen(QPen(QColor("#00ffee"), 2))
-        self.setCursor(Qt.PointingHandCursor)
-        # Iniciar GIF
-        if self.clip.status == "done" and self.clip.video_path:
-            self._gif_index = 0
-            self._gif_timer = self.scene().views()[0].window() if self.scene() else None
-            # Usar timer do scene
-            if self.scene():
-                self._start_gif_animation()
         self.update()
         super().hoverEnterEvent(event)
-
-    def _start_gif_animation(self):
-        """Anima GIF a cada 150ms."""
-        if not self._hovered:
-            return
-        self._gif_index += 1
-        self.update()
-        # Agendar proximo frame
-        QTimer.singleShot(150, self._start_gif_animation)
 
     def hoverMoveEvent(self, event):
         local_x = event.pos().x() - self.rect().x()
@@ -144,12 +126,16 @@ class ClipGraphicsItem(QGraphicsRectItem):
         if local_x <= 8 or (w - local_x) <= 8:
             self.setCursor(Qt.SizeHorCursor)
         else:
-            self.setCursor(Qt.PointingHandCursor)
+            self.setCursor(Qt.ArrowCursor)
         super().hoverMoveEvent(event)
 
     def hoverLeaveEvent(self, event):
         self._hovered = False
         self.setPen(QPen(self._border, 2 if self._selected else 1.5))
-        self.setCursor(Qt.ArrowCursor)
         self.update()
         super().hoverLeaveEvent(event)
+
+    @classmethod
+    def tick_animation(cls):
+        """Chamado por timer externo para avançar frame de animação."""
+        cls._global_frame_index += 1

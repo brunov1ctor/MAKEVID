@@ -28,7 +28,7 @@ class TrackGraphicsItem(QGraphicsRectItem):
         self.setAcceptHoverEvents(True)
         self.setZValue(2)
 
-        # Label
+        # Label no topo
         name = track_item.params.get("block_name", track_item.name)[:20]
         self._label = QGraphicsTextItem(name, self)
         self._label.setFont(QFont("Segoe UI", 7, QFont.Bold))
@@ -112,18 +112,17 @@ class TrackGraphicsItem(QGraphicsRectItem):
     def hoverEnterEvent(self, event):
         self._hovered = True
         self.setPen(QPen(QColor("#00ffee"), 2))
-        self.setCursor(Qt.PointingHandCursor)
         self.update()
         super().hoverEnterEvent(event)
 
     def hoverMoveEvent(self, event):
-        """Cursor de resize nas bordas, hand no centro."""
+        """Cursor de resize nas bordas."""
         local_x = event.pos().x() - self.rect().x()
         w = self.rect().width()
         if local_x <= 6 or (w - local_x) <= 6:
             self.setCursor(Qt.SizeHorCursor)
         else:
-            self.setCursor(Qt.PointingHandCursor)
+            self.setCursor(Qt.ArrowCursor)
         super().hoverMoveEvent(event)
 
     def hoverLeaveEvent(self, event):

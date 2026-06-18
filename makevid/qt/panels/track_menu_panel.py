@@ -2,7 +2,7 @@
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QFileDialog
+    QScrollArea, QFrame, QFileDialog, QGridLayout
 )
 from PySide6.QtCore import Qt, Signal
 import shutil
@@ -37,11 +37,11 @@ class TrackMenuPanel(QWidget):
     """Menu de opcoes ao clicar no label lateral de uma track."""
 
     closed = Signal()
-    action_import = Signal(str)   # emite track_name
-    action_record = Signal(str)   # emite track_name
+    action_import = Signal(str)
+    action_record = Signal(str)
     action_tts = Signal()
-    action_clear = Signal(str)    # emite track_name
-    action_add_fx = Signal(str)    # emite fx_name
+    action_clear = Signal(str)
+    action_add_fx = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -53,6 +53,9 @@ class TrackMenuPanel(QWidget):
         self._outer = QVBoxLayout(self)
         self._outer.setContentsMargins(0, 0, 0, 0)
         self._outer.setSpacing(0)
+        self._fx_tab_buttons = []
+        self._fx_content_area = None
+
     def show_track(self, track_name, project):
         """Mostra menu para a track especificada."""
         self._track = track_name
@@ -112,7 +115,6 @@ class TrackMenuPanel(QWidget):
         info.setStyleSheet(f"color: {C['text3']}; font-size: 9pt; border: none;")
         cl.addWidget(info)
 
-        from PySide6.QtWidgets import QGridLayout
         grid = QGridLayout()
         grid.setSpacing(6)
         for idx, (name, desc, action_type) in enumerate(items):
@@ -147,7 +149,7 @@ class TrackMenuPanel(QWidget):
         scroll.setWidget(content)
         L.addWidget(scroll)
 
-        # Limpar Track button (embaixo de tudo)
+        # Limpar Track
         clear_btn = QPushButton("Limpar Track")
         clear_btn.setFixedHeight(34)
         clear_btn.setStyleSheet(
@@ -158,7 +160,7 @@ class TrackMenuPanel(QWidget):
         L.addWidget(clear_btn)
 
     def _build_fx_menu(self):
-        """Menu de FX com abas por categoria."""
+        """Menu de FX com abas clicaveis por categoria (estilo CapCut)."""
         color = C["purple"]
         L = self._outer
 
@@ -176,52 +178,41 @@ class TrackMenuPanel(QWidget):
         hdr_l.addWidget(close_btn)
         L.addLayout(hdr_l)
 
-        # Abas de FX
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("border: none;")
-        content = QWidget()
-        cl = QVBoxLayout(content)
-        cl.setContentsMargins(10, 6, 10, 10)
-        cl.setSpacing(6)
+        # Barra de abas horizontal
+        tabs_bar = QWidget()
+        tabs_bar.setFixedHeight(36)
+        tabs_bar.setStyleSheet(f"background: {C['card']}; border-radius: 4px;")
+        tabs_h = QHBoxLayout(tabs_bar)
+        tabs_h.setContentsMargins(4, 4, 4, 4)
+        tabs_h.setSpacing(2)
 
-        from PySide6.QtWidgets import QGridLayout
+        self._fx_tab_buttons = []
+        tab_keys = list(FX_TABS.keys())
 
-        for key, tab in FX_TABS.items():
-            # Titulo da categoria
-            cat_lbl = QLabel(f"{tab['icon']} {tab['label']}")
-            cat_lbl.setStyleSheet(f"color: {color}; font-size: 10pt; font-weight: bold; border: none;")
-            cl.addWidget(cat_lbl)
+        for key in tab_keys:
+            tab = FX_TABS[key]
+            btn = QPushButton(f"{tab['icon']} {tab['label']}")
+            btn.setFixedHeight(26)
+            btn.setStyleSheet(
+                f"QPushButton {{ background: transparent; color: {C['text3']}; font-size: 8pt; "
+                f"font-weight: bold; border: none; border-radius: 3px; padding: 2px 6px; }}"
+                f"QPushButton:hover {{ background: {C['card_hover']}; }}")
+            btn.clicked.connect(lambda checked=False, k=key: self._select_fx_tab(k))
+            tabs_h.addWidget(btn)
+            self._fx_tab_buttons.append((key, btn))
+            tip = FX_TAB_TOOLTIPS.get(key, "")
+            if tip:
+                btn.setToolTip(tip)
 
-            grid = QGridLayout()
-            grid.setSpacing(4)
-            for idx, (name, desc) in enumerate(tab["items"]):
-                item_frame = QFrame()
-                item_frame.setObjectName("fxItem")
-                item_frame.setStyleSheet(
-                    f"QFrame#fxItem {{ background: {color}; border: 2px solid {color}; border-radius: 5px; }}"
-                    f"QFrame#fxItem:hover {{ background: #bb77ff; border-color: #bb77ff; }}")
-                il = QVBoxLayout(item_frame)
-                il.setContentsMargins(8, 5, 8, 5)
-                n_lbl = QLabel(name)
-                n_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
-                n_lbl.setStyleSheet(f"color: #0a0a0f; font-size: 9pt; font-weight: bold; border: none; background: transparent;")
-                il.addWidget(n_lbl)
-                d_lbl = QLabel(desc)
-                d_lbl.setWordWrap(True)
-                d_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
-                d_lbl.setStyleSheet(f"color: #1a1a2a; font-size: 8pt; border: none; background: transparent;")
-                il.addWidget(d_lbl)
-                item_frame.setCursor(Qt.PointingHandCursor)
-                item_frame.mousePressEvent = lambda e, n=name: self._add_fx(n)
-                grid.addWidget(item_frame, idx // 2, idx % 2)
-            cl.addLayout(grid)
+        L.addWidget(tabs_bar)
 
-        cl.addStretch()
-        scroll.setWidget(content)
-        L.addWidget(scroll)
+        # Area de conteudo
+        self._fx_content_area = QScrollArea()
+        self._fx_content_area.setWidgetResizable(True)
+        self._fx_content_area.setStyleSheet("border: none;")
+        L.addWidget(self._fx_content_area)
 
-        # Limpar Track button (embaixo de tudo)
+        # Limpar Track
         clear_btn = QPushButton("Limpar Track")
         clear_btn.setFixedHeight(34)
         clear_btn.setStyleSheet(
@@ -230,6 +221,59 @@ class TrackMenuPanel(QWidget):
             f"QPushButton:hover {{ background: #2a0808; border-color: #ff6666; color: #ff6666; }}")
         clear_btn.clicked.connect(lambda: self.action_clear.emit("fx"))
         L.addWidget(clear_btn)
+
+        # Selecionar primeira aba
+        self._select_fx_tab(tab_keys[0])
+
+    def _select_fx_tab(self, selected_key):
+        """Seleciona aba FX e mostra seus efeitos."""
+        color = C["purple"]
+
+        # Atualizar estilo dos botoes
+        for key, btn in self._fx_tab_buttons:
+            if key == selected_key:
+                btn.setStyleSheet(
+                    f"QPushButton {{ background: {color}; color: {C['text']}; font-size: 8pt; "
+                    f"font-weight: bold; border: none; border-radius: 3px; padding: 2px 6px; }}")
+            else:
+                btn.setStyleSheet(
+                    f"QPushButton {{ background: transparent; color: {C['text3']}; font-size: 8pt; "
+                    f"font-weight: bold; border: none; border-radius: 3px; padding: 2px 6px; }}"
+                    f"QPushButton:hover {{ background: {C['card_hover']}; }}")
+
+        # Construir conteudo da aba
+        tab = FX_TABS[selected_key]
+        content = QWidget()
+        cl = QVBoxLayout(content)
+        cl.setContentsMargins(6, 6, 6, 6)
+        cl.setSpacing(4)
+
+        grid = QGridLayout()
+        grid.setSpacing(4)
+        for idx, (name, desc) in enumerate(tab["items"]):
+            item_frame = QFrame()
+            item_frame.setObjectName("fxItem")
+            item_frame.setStyleSheet(
+                f"QFrame#fxItem {{ background: {color}; border: 2px solid {color}; border-radius: 5px; }}"
+                f"QFrame#fxItem:hover {{ background: #bb77ff; border-color: #bb77ff; }}")
+            il = QVBoxLayout(item_frame)
+            il.setContentsMargins(8, 5, 8, 5)
+            n_lbl = QLabel(name)
+            n_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
+            n_lbl.setStyleSheet(f"color: #0a0a0f; font-size: 9pt; font-weight: bold; border: none; background: transparent;")
+            il.addWidget(n_lbl)
+            d_lbl = QLabel(desc)
+            d_lbl.setWordWrap(True)
+            d_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
+            d_lbl.setStyleSheet(f"color: #1a1a2a; font-size: 8pt; border: none; background: transparent;")
+            il.addWidget(d_lbl)
+            item_frame.setCursor(Qt.PointingHandCursor)
+            item_frame.mousePressEvent = lambda e, n=name: self._add_fx(n)
+            grid.addWidget(item_frame, idx // 2, idx % 2)
+        cl.addLayout(grid)
+        cl.addStretch()
+
+        self._fx_content_area.setWidget(content)
 
     def _add_fx(self, name):
         """Adiciona FX item na timeline na posicao do playhead."""

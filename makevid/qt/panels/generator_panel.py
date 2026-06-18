@@ -191,8 +191,8 @@ class GeneratorPanel(QWidget):
         btn_save.clicked.connect(self._save_hf_token)
         btns.addWidget(btn_save)
         btn_x = QPushButton("X")
-        btn_x.setFixedSize(28, 24)
-        btn_x.setStyleSheet(f"background: {C['card']}; color: {C['text3']}; font-weight: bold;")
+        btn_x.setFixedSize(28, 28)
+        btn_x.setObjectName("closeBtn")
         btn_x.clicked.connect(self._hide_token_prompt)
         btns.addWidget(btn_x)
         btns.addStretch()
@@ -257,8 +257,8 @@ class GeneratorPanel(QWidget):
         btn_save.clicked.connect(self._save_fs_key)
         btns.addWidget(btn_save)
         btn_x = QPushButton("X")
-        btn_x.setFixedSize(28, 24)
-        btn_x.setStyleSheet(f"background: {C['card']}; color: {C['text3']}; font-weight: bold;")
+        btn_x.setFixedSize(28, 28)
+        btn_x.setObjectName("closeBtn")
         btn_x.clicked.connect(self._hide_fs_prompt)
         btns.addWidget(btn_x)
         btns.addStretch()
@@ -525,7 +525,7 @@ class GeneratorPanel(QWidget):
         r_eng = QHBoxLayout()
         r_eng.addWidget(self._sub_label("Engine:"))
         self._img_engine = QComboBox()
-        self._img_engine.addItems(["HF API (FLUX)", "HF API (SD-XL)", "Local (SDXL)"])
+        self._img_engine.addItems(["FLUX.1-schnell (rapido)", "FLUX.1-schnell (HD)"])
         self._img_engine.setStyleSheet(f"background: {C['card']}; color: {C['text']}; border: 1px solid {C['border']}; border-radius: 3px; padding: 2px 6px;")
         r_eng.addWidget(self._img_engine)
         r_eng.addStretch()
@@ -559,6 +559,17 @@ class GeneratorPanel(QWidget):
         self._img_status = QLabel("")
         self._img_status.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
         L.addWidget(self._img_status)
+
+        # Progress bar para tab de imagem
+        self._img_progress = QProgressBar()
+        self._img_progress.setFixedHeight(6)
+        self._img_progress.setRange(0, 100)
+        self._img_progress.setValue(0)
+        self._img_progress.setTextVisible(False)
+        self._img_progress.setStyleSheet(
+            f"QProgressBar {{ background: {C['card']}; border: none; border-radius: 3px; }}"
+            f"QProgressBar::chunk {{ background: {C['cyan']}; border-radius: 3px; }}")
+        L.addWidget(self._img_progress)
         L.addStretch()
 
         scroll.setWidget(content)
@@ -661,8 +672,8 @@ class GeneratorPanel(QWidget):
         duration = float(self._img_dur.text() or "5")
         token = os.environ.get("HF_TOKEN", "")
 
-        # Verificar token ANTES de iniciar thread
-        if not token and "HF" in engine:
+        # Verificar token
+        if not token:
             from makevid.core.hf_api import _get_token
             token = _get_token()
             if not token:
@@ -672,16 +683,22 @@ class GeneratorPanel(QWidget):
                 self._show_token_prompt(auto_generate=True)
                 return
 
-        # Animacao de progress (replica do commit 73804393 tkinter)
+        # Animacao de progress com tempo decorrido
         self._img_progress_timer = QTimer(self)
-        self._img_progress_timer.setInterval(200)
-        self._img_progress_value = 15
+        self._img_progress_timer.setInterval(500)
+        self._img_progress_value = 5
+        self._img_start_time = __import__('time').time()
         def _animate_progress():
-            if self._img_progress_value < 85:
-                self._img_progress_value += 2
-                self._progress.setValue(self._img_progress_value)
+            import time as _t
+            elapsed = _t.time() - self._img_start_time
+            if self._img_progress_value < 90:
+                self._img_progress_value += 1
+                self._img_progress.setValue(self._img_progress_value)
+            m, s = int(elapsed) // 60, int(elapsed) % 60
+            self._img_status.setText(f"Gerando... {m:02d}:{s:02d} | FLUX.1 processando")
+            self._img_status.setStyleSheet(f"color: {C['gold']}; font-size: 9pt;")
         self._img_progress_timer.timeout.connect(_animate_progress)
-        self._progress.setValue(15)
+        self._img_progress.setValue(5)
         self._img_progress_timer.start()
 
         def run():
@@ -693,14 +710,13 @@ class GeneratorPanel(QWidget):
                 from pathlib import Path
                 from makevid.config import OUTPUTS_DIR
 
-                if "FLUX" in engine:
-                    url = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
-                else:
-                    url = "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0"
-
+                url = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
                 headers = {"Authorization": f"Bearer {actual_token}"}
-                payload = {"inputs": prompt}
+                import random
+                payload = {"inputs": prompt, "parameters": {"seed": random.randint(0, 2**32 - 1)}}
+                print(f"[IMG] Gerando: '{prompt[:40]}' token={actual_token[:10]}...")
                 r = requests.post(url, headers=headers, json=payload, timeout=120)
+                print(f"[IMG] Status={r.status_code} size={len(r.content)}")
 
                 if r.status_code == 200 and "image" in r.headers.get("content-type", ""):
                     img = Image.open(io.BytesIO(r.content)).resize((w, h))
@@ -722,20 +738,23 @@ class GeneratorPanel(QWidget):
 
                     from PySide6.QtCore import QTimer
                     def _on_img_done():
+                        import time as _t
+                        elapsed = _t.time() - self._img_start_time
                         self._img_progress_timer.stop()
-                        self._progress.setValue(100)
-                        self._img_status.setText(f"\u2714 Imagem salva como clip ({duration}s)")
+                        self._img_progress.setValue(100)
+                        self._img_status.setText(f"\u2714 Pronto! {w}x{h} | {elapsed:.1f}s | clip {duration}s")
                         self._img_status.setStyleSheet(f"color: {C['cyan']}; font-size: 9pt;")
                         self._img_gen_btn.setEnabled(True)
+                        self._img_prompt.clear()
                         self.generation_requested.emit({"action": "image_done"})
-                        QTimer.singleShot(1500, lambda: self._progress.setValue(0))
+                        QTimer.singleShot(3000, lambda: [self._img_progress.setValue(0), self._img_status.setText("")])
                     QTimer.singleShot(0, _on_img_done)
                 else:
                     err = r.text[:60] if r.text else str(r.status_code)
                     from PySide6.QtCore import QTimer
                     def _on_img_fail():
                         self._img_progress_timer.stop()
-                        self._progress.setValue(0)
+                        self._img_progress.setValue(0)
                         self._img_status.setText(f"Erro: {err}")
                         self._img_status.setStyleSheet(f"color: #ff4444; font-size: 9pt;")
                         self._img_gen_btn.setEnabled(True)
@@ -748,7 +767,7 @@ class GeneratorPanel(QWidget):
                 err_msg = str(e)[:40]
                 def _on_img_error():
                     self._img_progress_timer.stop()
-                    self._progress.setValue(0)
+                    self._img_progress.setValue(0)
                     self._img_status.setText(f"Erro: {err_msg}")
                     self._img_status.setStyleSheet(f"color: #ff4444; font-size: 9pt;")
                     self._img_gen_btn.setEnabled(True)
@@ -764,13 +783,8 @@ class GeneratorPanel(QWidget):
         import cv2
         img = cv2.imread(img_path)
         img = cv2.resize(img, (w, h))
-        # Tentar H264 primeiro, fallback mp4v
-        for codec in ["avc1", "H264", "mp4v"]:
-            fourcc = cv2.VideoWriter_fourcc(*codec)
-            writer = cv2.VideoWriter(mp4_path, fourcc, fps, (w, h))
-            if writer.isOpened():
-                break
-            writer.release()
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(mp4_path, fourcc, fps, (w, h))
         for _ in range(int(duration * fps)):
             writer.write(img)
         writer.release()

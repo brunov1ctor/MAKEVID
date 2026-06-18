@@ -31,9 +31,10 @@ class MaskCanvas(QWidget):
 
     def set_frame(self, frame: np.ndarray):
         """Define frame RGB (H,W,3) como fundo."""
+        frame = np.ascontiguousarray(frame)
         h, w, _ = frame.shape
         img = QImage(frame.data, w, h, w * 3, QImage.Format_RGB888)
-        self._frame_pixmap = QPixmap.fromImage(img)
+        self._frame_pixmap = QPixmap.fromImage(img.copy())
         self._mask = np.zeros((h, w), dtype=np.uint8)
         self.update()
 

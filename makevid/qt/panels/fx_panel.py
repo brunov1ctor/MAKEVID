@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QFrame, QGridLayout, QSlider
 )
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 
 from makevid.qt.theme import C
 from makevid.data.fx_definitions import FX_TABS, FX_TOOLTIPS, FX_TAB_TOOLTIPS
@@ -308,6 +309,8 @@ class FxPanel(QWidget):
 
     def _select_tab(self, key):
         self._current_tab = key
+        self._tab_bar.show()
+        self._title.setText("EFEITOS")
 
         # Atualizar visual dos botoes
         for k, btn in self._tab_buttons.items():
@@ -413,6 +416,7 @@ class FxPanel(QWidget):
         self._item = item
         self._project = project
         self._title.setText(f"FX: {item.name}")
+        self._tab_bar.hide()
 
         # Limpar conteudo
         while self._content_layout.count():

@@ -178,11 +178,6 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         m_arq.setStyleSheet(mqss)
         m_arq.addAction("Novo Projeto", self._new_project)
         m_arq.addSeparator()
-        m_arq.addAction("Regerar Clip", self._regenerate_clip)
-        m_arq.addAction("Duplicar Clip", self._duplicate_clip)
-        m_arq.addAction("Dividir Clip", self._split_clip_at_playhead)
-        m_arq.addSeparator()
-        m_arq.addAction("Inpaint (Editar Regiao)", self._show_inpaint)
         m_arq.addAction("Export Game Engine", self._export_game_engine)
         m_arq.addSeparator()
         m_arq.addAction("Meus Videos", self._show_video_browser)
@@ -332,11 +327,8 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.preview.show_clip_properties(clip)
 
     def _on_label_clicked(self, track_name):
-        if track_name == "fx":
-            self._left_stack.setCurrentIndex(2)
-        else:
-            self.track_menu.show_track(track_name, self.project)
-            self._left_stack.setCurrentIndex(8)
+        self.track_menu.show_track(track_name, self.project)
+        self._left_stack.setCurrentIndex(8)
 
     def _show_style_tab(self, tab_index):
         if not self.style_panel.isVisible():
