@@ -54,6 +54,63 @@ def find_best_match(prompt: str, top_k: int = 1) -> Optional[str]:
     return str(images[0])
 
 
+def find_dynamic_references(prompt: str, max_refs: int = 4, min_score: float = 0.20) -> List[str]:
+    """Multi-referencia dinamica: retorna N imagens com score acima do threshold.
+    
+    O numero de imagens retornadas varia conforme quantas passam do threshold:
+    - Se 5 imagens tem score > min_score, retorna as top max_refs
+    - Se apenas 1 passa, retorna so 1
+    - Se nenhuma passa, retorna a melhor mesmo assim (pelo menos 1)
+    
+    Args:
+        prompt: texto descritivo da cena
+        max_refs: maximo de imagens a retornar (1-4)
+        min_score: score minimo para considerar uma imagem relevante
+    
+    Returns:
+        Lista de paths (strings) ordenada por relevancia
+    """
+    images = get_ambience_images()
+    if not images:
+        return []
+
+    # Tentar CLIP
+    try:
+        scored = _match_with_clip(prompt, images, len(images))
+        if scored:
+            # Filtrar por threshold dinamico
+            # Usar score relativo: min_score da melhor
+            best_score = scored[0][1]
+            threshold = max(min_score, best_score * 0.75)  # pelo menos 75% do melhor
+            
+            selected = []
+            for path, score in scored:
+                if score >= threshold and len(selected) < max_refs:
+                    selected.append(str(path))
+                elif len(selected) >= max_refs:
+                    break
+            
+            # Garantir pelo menos 1
+            if not selected:
+                selected = [str(scored[0][0])]
+            
+            logger.info(
+                f"[AMBIENCE] Dynamic refs: '{prompt[:40]}' -> "
+                f"{len(selected)} imgs (best={best_score:.3f}, threshold={threshold:.3f})")
+            for i, p in enumerate(selected):
+                logger.info(f"  [{i+1}] {Path(p).name} (score: {scored[i][1]:.3f})")
+            return selected
+    except Exception as e:
+        logger.debug(f"[AMBIENCE] CLIP indisponivel ({e}), fallback keywords...")
+
+    # Fallback: keywords (retorna so 1)
+    result = _match_with_keywords(prompt, images)
+    if result:
+        return [str(result)]
+    
+    return [str(images[0])] if images else []
+
+
 def _match_with_clip(prompt: str, images: List[Path], top_k: int) -> List[Tuple[Path, float]]:
     """Match usando CLIP embeddings (alta qualidade)."""
     global _clip_model, _clip_processor, _image_embeddings_cache

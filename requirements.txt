@@ -25,6 +25,9 @@ edge-tts>=7.0.0
 miniaudio>=1.59
 tksheet>=7.0.0
 
+# Qt UI (nova interface)
+PySide6>=6.6.0
+
 # Build (para gerar .exe)
 pyinstaller>=6.0.0
 tkinterdnd2

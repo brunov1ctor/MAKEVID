@@ -180,6 +180,8 @@ class TrackItem:
     file_path: str = ""  # path do arquivo (WAV para audio)
     clip_index: int = -1  # indice do clip/video que gerou este item (-1 = nao associado)
     params: Dict[str, str] = field(default_factory=dict)  # parametros extras (cor, intensidade, volume, emotion, etc)
+    # Keyframes de volume: lista de {"time": float (segundos relativos ao item), "value": float (0.0-2.0)}
+    volume_keyframes: List[Dict[str, float]] = field(default_factory=list)
 
     @classmethod
     def create(cls, name: str, track: str, start_time: float, duration: float = 2.0, file_path: str = "") -> "TrackItem":

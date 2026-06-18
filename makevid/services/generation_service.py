@@ -51,7 +51,7 @@ class GenerationService:
 
         # Auto-selecionar imagem de ambientacao se disponivel
         if not ref_images:
-            ref_images = self._get_ambience_ref(prompt)
+            ref_images = self._get_ambience_ref(prompt, engine)
 
         def run():
             try:
@@ -312,13 +312,22 @@ class GenerationService:
             logger.debug(f"Suppressed: {_e}")
         return None
 
-    def _get_ambience_ref(self, prompt: str) -> Optional[List[str]]:
-        """Busca automaticamente a melhor imagem de ambientacao para o prompt."""
+    def _get_ambience_ref(self, prompt: str, engine: str = "") -> Optional[List[str]]:
+        """Busca automaticamente imagens de ambientacao para o prompt.
+        
+        Se engine suporta multi-ref (VACE), retorna ate 4 imagens dinamicamente.
+        Senao, retorna a melhor 1.
+        """
         try:
-            from makevid.core.ambience_matcher import find_best_match
-            match = find_best_match(prompt)
-            if match:
-                return [match]
+            from makevid.core.ambience_matcher import find_best_match, find_dynamic_references
+            if "VACE" in engine:
+                refs = find_dynamic_references(prompt, max_refs=4, min_score=0.20)
+                if refs:
+                    return refs
+            else:
+                match = find_best_match(prompt)
+                if match:
+                    return [match]
         except Exception as _e:
             logger.debug(f"Suppressed: {_e}")
         return None

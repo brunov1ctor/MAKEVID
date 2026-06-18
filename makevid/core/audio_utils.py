@@ -48,3 +48,34 @@ def get_audio_duration(file_path: str) -> float:
         return info.duration
     except Exception:
         return 0.0
+
+
+def apply_volume_keyframes(audio: np.ndarray, sr: int, keyframes: list, duration: float) -> np.ndarray:
+    """Aplica curva de volume por keyframes ao array de audio.
+
+    Args:
+        audio: array numpy (mono ou stereo)
+        sr: sample rate
+        keyframes: lista de {"time": float, "value": float}
+        duration: duracao do item em segundos
+
+    Returns:
+        audio com volume modulado
+    """
+    if not keyframes or len(keyframes) < 2:
+        return audio
+
+    kfs = sorted(keyframes, key=lambda k: k["time"])
+    n_samples = len(audio) if audio.ndim == 1 else audio.shape[0]
+    times = np.linspace(0, duration, n_samples)
+
+    kf_times = [k["time"] for k in kfs]
+    kf_values = [k["value"] for k in kfs]
+    volume_curve = np.interp(times, kf_times, kf_values)
+
+    if audio.ndim == 2:
+        audio = audio * volume_curve[:, np.newaxis]
+    else:
+        audio = audio * volume_curve
+
+    return audio

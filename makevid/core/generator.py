@@ -80,10 +80,7 @@ def generate_t2v(
     force_cpu: bool = False,
     lora_path: Optional[str] = None,
 ) -> VideoResult:
-    """Text-to-Video. Usa mock se nao tem GPU e force_cpu=False."""
-    if not is_gpu_available() and not force_cpu:
-        return _mock_generate(prompt, num_frames, width, height, fps, seed, callback)
-
+    """Text-to-Video."""
     model_key = "wan_t2v_cpu" if force_cpu else "wan_t2v"
     pipe = model_manager.get(model_key)
 
@@ -130,10 +127,7 @@ def generate_i2v(
     callback=None,
     last_image: Optional[Image.Image] = None,
 ) -> VideoResult:
-    """Image-to-Video. last_image permite video extend (interpolacao)."""
-    if not is_gpu_available():
-        return _mock_generate(prompt, num_frames, image.size[0], image.size[1], fps, seed, callback, base_image=image)
-
+    """Image-to-Video."""
     pipe = model_manager.get("wan_i2v")
     gen = _make_gen(seed)
     actual_seed = gen.initial_seed() if gen else 0
@@ -184,9 +178,6 @@ def generate_ti2v(
     callback=None,
 ) -> VideoResult:
     """Text+Image to Video com Wan 2.2 TI2V 5B."""
-    if not is_gpu_available():
-        return _mock_generate(prompt, num_frames, width, height, fps, seed, callback, base_image=image)
-
     pipe = model_manager.get("wan22_ti2v")
     gen = _make_gen(seed)
     actual_seed = gen.initial_seed() if gen else 0
@@ -230,10 +221,6 @@ def generate_vace(
     callback=None,
 ) -> VideoResult:
     """VACE - Video com reference images para consistencia de personagem."""
-    if not is_gpu_available():
-        return _mock_generate(prompt, num_frames, width, height, fps, seed, callback,
-                              base_image=reference_images[0] if reference_images else None)
-
     pipe = model_manager.get("wan_vace")
     gen = _make_gen(seed)
     actual_seed = gen.initial_seed() if gen else 0
@@ -275,11 +262,6 @@ def generate_v2v(
     callback=None,
 ) -> VideoResult:
     """Video-to-Video - Re-estiliza video existente. strength 0=identico, 1=novo."""
-    if not is_gpu_available():
-        return _mock_generate(prompt, len(video_frames),
-                              video_frames[0].size[0], video_frames[0].size[1],
-                              fps, seed, callback, base_image=video_frames[0])
-
     pipe = model_manager.get("wan_v2v")
     gen = _make_gen(seed)
     actual_seed = gen.initial_seed() if gen else 0
@@ -320,15 +302,7 @@ def generate_with_controlnet(
     negative_prompt: str = NEGATIVE_PROMPT,
     callback=None,
 ) -> VideoResult:
-    """Gera video guiado por frames de controle (pose/depth).
-
-    Usa img2img frame a frame com controle de composicao.
-    Cada frame de controle guia a geracao do frame correspondente.
-    """
-    if not is_gpu_available():
-        return _mock_generate(prompt, len(control_frames), width, height, fps, seed, callback,
-                              base_image=control_frames[0] if control_frames else None)
-
+    """Gera video guiado por frames de controle (pose/depth)."""
     gen = _make_gen(seed)
     actual_seed = gen.initial_seed() if gen else 0
 
@@ -387,48 +361,4 @@ def generate_with_controlnet(
                            seed=seed, fps=fps, negative_prompt=negative_prompt, callback=callback)
 
 
-# ============================================================
-# MOCK (desenvolvimento sem GPU)
-# ============================================================
 
-def _mock_generate(
-    prompt: str,
-    num_frames: int,
-    width: int,
-    height: int,
-    fps: int,
-    seed: Optional[int],
-    callback=None,
-    base_image: Optional[Image.Image] = None,
-) -> VideoResult:
-    """Gera video placeholder para desenvolvimento sem GPU."""
-    if callback:
-        callback("[MOCK] Gerando video de teste...")
-
-    actual_seed = seed or int(time.time()) % 100000
-    np.random.seed(actual_seed)
-
-    frames = []
-    for i in range(num_frames):
-        if base_image:
-            frame = base_image.copy().resize((width, height))
-        else:
-            t = i / num_frames
-            r = int(40 + 60 * np.sin(t * 3.14))
-            g = int(40 + 40 * np.cos(t * 2.5))
-            b = int(80 + 80 * t)
-            arr = np.full((height, width, 3), [r, g, b], dtype=np.uint8)
-            noise = np.random.randint(-10, 10, (height, width, 3), dtype=np.int16)
-            arr = np.clip(arr.astype(np.int16) + noise, 0, 255).astype(np.uint8)
-            frame = Image.fromarray(arr)
-
-        draw = ImageDraw.Draw(frame)
-        draw.rectangle([(10, height - 70), (width - 10, height - 10)], fill=(0, 0, 0, 180))
-        draw.text((20, height - 60), f"[MOCK] Frame {i+1}/{num_frames}", fill=(255, 255, 255))
-        draw.text((20, height - 35), prompt[:60], fill=(200, 200, 200))
-        bar_w = int((i / num_frames) * (width - 40))
-        draw.rectangle([(20, height - 75), (20 + bar_w, height - 72)], fill=(0, 200, 100))
-        frames.append(frame)
-
-    time.sleep(0.5)
-    return VideoResult(frames=frames, fps=fps, seed=actual_seed, duration=len(frames) / fps)
