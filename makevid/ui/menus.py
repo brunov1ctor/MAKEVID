@@ -175,6 +175,7 @@ def build_topbar(app):
     DropdownMenu(btn_estilo, app, [
         ("Storyboard", lambda: _open_style(app, "storyboard"), "Estilo global + cenas da historia com checkpoints na timeline"),
         ("Personagens", lambda: _open_style(app, "chars"), "Fichas de personagens com ref images para consistencia"),
+        ("Ambientacao", lambda: _open_style(app, "ambience"), "Imagens de referencia visual para treinar ambientacao (Wan TI2V)"),
     ])
 
     btn_audio_ia = menu_btn("\u266b Audio IA")
@@ -440,6 +441,7 @@ def _generate_scene_audio(app):
         on_progress=on_progress,
         on_done=on_done,
         on_error=on_error,
+        characters=app.project.characters,
     )
 
 
@@ -554,5 +556,6 @@ def _generate_all_audio(app):
         on_progress=on_progress,
         on_done=on_done,
         on_error=on_error,
+        characters=app.project.characters,
     )
 

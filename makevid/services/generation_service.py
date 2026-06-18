@@ -37,6 +37,8 @@ class GenerationService:
         fps: int = 16,
         negative_prompt: str = "",
         ref_images: Optional[List[str]] = None,
+        motion_ref_path: Optional[str] = None,
+        motion_mode: str = "pose",
         on_progress: Optional[Callable] = None,
         on_done: Optional[Callable] = None,
         on_error: Optional[Callable] = None,
@@ -46,6 +48,10 @@ class GenerationService:
         # Auto-injetar ref_image de personagem se detectado no prompt
         if not ref_images:
             ref_images = self._get_character_ref_images(prompt)
+
+        # Auto-selecionar imagem de ambientacao se disponivel
+        if not ref_images:
+            ref_images = self._get_ambience_ref(prompt)
 
         def run():
             try:
@@ -67,6 +73,21 @@ class GenerationService:
                     width=width, height=height, fps=fps,
                     neg=negative_prompt, on_progress=on_progress
                 )
+
+                # ControlNet: se tem motion_ref, extrair controles e gerar
+                if motion_ref_path:
+                    result = self._generate_controlnet(
+                        prompt, motion_ref_path, motion_mode,
+                        duration, steps, guidance, seed,
+                        width, height, fps, negative_prompt, on_progress)
+                    from makevid.core.video import frames_to_mp4
+                    if on_progress:
+                        on_progress("Salvando MP4...")
+                    frames_to_mp4(result.frames, out_path, fps=result.fps)
+                    log_generation(prompt, engine, result.duration, "done")
+                    if on_done:
+                        on_done(str(out_path), result.duration, result.seed)
+                    return
 
                 # Dispatch por engine
                 if engine == "HuggingFace API":
@@ -166,8 +187,8 @@ class GenerationService:
                 for char in proj.characters:
                     if char.reference_image and Path(char.reference_image).exists():
                         refs.append(Image.open(char.reference_image).convert("RGB"))
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"Suppressed: {_e}")
 
         if not refs:
             if on_progress:
@@ -266,8 +287,8 @@ class GenerationService:
 
                 if char_descriptions:
                     return f"{"; ".join(char_descriptions)}, {prompt}"
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"Suppressed: {_e}")
         return prompt
 
     def _get_character_ref_images(self, prompt: str) -> Optional[List[str]]:
@@ -287,9 +308,106 @@ class GenerationService:
                             refs.append(char.reference_image)
                 if refs:
                     return refs
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"Suppressed: {_e}")
         return None
+
+    def _get_ambience_ref(self, prompt: str) -> Optional[List[str]]:
+        """Busca automaticamente a melhor imagem de ambientacao para o prompt."""
+        try:
+            from makevid.core.ambience_matcher import find_best_match
+            match = find_best_match(prompt)
+            if match:
+                return [match]
+        except Exception as _e:
+            logger.debug(f"Suppressed: {_e}")
+        return None
+
+    def _generate_controlnet(self, prompt, motion_ref_path, motion_mode,
+                              duration, steps, guidance, seed,
+                              width, height, fps, neg, on_progress):
+        """Gera video guiado por ControlNet (pose/depth de video de referencia)."""
+        from makevid.services.controlnet_service import ControlNetService
+        from makevid.core.generator import generate_with_controlnet
+        from makevid.config import OUTPUTS_DIR
+        import tempfile
+
+        mm = self._get_mm()
+        styled_prompt = self._apply_style(prompt)
+        cn_svc = ControlNetService()
+
+        # Extrair frames de controle do video de referencia
+        tmp_dir = tempfile.mkdtemp(prefix="makevid_cn_")
+        control_frames = []
+        extract_done = [False]
+        extract_fps = [fps]
+
+        if on_progress:
+            on_progress(f"Extraindo {motion_mode} do video de referencia...")
+
+        def on_extract_done(paths, video_fps):
+            for p in paths:
+                control_frames.append(Image.open(p).convert("RGB"))
+            extract_fps[0] = video_fps
+            extract_done[0] = True
+
+        def on_extract_error(err):
+            raise Exception(f"Extracao {motion_mode} falhou: {err}")
+
+        # Extrair sincrono (dentro da thread de geracao)
+        import cv2
+        if motion_mode == "depth":
+            cn_svc._ensure_depth_model()
+            cap = cv2.VideoCapture(motion_ref_path)
+            extract_fps[0] = cap.get(cv2.CAP_PROP_FPS) or fps
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            # Limitar frames pela duracao desejada
+            max_frames = int(duration * extract_fps[0])
+            idx = 0
+            while idx < max_frames:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                depth = cn_svc._extract_depth_frame(frame[:, :, ::-1])
+                # Converter depth grayscale para RGB
+                control_frames.append(Image.fromarray(depth).convert("RGB"))
+                idx += 1
+                if on_progress and idx % 10 == 0:
+                    on_progress(f"Depth: {idx}/{min(max_frames, total)}")
+            cap.release()
+        else:
+            cn_svc._ensure_pose_model()
+            cap = cv2.VideoCapture(motion_ref_path)
+            extract_fps[0] = cap.get(cv2.CAP_PROP_FPS) or fps
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            max_frames = int(duration * extract_fps[0])
+            idx = 0
+            while idx < max_frames:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                pose = cn_svc._extract_pose_frame(frame)
+                control_frames.append(Image.fromarray(pose))
+                idx += 1
+                if on_progress and idx % 10 == 0:
+                    on_progress(f"Pose: {idx}/{min(max_frames, total)}")
+            cap.release()
+
+        if not control_frames:
+            raise Exception("Nenhum frame de controle extraido")
+
+        if on_progress:
+            on_progress(f"Gerando {len(control_frames)} frames com ControlNet...")
+
+        return generate_with_controlnet(
+            mm, styled_prompt, control_frames,
+            control_type=motion_mode,
+            num_frames=len(control_frames),
+            height=height, width=width,
+            steps=steps, guidance=guidance,
+            seed=seed, fps=int(extract_fps[0]),
+            negative_prompt=neg, callback=on_progress,
+        )
 
     def _generate_local(self, prompt, ref_images, duration, steps, guidance, seed, width, height, fps, neg, on_progress, **_):
         from makevid.core.generator import generate_t2v, generate_i2v, generate_ti2v
@@ -358,8 +476,8 @@ class GenerationService:
         for p in paths:
             try:
                 images.append(Image.open(p).convert("RGB"))
-            except Exception:
-                pass
+            except Exception as _e:
+                logger.debug(f"Suppressed: {_e}")
 
         if not images:
             return Image.new("RGB", (512, 512), (0, 0, 0))

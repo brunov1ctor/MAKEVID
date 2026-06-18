@@ -10,6 +10,7 @@ transformers>=4.44.0
 diffusers>=0.31.0
 accelerate>=0.34.0
 safetensors>=0.4.5
+peft>=0.13.0
 
 # Image
 pillow>=10.4.0
@@ -21,6 +22,7 @@ huggingface-hub>=0.25.0
 sounddevice>=0.4.6
 scipy>=1.11.0
 edge-tts>=7.0.0
+miniaudio>=1.59
 tksheet>=7.0.0
 
 # Build (para gerar .exe)

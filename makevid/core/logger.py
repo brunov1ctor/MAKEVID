@@ -71,8 +71,8 @@ def get_log_content(max_lines: int = 200) -> str:
 def clear_logs():
     try:
         LOG_FILE.write_text("", encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as _e:
+        logger.debug(f"Suppressed: {_e}")
 
 
 def log_generation(prompt: str, engine: str, duration: float, status: str, error: str = ""):

@@ -28,9 +28,9 @@ class AudioRecorder:
         if fx._visible:
             fx.hide()
         app.generator_panel.container.pack_forget()
-        fx._frame = ctk.CTkFrame(app._main, width=320, fg_color=C["panel"],
+        fx._frame = ctk.CTkFrame(app._left_pane, fg_color=C["panel"],
                                  border_color=C["gold"], border_width=1, corner_radius=6)
-        fx._frame.pack(side="left", fill="y", padx=(0, 4), pady=4, before=app.preview_panel.panel)
+        fx._frame.pack(fill="both", expand=True, pady=4)
         fx._frame.pack_propagate(False)
         fx._visible = True
 

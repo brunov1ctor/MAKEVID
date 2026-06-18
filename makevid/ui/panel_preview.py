@@ -7,6 +7,7 @@ from PIL import Image
 from makevid.ui.theme import C
 from makevid.ui.player import TimelinePlayer
 from makevid.ui.panel_properties import ClipProperties
+from makevid.ui.inpaint_editor import InpaintEditor
 from makevid.config import PROJECTS_DIR
 
 log = logging.getLogger("preview")
@@ -17,7 +18,7 @@ class PreviewPanel:
         self.app = app
 
         panel = ctk.CTkFrame(parent, fg_color=C["panel"], border_color=C["border"], border_width=1, corner_radius=6)
-        panel.pack(side="right", fill="both", expand=True, pady=4)
+        panel.pack(fill="both", expand=True, pady=4)
         panel.pack_propagate(False)
         self.panel = panel
 
@@ -41,6 +42,7 @@ class PreviewPanel:
         # Sub-components
         self.player = TimelinePlayer(self)
         self.properties = ClipProperties(self)
+        self.inpaint = InpaintEditor(self)
         self._preview_img_ref = None
         self._play_btn = None
         self._is_playing_mode = False
@@ -316,6 +318,55 @@ class PreviewPanel:
             self._on_pause_click()
         elif self.player.is_paused:
             self._on_resume_click()
+
+    # ============================================================
+    # INPAINTING MODE
+    # ============================================================
+
+    def _enter_inpaint_mode(self):
+        """Captura frame atual e entra no modo inpainting."""
+        if self.inpaint.is_active:
+            self.inpaint.exit()
+            return
+        if self.player.is_playing:
+            return
+
+        frame = self._get_current_frame_rgb()
+        if frame is None:
+            self.clip_info.configure(text="Nenhum frame disponivel para editar")
+            return
+        self.inpaint.enter(frame)
+
+    def _get_current_frame_rgb(self):
+        """Captura o frame RGB na posicao atual do playhead."""
+        from pathlib import Path
+        try:
+            import cv2
+        except ImportError:
+            return None
+
+        clips = sorted(self.app.project.clips, key=lambda c: c.position)
+        if not clips:
+            return None
+
+        playhead = self.app.timeline.playhead_pos
+        current = 0.0
+        for clip in clips:
+            if current + clip.duration > playhead:
+                if clip.status == "done" and clip.video_path and Path(clip.video_path).exists():
+                    cap = cv2.VideoCapture(str(clip.video_path))
+                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    fps = cap.get(cv2.CAP_PROP_FPS) or 16
+                    local_time = playhead - current
+                    target_frame = min(int(local_time * fps), total_frames - 1)
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, target_frame))
+                    ret, frame = cap.read()
+                    cap.release()
+                    if ret:
+                        return frame[:, :, ::-1]  # BGR to RGB
+                return None
+            current += clip.duration
+        return None
 
     # ============================================================
     # UTILS

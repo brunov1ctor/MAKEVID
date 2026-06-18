@@ -1,5 +1,8 @@
 """Timeline - concatena clips em video longo final."""
 
+import logging
+logger = logging.getLogger(__name__)
+
 import subprocess
 import shutil
 import tempfile
@@ -101,8 +104,8 @@ def get_video_duration(path: str | Path) -> float:
         cap.release()
         if fps > 0:
             return frames / fps
-    except ImportError:
-        pass
+    except ImportError as _e:
+        logger.debug(f"Suppressed: {_e}")
 
     return 0.0
 
@@ -119,6 +122,6 @@ def get_thumbnail(video_path: str | Path, size: tuple = (160, 90)) -> Optional[I
             img = Image.fromarray(frame_rgb)
             img.thumbnail(size)
             return img
-    except ImportError:
-        pass
+    except ImportError as _e:
+        logger.debug(f"Suppressed: {_e}")
     return None

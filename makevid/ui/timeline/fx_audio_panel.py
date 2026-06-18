@@ -2,31 +2,14 @@
 
 import customtkinter as ctk
 from makevid.ui.theme import C
+from makevid.ui.menus import _ToolTip
 from makevid.ui.timeline.fx_editor import FxEditor
 from makevid.ui.timeline.audio_mixer import AudioMixer
 from makevid.ui.timeline.export_panel import ExportPanel
 from makevid.ui.timeline.recorder import AudioRecorder
 from makevid.ui.timeline.track_editor import TrackEditor
+from makevid.data.fx_definitions import FX_TABS, FX_TOOLTIPS, FX_TAB_TOOLTIPS, FX_ITEMS
 
-
-FX_ITEMS = [
-    ("Fade In", "Escuro para imagem"),
-    ("Fade Out", "Imagem para escuro"),
-    ("Cross Dissolve", "Mistura entre clips"),
-    ("Wipe Left", "Cortina da direita"),
-    ("Wipe Right", "Cortina da esquerda"),
-    ("Flash", "Flash branco"),
-    ("Glitch", "Distorcao digital"),
-    ("Vignette", "Bordas escuras"),
-    ("Blur", "Desfoque gaussiano"),
-    ("Shake", "Tremor de camera"),
-    ("Color Shift", "Deslocamento de cor RGB"),
-    ("Sepia", "Tom sepia vintage"),
-    ("Invert", "Cores invertidas"),
-    ("Pixelate", "Efeito pixelado"),
-    ("Film Grain", "Granulacao de filme"),
-    ("Letterbox", "Barras cinematicas"),
-]
 
 VOICE_ITEMS = [
     ("Importar Voz", "WAV, MP3"),
@@ -76,10 +59,10 @@ class FxAudioPanel:
         app.generator_panel.container.pack_forget()
 
         if not app.preview_panel.panel.winfo_ismapped():
-            app.preview_panel.panel.pack(side="right", fill="both", expand=True, pady=4)
-        self._frame = ctk.CTkFrame(app._main, width=320, fg_color=C["panel"],
+            app.preview_panel.panel.pack(fill="both", expand=True, pady=4)
+        self._frame = ctk.CTkFrame(app._left_pane, fg_color=C["panel"],
                                    border_color=C["gold"], border_width=1, corner_radius=6)
-        self._frame.pack(side="left", fill="y", padx=(0, 4), pady=4)
+        self._frame.pack(fill="both", expand=True, pady=4)
         self._frame.pack_propagate(False)
 
         self._build_list(track_type)
@@ -90,12 +73,11 @@ class FxAudioPanel:
             self.hide()
         app = self.timeline.app
         app.generator_panel.container.pack_forget()
-        # Garantir preview visivel
         if not app.preview_panel.panel.winfo_ismapped():
-            app.preview_panel.panel.pack(side="right", fill="both", expand=True, pady=4)
-        self._frame = ctk.CTkFrame(app._main, width=280, fg_color=C["panel"],
+            app.preview_panel.panel.pack(fill="both", expand=True, pady=4)
+        self._frame = ctk.CTkFrame(app._left_pane, fg_color=C["panel"],
                                    border_color=C["gold"], border_width=1, corner_radius=6)
-        self._frame.pack(side="left", fill="y", padx=(0, 4), pady=4)
+        self._frame.pack(fill="both", expand=True, pady=4)
         self._export_panel.build(self._frame)
         self._visible = True
 
@@ -105,10 +87,10 @@ class FxAudioPanel:
         app = self.timeline.app
         app.generator_panel.container.pack_forget()
         if not app.preview_panel.panel.winfo_ismapped():
-            app.preview_panel.panel.pack(side="right", fill="both", expand=True, pady=4)
-        self._frame = ctk.CTkFrame(app._main, width=320, fg_color=C["panel"],
+            app.preview_panel.panel.pack(fill="both", expand=True, pady=4)
+        self._frame = ctk.CTkFrame(app._left_pane, fg_color=C["panel"],
                                    border_color=C["gold"], border_width=1, corner_radius=6)
-        self._frame.pack(side="left", fill="y", padx=(0, 4), pady=4)
+        self._frame.pack(fill="both", expand=True, pady=4)
         self._frame.pack_propagate(False)
         self._audio_mixer.build(self._frame, item)
         self._visible = True
@@ -119,10 +101,10 @@ class FxAudioPanel:
         app = self.timeline.app
         app.generator_panel.container.pack_forget()
         if not app.preview_panel.panel.winfo_ismapped():
-            app.preview_panel.panel.pack(side="right", fill="both", expand=True, pady=4)
-        self._frame = ctk.CTkFrame(app._main, width=320, fg_color=C["panel"],
+            app.preview_panel.panel.pack(fill="both", expand=True, pady=4)
+        self._frame = ctk.CTkFrame(app._left_pane, fg_color=C["panel"],
                                    border_color=C["gold"], border_width=1, corner_radius=6)
-        self._frame.pack(side="left", fill="y", padx=(0, 4), pady=4)
+        self._frame.pack(fill="both", expand=True, pady=4)
         self._frame.pack_propagate(False)
         self._fx_editor.build(self._frame, item)
         self._visible = True
@@ -134,10 +116,10 @@ class FxAudioPanel:
         app = self.timeline.app
         app.generator_panel.container.pack_forget()
         if not app.preview_panel.panel.winfo_ismapped():
-            app.preview_panel.panel.pack(side="right", fill="both", expand=True, pady=4)
-        self._frame = ctk.CTkFrame(app._main, width=320, fg_color=C["panel"],
+            app.preview_panel.panel.pack(fill="both", expand=True, pady=4)
+        self._frame = ctk.CTkFrame(app._left_pane, fg_color=C["panel"],
                                    border_color=C["gold"], border_width=1, corner_radius=6)
-        self._frame.pack(side="left", fill="y", padx=(0, 4), pady=4)
+        self._frame.pack(fill="both", expand=True, pady=4)
         self._frame.pack_propagate(False)
         self._track_editor.build(self._frame, item)
         self._visible = True
@@ -147,7 +129,7 @@ class FxAudioPanel:
             self._frame.destroy()
             self._frame = None
             app = self.timeline.app
-            app.generator_panel.container.pack(side="left", fill="y", padx=(0, 4), pady=4)
+            app.generator_panel.container.pack(fill="both", expand=True, pady=4)
             self._visible = False
             self.timeline.draw()
 
@@ -165,7 +147,7 @@ class FxAudioPanel:
     def _build_list(self, track_type):
         p = self._frame
         config = {
-            "fx": (C["purple"], "EFEITOS", FX_ITEMS),
+            "fx": (C["purple"], "EFEITOS", None),
             "voice": ("#ff9944", "\U0001f3a4 VOZ", VOICE_ITEMS),
             "sfx": ("#44cc88", "\U0001f50a SFX", SFX_ITEMS),
             "music": ("#cc44aa", "\U0001f3b5 MUSICA", MUSIC_ITEMS),
@@ -188,7 +170,99 @@ class FxAudioPanel:
                       border_width=1, border_color="#ff4444",
                       command=lambda: self._clear_track(track_type)).pack(fill="x", padx=10, pady=(0, 8))
 
-        scroll = ctk.CTkScrollableFrame(p, fg_color="transparent",
+        if track_type == "fx":
+            self._build_fx_tabs(p, color)
+        else:
+            self._build_audio_list(p, color, items, track_type)
+
+    def _build_fx_tabs(self, parent, color):
+        """Constroi sistema de abas para efeitos visuais estilo CapCut."""
+        self._fx_tab_buttons = []
+        self._fx_content_frame = None
+
+        # Barra de abas
+        tabs_bar = ctk.CTkFrame(parent, fg_color=C["card"], corner_radius=6, height=38)
+        tabs_bar.pack(fill="x", padx=6, pady=(0, 4))
+        tabs_bar.pack_propagate(False)
+
+        # Scroll horizontal para abas
+        tabs_inner = ctk.CTkScrollableFrame(tabs_bar, fg_color="transparent",
+                                            orientation="horizontal", height=34,
+                                            scrollbar_button_color=C["border"],
+                                            scrollbar_button_hover_color=C["purple"])
+        tabs_inner.pack(fill="both", expand=True, padx=2, pady=2)
+
+        tab_keys = list(FX_TABS.keys())
+        for key in tab_keys:
+            tab = FX_TABS[key]
+            btn = ctk.CTkButton(
+                tabs_inner,
+                text=f"{tab['icon']} {tab['label']}",
+                width=70, height=28,
+                font=("Segoe UI", 9, "bold"),
+                fg_color="transparent",
+                text_color=C["text3"],
+                hover_color=C["card_hover"],
+                corner_radius=4,
+                command=lambda k=key: self._select_fx_tab(k)
+            )
+            btn.pack(side="left", padx=2)
+            self._fx_tab_buttons.append((key, btn))
+            # Tooltip na aba
+            tip_text = FX_TAB_TOOLTIPS.get(key, "")
+            if tip_text:
+                _ToolTip(btn, tip_text)
+
+        # Area de conteudo
+        self._fx_content_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        self._fx_content_frame.pack(fill="both", expand=True, padx=4, pady=(0, 4))
+
+        # Selecionar primeira aba
+        self._select_fx_tab(tab_keys[0])
+
+    def _select_fx_tab(self, selected_key):
+        """Seleciona uma aba de FX e mostra seus efeitos."""
+        # Atualizar visual dos botoes
+        for key, btn in self._fx_tab_buttons:
+            if key == selected_key:
+                btn.configure(fg_color=C["purple"], text_color=C["text"])
+            else:
+                btn.configure(fg_color="transparent", text_color=C["text3"])
+
+        # Limpar conteudo anterior
+        for w in self._fx_content_frame.winfo_children():
+            w.destroy()
+
+        tab = FX_TABS[selected_key]
+        scroll = ctk.CTkScrollableFrame(self._fx_content_frame, fg_color="transparent",
+                                        scrollbar_button_color=C["purple"],
+                                        scrollbar_button_hover_color="#bb77ff")
+        scroll.pack(fill="both", expand=True)
+
+        ctk.CTkLabel(scroll, text=f"{tab['icon']} {tab['label']}",
+                     font=("Segoe UI", 10, "bold"), text_color=C["purple"]).pack(anchor="w", padx=6, pady=(4, 6))
+
+        for name, desc in tab["items"]:
+            item = ctk.CTkFrame(scroll, fg_color=C["card"], corner_radius=5,
+                                border_color=C["border"], border_width=1)
+            item.pack(fill="x", pady=2)
+            ctk.CTkLabel(item, text=name, font=("Segoe UI", 10, "bold"),
+                         text_color=C["text"]).pack(anchor="w", padx=10, pady=(5, 0))
+            ctk.CTkLabel(item, text=desc, font=("Segoe UI", 8),
+                         text_color=C["text3"]).pack(anchor="w", padx=10, pady=(0, 5))
+            item.bind("<Enter>", lambda e, i=item: i.configure(border_color=C["purple"]))
+            item.bind("<Leave>", lambda e, i=item: i.configure(border_color=C["border"]))
+            for widget in item.winfo_children():
+                widget.bind("<Button-1>", lambda e, n=name: self._add_item(n, "fx"))
+            item.bind("<Button-1>", lambda e, n=name: self._add_item(n, "fx"))
+            # Tooltip com explicacao detalhada
+            tip = FX_TOOLTIPS.get(name, "")
+            if tip:
+                _ToolTip(item, tip)
+
+    def _build_audio_list(self, parent, color, items, track_type):
+        """Constroi lista de audio (voice, sfx, music)."""
+        scroll = ctk.CTkScrollableFrame(parent, fg_color="transparent",
                                         scrollbar_button_color=color,
                                         scrollbar_button_hover_color=color)
         scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
@@ -226,6 +300,24 @@ class FxAudioPanel:
 
     def _add_item(self, name, track_type):
         tl = self.timeline
+        from makevid.config import PROJECTS_DIR
+
+        # Se eh FX e tem losangos marcados, aplicar nos losangos
+        if track_type == "fx" and tl._marked_diamonds:
+            for diamond_id in list(tl._marked_diamonds):
+                t = tl._interaction._get_diamond_time(diamond_id)
+                # Remover FX existente naquela posicao (substituir)
+                old = [i for i in tl.project.get_track_items("fx")
+                       if abs(i.start_time - t) < 0.1]
+                for o in old:
+                    tl.project.remove_track_item(o.id)
+                tl.project.add_track_item(name=name, track="fx", start_time=t, duration=2.0)
+            tl._marked_diamonds.clear()
+            tl.project.save(PROJECTS_DIR)
+            tl.draw()
+            return
+
+        # Comportamento normal: adicionar no final ou no playhead
         existing = tl.project.get_track_items(track_type)
         if existing:
             last = max(existing, key=lambda i: i.start_time + i.duration)
@@ -233,7 +325,6 @@ class FxAudioPanel:
         else:
             start = tl.playhead_pos
         tl.project.add_track_item(name=name, track=track_type, start_time=start, duration=2.0)
-        from makevid.config import PROJECTS_DIR
         tl.project.save(PROJECTS_DIR)
         tl.draw()
 

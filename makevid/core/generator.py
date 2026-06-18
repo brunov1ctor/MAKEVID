@@ -78,6 +78,7 @@ def generate_t2v(
     negative_prompt: str = NEGATIVE_PROMPT,
     callback=None,
     force_cpu: bool = False,
+    lora_path: Optional[str] = None,
 ) -> VideoResult:
     """Text-to-Video. Usa mock se nao tem GPU e force_cpu=False."""
     if not is_gpu_available() and not force_cpu:
@@ -85,6 +86,11 @@ def generate_t2v(
 
     model_key = "wan_t2v_cpu" if force_cpu else "wan_t2v"
     pipe = model_manager.get(model_key)
+
+    if lora_path:
+        from makevid.core.lora_trainer import load_lora_into_pipeline
+        pipe = load_lora_into_pipeline(pipe, lora_path)
+
     gen = _make_gen(seed)
     actual_seed = gen.initial_seed() if gen else 0
 
@@ -293,6 +299,92 @@ def generate_v2v(
 
     frames = output.frames[0]
     return VideoResult(frames=frames, fps=fps, seed=actual_seed, duration=len(frames) / fps)
+
+
+# ============================================================
+# CONTROLNET (Motion-guided generation)
+# ============================================================
+
+def generate_with_controlnet(
+    model_manager,
+    prompt: str,
+    control_frames: List[Image.Image],
+    control_type: str = "pose",
+    num_frames: int = 81,
+    height: int = 480,
+    width: int = 832,
+    steps: int = 30,
+    guidance: float = 5.0,
+    seed: Optional[int] = None,
+    fps: int = 16,
+    negative_prompt: str = NEGATIVE_PROMPT,
+    callback=None,
+) -> VideoResult:
+    """Gera video guiado por frames de controle (pose/depth).
+
+    Usa img2img frame a frame com controle de composicao.
+    Cada frame de controle guia a geracao do frame correspondente.
+    """
+    if not is_gpu_available():
+        return _mock_generate(prompt, len(control_frames), width, height, fps, seed, callback,
+                              base_image=control_frames[0] if control_frames else None)
+
+    gen = _make_gen(seed)
+    actual_seed = gen.initial_seed() if gen else 0
+
+    if callback:
+        callback(f"ControlNet ({control_type}): {len(control_frames)} frames...")
+
+    # Estrategia: usar img2img com control image como guia
+    # O control frame eh mesclado com ruido para guiar a composicao
+    try:
+        from diffusers import StableDiffusionXLControlNetPipeline, ControlNetModel
+        from makevid.config import MODELS_DIR
+
+        controlnet_ids = {
+            "pose": "thibaud/controlnet-openpose-sdxl-1.0",
+            "depth": "diffusers/controlnet-depth-sdxl-1.0-small",
+        }
+        cn_id = controlnet_ids.get(control_type, controlnet_ids["pose"])
+
+        if callback:
+            callback(f"Carregando ControlNet ({control_type})...")
+
+        controlnet = ControlNetModel.from_pretrained(
+            cn_id, torch_dtype=torch.float16, cache_dir=str(MODELS_DIR))
+        pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+            "stabilityai/stable-diffusion-xl-base-1.0",
+            controlnet=controlnet,
+            torch_dtype=torch.float16,
+            cache_dir=str(MODELS_DIR))
+        pipe.enable_model_cpu_offload()
+
+        frames = []
+        total = len(control_frames)
+        for i, ctrl_img in enumerate(control_frames):
+            ctrl_img = ctrl_img.resize((width, height), Image.LANCZOS)
+            result = pipe(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                image=ctrl_img,
+                num_inference_steps=min(steps, 20),
+                guidance_scale=guidance,
+                generator=gen,
+                controlnet_conditioning_scale=0.7,
+            ).images[0]
+            frames.append(result)
+            if callback and (i + 1) % 5 == 0:
+                callback(f"ControlNet: frame {i+1}/{total}")
+
+        return VideoResult(frames=frames, fps=fps, seed=actual_seed, duration=len(frames) / fps)
+
+    except ImportError:
+        # Fallback: usar control frames como base para img2img simples
+        if callback:
+            callback("ControlNet nao disponivel, usando I2V com primeiro frame...")
+        return generate_i2v(model_manager, prompt, control_frames[0],
+                           num_frames=num_frames, steps=steps, guidance=guidance,
+                           seed=seed, fps=fps, negative_prompt=negative_prompt, callback=callback)
 
 
 # ============================================================

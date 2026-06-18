@@ -86,6 +86,11 @@ class TimelineInteraction:
 
         # FX track
         if tl.TRANS_Y <= y <= tl.TRANS_Y + tl.TRANS_H:
+            # Verificar se clicou em um losango
+            diamond = self._find_diamond_at(event.x, event.y)
+            if diamond:
+                self._toggle_diamond(diamond)
+                return
             item = self._find_track_item_at(t, "fx")
             if item:
                 tl.selected_track_item_id = item.id
@@ -484,6 +489,21 @@ class TimelineInteraction:
             (tl.MUSIC_Y, tl.MUSIC_H, "music"),
             (tl.AUDIO_Y, tl.AUDIO_H, "audio"),
         ]
+
+        # Verificar hover em losangos da faixa FX
+        if tl.TRANS_Y <= event.y <= tl.TRANS_Y + tl.TRANS_H:
+            diamond = self._find_diamond_at(event.x, event.y)
+            if diamond:
+                if tl._hover_diamond != diamond:
+                    tl._hover_diamond = diamond
+                    tl.draw()
+                tl.canvas.configure(cursor="hand2")
+                self._check_gif_hover(event, None)
+                return
+            elif tl._hover_diamond is not None:
+                tl._hover_diamond = None
+                tl.draw()
+
         for track_y, track_h, track_name in all_tracks:
             if track_y <= event.y <= track_y + track_h:
                 x = (event.x - lbl_w) + tl.scroll_x
@@ -774,3 +794,78 @@ class TimelineInteraction:
         tl = self.tl
         tl.canvas.delete("label_tooltip")
         tl._label_tooltip_track = None
+
+    # --- Diamond (Losango) Management ---
+
+    def _find_diamond_at(self, screen_x, screen_y):
+        """Retorna o ID do losango sob o mouse, ou None."""
+        tl = self.tl
+        lbl_w = tl.LBL_W
+        pps = tl.zoom
+        ty = tl.TRANS_Y
+        th = tl.TRANS_H
+        tcy = ty + th // 2
+
+        if not (ty <= screen_y <= ty + th):
+            return None
+
+        clips = sorted(tl.project.clips, key=lambda c: c.position)
+        current_time = 0.0
+        for clip in clips:
+            if clip.position > 0:
+                tx = lbl_w + int(current_time * pps) - tl.scroll_x
+                # Hitbox do losango (area de 14x14 pixels)
+                if abs(screen_x - tx) <= 14 and abs(screen_y - tcy) <= 14:
+                    return f"diamond_{clip.position}"
+            current_time += clip.duration
+        return None
+
+    def _get_diamond_time(self, diamond_id):
+        """Retorna o tempo (segundos) correspondente ao losango."""
+        tl = self.tl
+        pos = int(diamond_id.split("_")[1])
+        clips = sorted(tl.project.clips, key=lambda c: c.position)
+        current_time = 0.0
+        for clip in clips:
+            if clip.position == pos:
+                return current_time
+            current_time += clip.duration
+        return current_time
+
+    def _toggle_diamond(self, diamond_id):
+        """Marca/desmarca um losango."""
+        tl = self.tl
+        if diamond_id in tl._marked_diamonds:
+            tl._marked_diamonds.discard(diamond_id)
+        else:
+            tl._marked_diamonds.add(diamond_id)
+        tl.draw()
+
+    def _select_all_diamonds(self):
+        """Seleciona todos os losangos disponíveis."""
+        tl = self.tl
+        clips = sorted(tl.project.clips, key=lambda c: c.position)
+        tl._marked_diamonds = set()
+        for clip in clips:
+            if clip.position > 0:
+                tl._marked_diamonds.add(f"diamond_{clip.position}")
+        tl.draw()
+
+    def _deselect_all_diamonds(self):
+        """Desmarca todos os losangos."""
+        tl = self.tl
+        tl._marked_diamonds.clear()
+        tl.draw()
+
+    def on_double_click_fx_track(self, event):
+        """Duplo clique na faixa FX: seleciona/deseleciona todos os losangos."""
+        tl = self.tl
+        diamond = self._find_diamond_at(event.x, event.y)
+        if diamond:
+            # Se tem algum marcado, desmarca todos; senao, marca todos
+            if tl._marked_diamonds:
+                self._deselect_all_diamonds()
+            else:
+                self._select_all_diamonds()
+            return True
+        return False

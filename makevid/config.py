@@ -17,8 +17,9 @@ MODELS_DIR = DATA_DIR / "models"
 OUTPUTS_DIR = DATA_DIR / "outputs"
 PROJECTS_DIR = DATA_DIR / "projects"
 AUDIO_DIR = DATA_DIR / "audio"
+AMBIENCE_REFS_DIR = DATA_DIR / "ambience_refs"
 
-for d in [DATA_DIR, MODELS_DIR, OUTPUTS_DIR, PROJECTS_DIR, AUDIO_DIR]:
+for d in [DATA_DIR, MODELS_DIR, OUTPUTS_DIR, PROJECTS_DIR, AUDIO_DIR, AMBIENCE_REFS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # ============================================================

@@ -117,8 +117,30 @@ class MakeVidApp(ctk.CTk):
         self._paned.bind("<Enter>", _sash_enter)
         self._paned.bind("<Leave>", _sash_leave)
 
-        self.generator_panel = GeneratorPanel(self._main, self)
-        self.preview_panel = PreviewPanel(self._main, self)
+        # PanedWindow horizontal: painel esquerdo + preview direito
+        import tkinter as tk
+        self._h_paned = tk.PanedWindow(self._main, orient="horizontal", sashwidth=6,
+                                        bg="#0a0a0f", bd=0, sashrelief="flat")
+        self._h_paned.pack(fill="both", expand=True)
+
+        # Frame esquerdo (conteiner do generator_panel e fx_panel)
+        self._left_pane = ctk.CTkFrame(self._h_paned, fg_color="transparent")
+        self._h_paned.add(self._left_pane, minsize=250, width=300, stretch="never")
+
+        # Frame direito (preview)
+        self._right_pane = ctk.CTkFrame(self._h_paned, fg_color="transparent")
+        self._h_paned.add(self._right_pane, minsize=400, stretch="always")
+
+        # Highlight do sash horizontal no hover
+        def _hsash_enter(e):
+            self._h_paned.configure(bg=C["gold"])
+        def _hsash_leave(e):
+            self._h_paned.configure(bg="#0a0a0f")
+        self._h_paned.bind("<Enter>", _hsash_enter)
+        self._h_paned.bind("<Leave>", _hsash_leave)
+
+        self.generator_panel = GeneratorPanel(self._left_pane, self)
+        self.preview_panel = PreviewPanel(self._right_pane, self)
 
         # Mostrar preview da timeline ao iniciar (play button)
         self.after(200, self.preview_panel.show_timeline_preview)
@@ -136,7 +158,7 @@ class MakeVidApp(ctk.CTk):
         self.generator_panel.set_clip_data(clip)
         self.preview_panel.show_clip(clip, len(self.project.clips))
 
-    def request_generation(self, prompt, duration, steps, guidance, seed, width, height, negative, ref_images):
+    def request_generation(self, prompt, duration, steps, guidance, seed, width, height, negative, ref_images, motion_ref_path=None, motion_mode="pose"):
         """Chamado pelo generator panel para iniciar geracao. Sempre cria novo clip na frente."""
         from makevid.core.logger import log_generation, log_clip_action
 
@@ -201,6 +223,8 @@ class MakeVidApp(ctk.CTk):
             fps=self.project.output_fps,
             negative_prompt=negative,
             ref_images=ref_images,
+            motion_ref_path=motion_ref_path,
+            motion_mode=motion_mode,
             on_progress=on_progress,
             on_done=on_done,
             on_error=on_error,

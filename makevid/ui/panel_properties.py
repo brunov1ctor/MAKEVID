@@ -115,6 +115,129 @@ class ClipProperties:
                       corner_radius=4,
                       command=lambda: self.app.delete_clip(self._current_clip)).grid(row=1, column=1, sticky="ew", padx=(2, 0), pady=2)
 
+        ctk.CTkButton(grid, text="\u2b06 REFINAR", height=btn_h, font=btn_font,
+                      fg_color=C["card"], border_width=1, border_color="#44cc88",
+                      text_color="#44cc88", hover_color="#0a2a1a",
+                      corner_radius=4,
+                      command=lambda: self._upscale_clip()).grid(row=2, column=0, sticky="ew", padx=(0, 2), pady=2)
+
+        ctk.CTkButton(grid, text="\U0001f464 FACE SWAP", height=btn_h, font=btn_font,
+                      fg_color=C["card"], border_width=1, border_color="#ff9944",
+                      text_color="#ff9944", hover_color="#2a1a0a",
+                      corner_radius=4,
+                      command=lambda: self._face_swap_clip()).grid(row=2, column=1, sticky="ew", padx=(2, 0), pady=2)
+
+        ctk.CTkButton(grid, text="\u270f EDITAR", height=btn_h, font=btn_font,
+                      fg_color=C["card"], border_width=1, border_color=C["cyan"],
+                      text_color=C["cyan"], hover_color="#0a2a2a",
+                      corner_radius=4,
+                      command=lambda: self.pp._enter_inpaint_mode()).grid(row=3, column=0, columnspan=2, sticky="ew", pady=2)
+
+    def _upscale_clip(self):
+        """Refina clip com upscale 2x via Real-ESRGAN."""
+        clip = self._current_clip
+        if not clip or clip.status != "done" or not clip.video_path:
+            return
+        from pathlib import Path
+        if not Path(clip.video_path).exists():
+            return
+
+        from makevid.services.upscale_service import UpscaleService
+        from makevid.config import OUTPUTS_DIR, PROJECTS_DIR
+
+        output = OUTPUTS_DIR / self.app.project.id / f"{Path(clip.video_path).stem}_2x.mp4"
+        svc = UpscaleService()
+
+        # Feedback
+        self._header_label.configure(text="REFINANDO...")
+
+        def on_progress(msg):
+            self.app.after(0, lambda: self._header_label.configure(text=msg[:25]))
+
+        def on_done(path):
+            def _apply():
+                clip.video_path = str(path)
+                self.app.project.save(PROJECTS_DIR)
+                self.app.timeline.invalidate_thumbnail(clip.id)
+                self.app.timeline.draw()
+                self._header_label.configure(text=f"CLIP #{clip.position+1} \u2714")
+                self.app.preview_panel.show_clip(clip, len(self.app.project.clips))
+            self.app.after(0, _apply)
+
+        def on_error(err):
+            self.app.after(0, lambda: self._header_label.configure(
+                text=f"Erro: {err[:20]}"))
+
+        svc.upscale_video(
+            video_path=clip.video_path,
+            output_path=str(output),
+            scale=2,
+            on_progress=on_progress,
+            on_done=on_done,
+            on_error=on_error,
+        )
+
+    def _face_swap_clip(self):
+        """Aplica face swap no clip usando referencia do personagem."""
+        clip = self._current_clip
+        if not clip or clip.status != "done" or not clip.video_path:
+            return
+        from pathlib import Path
+        if not Path(clip.video_path).exists():
+            return
+
+        # Encontrar personagem com referencia de rosto
+        ref_path = None
+        prompt_lower = (clip.prompt or "").lower()
+        for char in self.app.project.characters:
+            if char.name and char.name.lower() in prompt_lower:
+                if char.reference_image:
+                    # Pegar primeira imagem da lista
+                    paths = [p.strip() for p in char.reference_image.split("|") if p.strip()]
+                    if paths and Path(paths[0]).exists():
+                        ref_path = paths[0]
+                        break
+
+        if not ref_path:
+            self._header_label.configure(text="Sem ref de rosto!")
+            self.app.after(2000, lambda: self._header_label.configure(
+                text=f"CLIP #{clip.position+1}"))
+            return
+
+        from makevid.services.face_swap_service import FaceSwapService
+        from makevid.config import OUTPUTS_DIR, PROJECTS_DIR
+
+        output = OUTPUTS_DIR / self.app.project.id / f"{Path(clip.video_path).stem}_fswap.mp4"
+        svc = FaceSwapService()
+
+        self._header_label.configure(text="FACE SWAP...")
+
+        def on_progress(msg):
+            self.app.after(0, lambda: self._header_label.configure(text=msg[:25]))
+
+        def on_done(path):
+            def _apply():
+                clip.video_path = str(path)
+                self.app.project.save(PROJECTS_DIR)
+                self.app.timeline.invalidate_thumbnail(clip.id)
+                self.app.timeline.draw()
+                self._header_label.configure(text=f"CLIP #{clip.position+1} \u2714")
+                self.app.preview_panel.show_clip(clip, len(self.app.project.clips))
+            self.app.after(0, _apply)
+
+        def on_error(err):
+            self.app.after(0, lambda: self._header_label.configure(
+                text=f"Erro: {err[:20]}"))
+
+        svc.swap_face_in_video(
+            video_path=clip.video_path,
+            reference_face_path=ref_path,
+            output_path=str(output),
+            on_progress=on_progress,
+            on_done=on_done,
+            on_error=on_error,
+        )
+
     def update_info(self, clip, total):
         """Atualiza informacoes in-place sem reconstruir o painel."""
         self._current_clip = clip

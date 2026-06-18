@@ -82,6 +82,7 @@ class Character:
     # Voz
     voice_id: str = ""  # ID da voz TTS (ex: pt-BR-AntonioNeural)
     voice_sample: str = ""  # path de amostra de voz gravada/importada
+    voice_profile: Dict[str, any] = field(default_factory=dict)  # VoiceProfile serializado
     # Compat legado
     description: str = ""
     traits: List[str] = field(default_factory=list)

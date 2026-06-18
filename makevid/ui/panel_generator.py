@@ -19,9 +19,8 @@ class GeneratorPanel:
         # Container principal
         self.container = ctk.CTkFrame(parent, width=300, fg_color=C["panel"],
                                  border_width=0, corner_radius=0)
-        self.container.pack(side="left", fill="y", padx=(0, 4), pady=4)
+        self.container.pack(fill="both", expand=True, pady=4)
         self.container.pack_propagate(False)
-        self.container.configure(width=300)
 
         # Canvas para desenhar abas com borda integrada
         self._tab_canvas = tk.Canvas(self.container, height=28, bg=C["panel"],
@@ -74,8 +73,11 @@ class GeneratorPanel:
         ctk.CTkRadioButton(mf, text="Texto", variable=self.mode_var, value="text",
                            command=self._on_mode, fg_color=C["gold"],
                            text_color=C["text"], font=("Segoe UI", 11)).pack(side="left", padx=10, pady=8)
-        ctk.CTkRadioButton(mf, text="Imagem + Texto", variable=self.mode_var, value="image",
+        ctk.CTkRadioButton(mf, text="Img+Texto", variable=self.mode_var, value="image",
                            command=self._on_mode, fg_color=C["gold"],
+                           text_color=C["text"], font=("Segoe UI", 11)).pack(side="left", padx=10, pady=8)
+        ctk.CTkRadioButton(mf, text="Motion", variable=self.mode_var, value="motion",
+                           command=self._on_mode, fg_color="#44cc88",
                            text_color=C["text"], font=("Segoe UI", 11)).pack(side="left", padx=10, pady=8)
 
         # Image frame (hidden)
@@ -90,6 +92,28 @@ class GeneratorPanel:
                       text_color=C["text3"], font=("Segoe UI", 9)).pack(side="left", padx=6)
         self.thumbs_frame = ctk.CTkFrame(self.img_frame, fg_color="transparent")
         self.thumbs_frame.pack(fill="x", pady=(6, 0))
+
+        # ControlNet frame (hidden)
+        self._controlnet_frame = ctk.CTkFrame(p, fg_color="transparent")
+        cn_row = ctk.CTkFrame(self._controlnet_frame, fg_color="transparent")
+        cn_row.pack(fill="x")
+        ctk.CTkButton(cn_row, text="\U0001f3ac + Video Ref", command=self._add_motion_ref, height=28,
+                      fg_color=C["card"], border_color="#44cc88", border_width=1,
+                      text_color="#44cc88", font=("Segoe UI", 9, "bold")).pack(side="left")
+        ctk.CTkButton(cn_row, text="Limpar", width=55, height=28, command=self._clear_motion_ref,
+                      fg_color=C["card"], border_color=C["border"], border_width=1,
+                      text_color=C["text3"], font=("Segoe UI", 9)).pack(side="left", padx=6)
+        self._cn_mode_var = ctk.StringVar(value="pose")
+        ctk.CTkRadioButton(cn_row, text="Pose", variable=self._cn_mode_var, value="pose",
+                           fg_color="#44cc88", text_color=C["text"],
+                           font=("Segoe UI", 9)).pack(side="left", padx=(10, 4))
+        ctk.CTkRadioButton(cn_row, text="Depth", variable=self._cn_mode_var, value="depth",
+                           fg_color="#44cc88", text_color=C["text"],
+                           font=("Segoe UI", 9)).pack(side="left")
+        self._cn_status = ctk.CTkLabel(self._controlnet_frame, text="",
+                                        text_color=C["text3"], font=("Segoe UI", 8))
+        self._cn_status.pack(anchor="w", pady=(4, 0))
+        self._motion_ref_path = None
 
         # Prompt
         self._prompt_label = ctk.CTkLabel(p, text="PROMPT", font=("Segoe UI", 11, "bold"),
@@ -215,10 +239,16 @@ class GeneratorPanel:
     # --- Image ---
 
     def _on_mode(self):
-        if self.mode_var.get() == "image":
+        mode = self.mode_var.get()
+        if mode == "image":
             self.img_frame.pack(fill="x", padx=10, pady=(0, 6), before=self._prompt_label)
+            self._controlnet_frame.pack_forget()
+        elif mode == "motion":
+            self.img_frame.pack_forget()
+            self._controlnet_frame.pack(fill="x", padx=10, pady=(0, 6), before=self._prompt_label)
         else:
             self.img_frame.pack_forget()
+            self._controlnet_frame.pack_forget()
 
     def _update_engine_info(self):
         engine = self.app.engine_var.get()
@@ -290,6 +320,23 @@ class GeneratorPanel:
             self._ref_images.remove(path)
             self._refresh_thumbs()
 
+    # --- ControlNet (Motion Reference) ---
+
+    def _add_motion_ref(self):
+        """Importa video de referencia de movimento."""
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            filetypes=[("Video", "*.mp4 *.avi *.mov *.mkv *.webm")])
+        if path:
+            self._motion_ref_path = path
+            from pathlib import Path
+            name = Path(path).stem[:25]
+            self._cn_status.configure(text=f"\u2713 {name}", text_color="#44cc88")
+
+    def _clear_motion_ref(self):
+        self._motion_ref_path = None
+        self._cn_status.configure(text="", text_color=C["text3"])
+
     # --- Generation ---
 
     def _generate(self):
@@ -335,6 +382,8 @@ class GeneratorPanel:
             height=h,
             negative=self.neg_box.get("0.0", "end").strip(),
             ref_images=ref,
+            motion_ref_path=self._motion_ref_path if self.mode_var.get() == "motion" else None,
+            motion_mode=self._cn_mode_var.get() if self.mode_var.get() == "motion" else "pose",
         )
 
     def _get_last_frame(self) -> str:

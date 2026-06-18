@@ -1,4 +1,4 @@
-"""Panel Estilo - Re-export para compatibilidade."""
+"""Style Panel - Re-exporta StylePanel do subpacote."""
 
 from makevid.ui.style.panel import StylePanel
 

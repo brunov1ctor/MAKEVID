@@ -46,6 +46,8 @@ class TimelineWidget:
         self._hover_track_item = None
         self._hover_playhead = False
         self._resize_dragging = False
+        self._marked_diamonds = set()  # IDs dos losangos marcados
+        self._hover_diamond = None      # ID do losango em hover
 
         # Sub-components
         self.thumbs = ThumbnailManager()
@@ -148,7 +150,6 @@ class TimelineWidget:
         self.canvas.bind("<Configure>", self._on_canvas_configure)
         self.canvas.bind("<Delete>", self._on_delete)
         self.canvas.configure(takefocus=True)
-        self.canvas.bind("<Button-1>", self._interaction.on_click, add="+")
         self.canvas.bind("<space>", self._on_space)
         self.canvas.bind("<Button-3>", self._interaction.on_right_click)
         # Volume por track (scroll na label)
@@ -381,6 +382,12 @@ class TimelineWidget:
         lbl_w = self.LBL_W
         if event.x < lbl_w:
             return
+
+        # Double click na faixa FX: seleciona/deseleciona todos os losangos
+        if self.TRANS_Y <= event.y <= self.TRANS_Y + self.TRANS_H:
+            if self._interaction.on_double_click_fx_track(event):
+                return
+
         x = (event.x - lbl_w) + self.scroll_x
         t = x / self.zoom
         vy, vh = self.VIDEO_Y, self.VIDEO_H
@@ -472,10 +479,10 @@ class TimelineWidget:
             self.fx_panel.hide()
         app.generator_panel.container.pack_forget()
         if not app.preview_panel.panel.winfo_ismapped():
-            app.preview_panel.panel.pack(side="right", fill="both", expand=True, pady=4)
-        self.fx_panel._frame = ctk.CTkFrame(app._main, width=280, fg_color=C["panel"],
+            app.preview_panel.panel.pack(fill="both", expand=True, pady=4)
+        self.fx_panel._frame = ctk.CTkFrame(app._left_pane, fg_color=C["panel"],
                                              border_color=C["gold"], border_width=1, corner_radius=6)
-        self.fx_panel._frame.pack(side="left", fill="y", padx=(0, 4), pady=4)
+        self.fx_panel._frame.pack(fill="both", expand=True, pady=4)
         self.fx_panel._visible = True
         f = self.fx_panel._frame
 

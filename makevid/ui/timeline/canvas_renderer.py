@@ -268,8 +268,35 @@ class CanvasRenderer:
                 tx = lbl_w + int(current_time * pps) - tl.scroll_x
                 if lbl_w <= tx <= w:
                     tcy = ty + th // 2
-                    c.create_polygon(tx - 8, tcy, tx, tcy - 8, tx + 8, tcy, tx, tcy + 8,
-                                     fill="#2a1a4a", outline=C["purple"], width=2)
+                    diamond_id = f"diamond_{clip.position}"
+                    is_marked = diamond_id in getattr(tl, '_marked_diamonds', set())
+                    is_hovered = getattr(tl, '_hover_diamond', None) == diamond_id
+
+                    # Tamanho: maior no hover ou marcado
+                    sz = 12 if (is_hovered or is_marked) else 8
+
+                    if is_marked:
+                        # Marcado: preenchido com cor vibrante + borda neon
+                        c.create_polygon(tx - sz-2, tcy, tx, tcy - sz-2, tx + sz+2, tcy, tx, tcy + sz+2,
+                                         fill="", outline="#00ffee", width=1)
+                        c.create_polygon(tx - sz, tcy, tx, tcy - sz, tx + sz, tcy, tx, tcy + sz,
+                                         fill="#6b3fa0", outline="#bb77ff", width=2)
+                        # Icone interno se tem efeito aplicado
+                        fx_at = [i for i in tl.project.get_track_items("fx")
+                                 if abs(i.start_time - current_time) < 0.1]
+                        if fx_at:
+                            c.create_text(tx, tcy, text="\u2713", fill="#00ffee",
+                                          font=("Segoe UI", 7, "bold"))
+                    elif is_hovered:
+                        # Hover: destacado com borda colorida
+                        c.create_polygon(tx - sz-2, tcy, tx, tcy - sz-2, tx + sz+2, tcy, tx, tcy + sz+2,
+                                         fill="", outline=C["neon_purple"], width=1)
+                        c.create_polygon(tx - sz, tcy, tx, tcy - sz, tx + sz, tcy, tx, tcy + sz,
+                                         fill="#3a1a6a", outline=C["neon_purple"], width=2)
+                    else:
+                        # Normal
+                        c.create_polygon(tx - sz, tcy, tx, tcy - sz, tx + sz, tcy, tx, tcy + sz,
+                                         fill="#2a1a4a", outline=C["purple"], width=2)
 
             current_time += clip.duration
 

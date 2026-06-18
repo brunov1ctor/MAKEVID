@@ -44,8 +44,10 @@ class AudioService:
         on_progress: Optional[Callable] = None,
         on_done: Optional[Callable] = None,
         on_error: Optional[Callable] = None,
+        characters: list = None,
     ):
         """Gera todo o audio de uma cena em background."""
+        self._characters = characters or []
 
         def run():
             try:
@@ -120,8 +122,10 @@ class AudioService:
         on_progress: Optional[Callable] = None,
         on_done: Optional[Callable] = None,
         on_error: Optional[Callable] = None,
+        characters: list = None,
     ):
         """Gera audio para todas as cenas do storyboard."""
+        self._characters = characters or []
 
         def run():
             try:
@@ -162,40 +166,49 @@ class AudioService:
     # ============================================================
 
     def _generate_voices(self, plan: SceneAudioPlan, out_dir: Path) -> List[str]:
-        """Gera arquivos WAV de voz para cada VoicePlan."""
+        """Gera arquivos WAV de voz para cada VoicePlan usando VoiceProfile."""
         from makevid.core.tts_provider import generate_voice
+        from makevid.core.voice_engine import resolve_voice_for_scene, build_speech_params, VoiceProfile
 
-        # Inferir genero do contexto (texto + visual da cena)
-        context = " ".join([v.text + " " + v.character for v in plan.voices]).lower()
-        # Incluir visual da cena se disponivel
-        if hasattr(self, '_current_visual'):
-            context += " " + self._current_visual.lower()
-        female_hints = ["woman", "girl", "she", "her", "mulher", "menina", "ela",
-                        "maria", "ana", "female", "mother", "mae", "sister", "irma"]
-        is_female = any(h in context for h in female_hints)
+        # Buscar personagens do projeto
+        characters = getattr(self, '_characters', [])
 
         paths = []
         for i, voice in enumerate(plan.voices):
             path = out_dir / f"voice_{i:02d}.wav"
-            gender = "female" if is_female else "male"
-            if voice.voice_id:
-                gender = "female" if "female" in voice.voice_id.lower() else "male"
-            elif voice.character:
-                char_lower = voice.character.lower()
-                if any(h in char_lower for h in female_hints):
-                    gender = "female"
-            result = generate_voice(
-                text=voice.text,
-                output_path=path,
-                gender=gender,
-                emotion=voice.emotion,
-            )
+
+            # Tentar resolver VoiceProfile do personagem
+            voice_params = None
+            if voice.character and characters:
+                voice_params = resolve_voice_for_scene(
+                    voice.character, voice.emotion, characters)
+                if voice_params:
+                    # Rebuild params com o texto real
+                    char = next((c for c in characters if c.name.lower() == voice.character.lower()), None)
+                    if char and char.voice_profile:
+                        profile = VoiceProfile.from_dict(char.voice_profile)
+                        voice_params = build_speech_params(profile, voice.text, voice.emotion)
+
+            if voice_params:
+                result = generate_voice(text=voice.text, output_path=path, voice_profile=voice_params)
+            else:
+                # Fallback: inferir genero do contexto
+                context = (voice.text + " " + voice.character).lower()
+                if hasattr(self, '_current_visual'):
+                    context += " " + self._current_visual.lower()
+                female_hints = ["woman", "girl", "she", "her", "mulher", "menina", "ela",
+                                "maria", "ana", "female", "mother", "mae", "sister", "irma"]
+                gender = "female" if any(h in context for h in female_hints) else "male"
+                result = generate_voice(
+                    text=voice.text, output_path=path,
+                    gender=gender, emotion=voice.emotion)
+
             if result:
                 paths.append(str(result))
             else:
                 self._generate_silence(path, voice.end - voice.start)
                 paths.append(str(path))
-            logger.info(f"Voice generated: {voice.character} '{voice.text[:30]}' gender={gender}")
+            logger.info(f"Voice generated: {voice.character} '{voice.text[:30]}' profile={'yes' if voice_params else 'no'}")
         return paths
 
     def _generate_ambience(self, plan: SceneAudioPlan, out_dir: Path) -> str:

@@ -1,5 +1,8 @@
 """FX Processor - Aplica efeitos visuais aos frames de video."""
 
+import logging
+logger = logging.getLogger(__name__)
+
 import numpy as np
 
 # Cor global do FX (fallback quando params nao tem cor salva)
@@ -36,8 +39,8 @@ def _get_color(params, fx_type, default):
     if color_str:
         try:
             return [int(x) for x in color_str.split(",")]
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"Suppressed: {_e}")
     return _fx_colors.get(fx_type, default)
 
 
