@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 class GenerationService:
     def __init__(self):
         self._model_manager = None
+        self._active_project_id = None
 
     def _get_mm(self):
         if self._model_manager is None:
@@ -44,6 +45,7 @@ class GenerationService:
         on_error: Optional[Callable] = None,
     ):
         """Gera clip em background thread. Callbacks sao chamados na thread."""
+        self._active_project_id = project_id
 
         # Auto-injetar ref_image de personagem se detectado no prompt
         if not ref_images:
@@ -165,7 +167,6 @@ class GenerationService:
     def _generate_vace(self, prompt, ref_images, duration, steps, guidance, seed, width, height, fps, neg, on_progress, **_):
         """Gera video com VACE usando reference images para consistencia."""
         from makevid.core.generator import generate_vace
-        from makevid.config import PROJECTS_DIR
 
         mm = self._get_mm()
         styled_prompt = self._apply_style(prompt)
@@ -180,10 +181,8 @@ class GenerationService:
 
         # Adicionar references de personagens do projeto
         try:
-            from makevid.core.project import Project
-            project_files = list(PROJECTS_DIR.glob("*.json"))
-            if project_files:
-                proj = Project.load(project_files[0])
+            proj = self._load_active_project()
+            if proj:
                 for char in proj.characters:
                     if char.reference_image and Path(char.reference_image).exists():
                         refs.append(Image.open(char.reference_image).convert("RGB"))
@@ -237,13 +236,10 @@ class GenerationService:
 
     def _get_last_clip_frames(self):
         """Extrai frames do ultimo clip pronto na timeline."""
-        from makevid.config import PROJECTS_DIR
         try:
-            from makevid.core.project import Project
-            project_files = list(PROJECTS_DIR.glob("*.json"))
-            if not project_files:
+            proj = self._load_active_project()
+            if not proj:
                 return None
-            proj = Project.load(project_files[0])
             clips = sorted(proj.clips, key=lambda c: c.position)
             last_done = None
             for c in reversed(clips):
@@ -269,12 +265,9 @@ class GenerationService:
 
     def _apply_style(self, prompt: str) -> str:
         """Inject character descriptions ao prompt quando detectados."""
-        from makevid.config import PROJECTS_DIR
         try:
-            project_files = list(PROJECTS_DIR.glob("*.json"))
-            if project_files:
-                from makevid.core.project import Project
-                proj = Project.load(project_files[0])
+            proj = self._load_active_project()
+            if proj:
 
                 # Detectar nomes de personagens no prompt e injetar descricao
                 char_descriptions = []
@@ -286,20 +279,17 @@ class GenerationService:
                             char_descriptions.append(f"{char.name}: {desc}")
 
                 if char_descriptions:
-                    return f"{"; ".join(char_descriptions)}, {prompt}"
+                    return f"{'; '.join(char_descriptions)}, {prompt}"
         except Exception as _e:
             logger.debug(f"Suppressed: {_e}")
         return prompt
 
     def _get_character_ref_images(self, prompt: str) -> Optional[List[str]]:
         """Detecta personagens no prompt e retorna suas ref images se existirem."""
-        from makevid.config import PROJECTS_DIR
         from pathlib import Path
         try:
-            project_files = list(PROJECTS_DIR.glob("*.json"))
-            if project_files:
-                from makevid.core.project import Project
-                proj = Project.load(project_files[0])
+            proj = self._load_active_project()
+            if proj:
                 prompt_lower = prompt.lower()
                 refs = []
                 for char in proj.characters:
@@ -310,6 +300,21 @@ class GenerationService:
                     return refs
         except Exception as _e:
             logger.debug(f"Suppressed: {_e}")
+        return None
+
+    def _load_active_project(self):
+        """Carrega o projeto selecionado pela UI para evitar misturar JSONs salvos."""
+        from makevid.config import PROJECTS_DIR
+        from makevid.core.project import Project
+
+        if self._active_project_id:
+            path = PROJECTS_DIR / f"{self._active_project_id}.json"
+            if path.exists():
+                return Project.load(path)
+
+        project_files = sorted(PROJECTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if project_files:
+            return Project.load(project_files[0])
         return None
 
     def _get_ambience_ref(self, prompt: str, engine: str = "") -> Optional[List[str]]:

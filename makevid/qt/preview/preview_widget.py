@@ -285,58 +285,66 @@ class PreviewWidget(QWidget):
         if self.player.is_playing:
             self.player.stop()
         self._display.hide()
-        self._progress.hide()
+        self._progress_container.hide()
         self._info.hide()
         if hasattr(self, '_browser') and self._browser:
             self._browser.deleteLater()
 
         self._browser = QFrame(self)
-        self._browser.setStyleSheet("background: #050508;")
+        self._browser.setObjectName("browserFrame")
+        self._browser.setStyleSheet(
+            f"QFrame#browserFrame {{ background: {C['panel']}; border: 1px solid {C['gold']}; border-radius: 4px; }}")
         bl = QVBoxLayout(self._browser)
-        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setContentsMargins(1, 1, 1, 1)
         bl.setSpacing(0)
 
         hdr = QFrame()
-        hdr.setFixedHeight(32)
-        hdr.setStyleSheet(f"background: {C['card']};")
+        hdr.setFixedHeight(36)
+        hdr.setStyleSheet(f"background: {C['card']}; border: none;")
         from PySide6.QtWidgets import QHBoxLayout as HL
         hl = HL(hdr)
-        hl.setContentsMargins(10, 0, 10, 0)
+        hl.setContentsMargins(12, 0, 8, 0)
+        hl.setSpacing(6)
         lbl = QLabel("MEUS VIDEOS")
-        lbl.setStyleSheet(f"color: {C['gold']}; font-size: 11pt; font-weight: bold;")
+        lbl.setStyleSheet(f"color: {C['gold']}; font-size: 11pt; font-weight: bold; border: none;")
         hl.addWidget(lbl)
         hl.addStretch()
         btn_imp = QPushButton("+ Importar")
         btn_imp.setFixedHeight(22)
+        btn_imp.setMinimumWidth(86)
         btn_imp.setStyleSheet(f"background: {C['card']}; color: {C['gold']}; font-size: 8pt; font-weight: bold; border: 1px solid {C['gold']}; border-radius: 3px; padding: 0 8px;")
         btn_imp.clicked.connect(self._browser_import_video)
         hl.addWidget(btn_imp)
-        btn_clean = QPushButton("Remover Inutilizados")
+        btn_clean = QPushButton("Limpar")
         btn_clean.setFixedHeight(22)
+        btn_clean.setMinimumWidth(64)
         btn_clean.setStyleSheet(f"background: #2a0808; color: #ff4444; font-size: 8pt; font-weight: bold; border: 1px solid #ff4444; border-radius: 3px; padding: 0 8px;")
         btn_clean.clicked.connect(self._browser_clean_videos)
         hl.addWidget(btn_clean)
         btn_x = QPushButton("X")
         btn_x.setFixedSize(28, 22)
-        btn_x.setStyleSheet(f"background: {C['card']}; color: {C['text3']}; font-weight: bold;")
+        btn_x.setStyleSheet(f"background: {C['card']}; color: {C['text3']}; font-weight: bold; border: none;")
         btn_x.clicked.connect(self._close_browser)
         hl.addWidget(btn_x)
         bl.addWidget(hdr)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("border: none;")
+        scroll.setStyleSheet(f"QScrollArea {{ background: {C['panel']}; border: none; }}")
         sc = QWidget()
+        sc.setStyleSheet(f"background: {C['panel']};")
         self._browser_layout = QVBoxLayout(sc)
-        self._browser_layout.setContentsMargins(6, 6, 6, 6)
-        self._browser_layout.setSpacing(4)
+        self._browser_layout.setContentsMargins(8, 8, 8, 8)
+        self._browser_layout.setSpacing(6)
         scroll.setWidget(sc)
         bl.addWidget(scroll)
 
         from pathlib import Path
         videos = sorted(OUTPUTS_DIR.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
         if not videos:
-            self._browser_layout.addWidget(QLabel("Nenhum video encontrado."))
+            empty = QLabel("Nenhum video encontrado.")
+            empty.setStyleSheet(f"color: {C['text3']}; font-size: 10pt; padding: 12px;")
+            self._browser_layout.addWidget(empty)
         else:
             for vpath in videos:
                 self._build_browser_video_card(vpath)
@@ -354,44 +362,56 @@ class PreviewWidget(QWidget):
         if self.player.is_playing:
             self.player.stop()
         self._display.hide()
-        self._progress.hide()
+        self._progress_container.hide()
         self._info.hide()
         if hasattr(self, '_browser') and self._browser:
             self._browser.deleteLater()
 
         self._browser = QFrame(self)
-        self._browser.setStyleSheet("background: #050508;")
+        self._browser.setObjectName("browserFrame")
+        self._browser.setStyleSheet(
+            f"QFrame#browserFrame {{ background: {C['panel']}; border: 1px solid {C['cyan']}; border-radius: 4px; }}")
         bl = QVBoxLayout(self._browser)
-        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setContentsMargins(1, 1, 1, 1)
+        bl.setSpacing(0)
 
         hdr = QFrame()
-        hdr.setFixedHeight(32)
-        hdr.setStyleSheet(f"background: {C['card']};")
+        hdr.setFixedHeight(36)
+        hdr.setStyleSheet(f"background: {C['card']}; border: none;")
         hl = HL(hdr)
-        hl.setContentsMargins(10, 0, 10, 0)
+        hl.setContentsMargins(12, 0, 8, 0)
+        hl.setSpacing(6)
         lbl = QLabel("MEUS AUDIOS")
-        lbl.setStyleSheet(f"color: {C['cyan']}; font-size: 11pt; font-weight: bold;")
+        lbl.setStyleSheet(f"color: {C['cyan']}; font-size: 11pt; font-weight: bold; border: none;")
         hl.addWidget(lbl)
         hl.addStretch()
-        btn_clean = QPushButton("Remover Inutilizados")
+        btn_imp = QPushButton("+ Importar")
+        btn_imp.setFixedHeight(22)
+        btn_imp.setMinimumWidth(86)
+        btn_imp.setStyleSheet(f"background: {C['card']}; color: {C['cyan']}; font-size: 8pt; font-weight: bold; border: 1px solid {C['cyan']}; border-radius: 3px; padding: 0 8px;")
+        btn_imp.clicked.connect(self._browser_import_audio)
+        hl.addWidget(btn_imp)
+        btn_clean = QPushButton("Limpar")
         btn_clean.setFixedHeight(22)
+        btn_clean.setMinimumWidth(64)
         btn_clean.setStyleSheet(f"background: #2a0808; color: #ff4444; font-size: 8pt; font-weight: bold; border: 1px solid #ff4444; border-radius: 3px; padding: 0 8px;")
         btn_clean.clicked.connect(self._browser_clean_audios)
         hl.addWidget(btn_clean)
         btn_x = QPushButton("X")
         btn_x.setFixedSize(28, 22)
-        btn_x.setStyleSheet(f"background: {C['card']}; color: {C['text3']}; font-weight: bold;")
+        btn_x.setStyleSheet(f"background: {C['card']}; color: {C['text3']}; font-weight: bold; border: none;")
         btn_x.clicked.connect(self._close_browser)
         hl.addWidget(btn_x)
         bl.addWidget(hdr)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("border: none;")
+        scroll.setStyleSheet(f"QScrollArea {{ background: {C['panel']}; border: none; }}")
         sc = QWidget()
+        sc.setStyleSheet(f"background: {C['panel']};")
         self._browser_layout = QVBoxLayout(sc)
-        self._browser_layout.setContentsMargins(6, 6, 6, 6)
-        self._browser_layout.setSpacing(4)
+        self._browser_layout.setContentsMargins(8, 8, 8, 8)
+        self._browser_layout.setSpacing(6)
         scroll.setWidget(sc)
         bl.addWidget(scroll)
 
@@ -399,7 +419,9 @@ class PreviewWidget(QWidget):
         audios = sorted([f for ext in ("*.wav", "*.mp3", "*.ogg", "*.flac") for f in AUDIO_DIR.rglob(ext)],
                         key=lambda p: p.stat().st_mtime, reverse=True)
         if not audios:
-            self._browser_layout.addWidget(QLabel("Nenhum audio."))
+            empty = QLabel("Nenhum audio.")
+            empty.setStyleSheet(f"color: {C['text3']}; font-size: 10pt; padding: 12px;")
+            self._browser_layout.addWidget(empty)
         else:
             for ap in audios:
                 self._build_browser_audio_card(ap)
@@ -412,7 +434,7 @@ class PreviewWidget(QWidget):
         from PySide6.QtWidgets import QFrame, QPushButton, QLineEdit
         from PySide6.QtWidgets import QHBoxLayout as HL, QVBoxLayout as VL
         card = QFrame()
-        card.setStyleSheet(f"background: {C['panel']}; border: 1px solid {C['border']}; border-radius: 6px;")
+        card.setStyleSheet(f"background: {C['card']}; border: 1px solid {C['border']}; border-radius: 6px;")
         cl = HL(card)
         cl.setContentsMargins(6, 6, 6, 6)
         try:
@@ -439,7 +461,9 @@ class PreviewWidget(QWidget):
         info.addWidget(ne)
         sz = vpath.stat().st_size / 1e6
         mt = _time.strftime("%d/%m %H:%M", _time.localtime(vpath.stat().st_mtime))
-        info.addWidget(QLabel(f"{sz:.1f} MB | {mt}"))
+        meta = QLabel(f"{sz:.1f} MB | {mt}")
+        meta.setStyleSheet(f"color: {C['text3']}; font-family: Consolas; font-size: 9pt; border: none;")
+        info.addWidget(meta)
         btns = HL()
         ba = QPushButton("+ Timeline")
         ba.setFixedHeight(22)
@@ -461,12 +485,14 @@ class PreviewWidget(QWidget):
         from PySide6.QtWidgets import QFrame, QPushButton
         from PySide6.QtWidgets import QHBoxLayout as HL, QVBoxLayout as VL
         card = QFrame()
-        card.setStyleSheet(f"background: {C['panel']}; border: 1px solid {C['border']}; border-radius: 6px;")
+        card.setStyleSheet(f"background: {C['card']}; border: 1px solid {C['border']}; border-radius: 6px;")
         cl = HL(card)
         cl.setContentsMargins(6, 6, 6, 6)
         info = VL()
         info.setSpacing(2)
-        info.addWidget(QLabel(apath.stem[:25]))
+        name = QLabel(apath.stem[:40])
+        name.setStyleSheet(f"color: {C['text']}; font-size: 10pt; font-weight: bold; border: none;")
+        info.addWidget(name)
         dur = 0
         try:
             from makevid.core.audio_utils import get_audio_duration
@@ -475,7 +501,9 @@ class PreviewWidget(QWidget):
             pass
         sz = apath.stat().st_size / 1024
         mt = _time.strftime("%d/%m %H:%M", _time.localtime(apath.stat().st_mtime))
-        info.addWidget(QLabel(f"{dur:.1f}s | {sz:.0f}KB | {mt}"))
+        meta = QLabel(f"{dur:.1f}s | {sz:.0f}KB | {mt}")
+        meta.setStyleSheet(f"color: {C['text3']}; font-family: Consolas; font-size: 9pt; border: none;")
+        info.addWidget(meta)
         cl.addLayout(info)
         cl.addStretch()
         bp = QPushButton("\u25b6")
@@ -483,13 +511,13 @@ class PreviewWidget(QWidget):
         bp.setStyleSheet(f"background: {C['card']}; color: {C['cyan']}; border: 1px solid {C['cyan']}; border-radius: 3px;")
         bp.clicked.connect(lambda ck=False, p=apath: self._play_audio_file(p))
         cl.addWidget(bp)
-        ba = QPushButton("+ TL")
-        ba.setFixedSize(40, 24)
+        ba = QPushButton("+ Timeline")
+        ba.setFixedSize(82, 24)
         ba.setStyleSheet(f"background: {C['gold']}; color: #0a0a0f; font-size: 8pt; font-weight: bold; border-radius: 3px;")
         ba.clicked.connect(lambda ck=False, p=apath, d=dur: self._add_audio_to_tl(p, d))
         cl.addWidget(ba)
-        bd = QPushButton("X")
-        bd.setFixedSize(24, 24)
+        bd = QPushButton("Deletar")
+        bd.setFixedSize(62, 24)
         bd.setStyleSheet(f"background: #2a0808; color: #ff4444; font-weight: bold; border-radius: 3px;")
         bd.clicked.connect(lambda ck=False, p=apath, c=card: [p.unlink(missing_ok=True), c.deleteLater()])
         cl.addWidget(bd)
@@ -571,6 +599,20 @@ class PreviewWidget(QWidget):
                     f.unlink(missing_ok=True)
         self._close_browser()
         self.show_video_browser()
+
+    def _browser_import_audio(self):
+        from PySide6.QtWidgets import QFileDialog
+        from makevid.config import AUDIO_DIR
+        import shutil
+        paths, _ = QFileDialog.getOpenFileNames(self, "Importar Audio", "", "Audio (*.wav *.mp3 *.ogg *.flac)")
+        for p in paths:
+            src = Path(p)
+            dest = AUDIO_DIR / self.project.id / src.name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if not dest.exists():
+                shutil.copy2(str(src), str(dest))
+        self._close_browser()
+        self.show_audio_browser()
 
     def _browser_clean_audios(self):
         from makevid.config import AUDIO_DIR

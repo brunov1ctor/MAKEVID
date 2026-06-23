@@ -507,7 +507,7 @@ class ActionsMixin:
         self.timeline.redraw()
 
     def _load_project(self) -> Project:
-        files = list(PROJECTS_DIR.glob("*.json"))
+        files = sorted(PROJECTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
         if files:
             try:
                 return Project.load(files[0])

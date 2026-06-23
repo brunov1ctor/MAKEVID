@@ -228,6 +228,12 @@ class AudioBrowserPanel(QWidget):
         hdr_l.addWidget(lbl)
         hdr_l.addStretch()
 
+        btn_import = QPushButton("+ Importar")
+        btn_import.setFixedHeight(22)
+        btn_import.setStyleSheet(f"background: {C['card']}; color: {C['cyan']}; font-size: 8pt; font-weight: bold; border: 1px solid {C['cyan']}; border-radius: 3px; padding: 0 8px;")
+        btn_import.clicked.connect(self._import_audio)
+        hdr_l.addWidget(btn_import)
+
         btn_clean = QPushButton("Limpar")
         btn_clean.setFixedHeight(22)
         btn_clean.setStyleSheet(f"background: #2a0808; color: #ff4444; font-size: 8pt; font-weight: bold; border: 1px solid #ff4444; border-radius: 3px; padding: 0 8px;")
@@ -354,6 +360,19 @@ class AudioBrowserPanel(QWidget):
         except Exception:
             pass
         card.deleteLater()
+
+    def _import_audio(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Importar Audio", "", "Audio (*.wav *.mp3 *.ogg *.flac)")
+        if not paths:
+            return
+        for p in paths:
+            src = Path(p)
+            dest = AUDIO_DIR / self.project.id / src.name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if not dest.exists():
+                shutil.copy2(str(src), str(dest))
+        self.refresh()
 
     def _remove_unused(self):
         used = set()

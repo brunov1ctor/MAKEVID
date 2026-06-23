@@ -284,14 +284,6 @@ class TimelineWidget(QWidget):
         except Exception:
             pass
 
-    def _on_speed_enter(self):
-        try:
-            val = float(self._speed_entry.text().replace(",", "."))
-            self.playback_speed = max(0.25, min(4.0, val))
-        except ValueError:
-            pass
-        self._speed_entry.setText(f"{self.playback_speed:.2f}")
-
     def _on_export_direct(self):
         self.export_requested.emit()
 

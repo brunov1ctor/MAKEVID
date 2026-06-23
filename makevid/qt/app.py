@@ -178,11 +178,8 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         m_arq.setStyleSheet(mqss)
         m_arq.addAction("Novo Projeto", self._new_project)
         m_arq.addSeparator()
-        m_arq.addAction("Export Game Engine", self._export_game_engine)
-        m_arq.addSeparator()
         m_arq.addAction("Meus Videos", self._show_video_browser)
         m_arq.addAction("Meus Audios", self._show_audio_browser)
-        m_arq.addAction("+ Importar Audio", self._import_audio)
         btn_arq.setMenu(m_arq)
         h.addWidget(btn_arq)
 
