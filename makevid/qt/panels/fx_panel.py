@@ -167,21 +167,21 @@ _FX_ICONS = {
 
 # Cores por categoria
 _FX_ICON_COLORS = {
-    "fade": ("#ffd700", "#c89b3c"),
-    "slide": ("#0ac8b9", "#066b62"),
-    "zoom": ("#3399ff", "#1a5599"),
-    "bounce": ("#44cc88", "#228855"),
-    "rotate": ("#cc44aa", "#882266"),
-    "glitch": ("#ff4444", "#aa2222"),
-    "blur": ("#8888ff", "#4444aa"),
-    "flash": ("#ffffff", "#aaaaaa"),
-    "shake": ("#ff9944", "#aa6622"),
-    "spin": ("#cc44aa", "#882266"),
-    "pulse": ("#ff4488", "#aa2244"),
-    "camera": ("#0ac8b9", "#066b62"),
-    "vhs": ("#ff9944", "#885522"),
-    "neon": ("#44ffaa", "#22aa66"),
-    "default": ("#c89b3c", "#886622"),
+    "fade":   (C["primary"],      C["secondary"]),
+    "slide":  (C["accent"],       "#0a8a9a"),
+    "zoom":   (C["secondary"],    C["primary"]),
+    "bounce": (C["track_sfx"],    "#1a7a55"),
+    "rotate": (C["track_music"],  "#7a2266"),
+    "glitch": (C["danger"],       "#aa2244"),
+    "blur":   (C["secondary"],    C["primary"]),
+    "flash":  (C["text"],         C["text2"]),
+    "shake":  (C["track_voice"],  "#7a4422"),
+    "spin":   (C["track_music"],  "#7a2266"),
+    "pulse":  (C["danger"],       "#aa2244"),
+    "camera": (C["accent"],       "#0a8a9a"),
+    "vhs":    (C["track_voice"],  "#7a4422"),
+    "neon":   (C["track_sfx"],    "#1a7a55"),
+    "default":(C["primary"],      C["secondary"]),
 }
 
 
@@ -236,7 +236,6 @@ class FxPanel(QWidget):
         super().__init__(parent)
         self.setMinimumWidth(250)
         self.setObjectName("fxPanel")
-        self.setStyleSheet(f"QWidget#fxPanel {{ background: {C['panel']}; }}")
         self._current_tab = None
         self._project = None
         self._item = None
@@ -260,12 +259,6 @@ class FxPanel(QWidget):
         close_btn.clicked.connect(self.closed.emit)
         hdr_l.addWidget(close_btn)
         self._layout.addLayout(hdr_l)
-
-        # Separador purple
-        sep = QFrame()
-        sep.setFixedHeight(2)
-        sep.setStyleSheet(f"background: {C['purple']};")
-        self._layout.addWidget(sep)
 
         # Tab bar
         self._tab_bar = QFrame()
@@ -316,14 +309,14 @@ class FxPanel(QWidget):
         for k, btn in self._tab_buttons.items():
             if k == key:
                 btn.setStyleSheet(
-                    f"QPushButton {{ background: {C['purple']}; color: {C['text']}; font-size: 8pt; "
-                    f"font-weight: bold; border: 1px solid #bb77ff; border-radius: 4px; padding: 0 6px; }}"
-                    f"QPushButton:hover {{ background: #bb77ff; }}")
+                    f"QPushButton {{ background: {C['secondary']}; color: {C['text']}; font-size: 8pt; "
+                    f"font-weight: bold; border: 1px solid {C['accent']}; border-radius: 4px; padding: 0 6px; }}"
+                    f"QPushButton:hover {{ background: {C['accent']}; }}")
             else:
                 btn.setStyleSheet(
-                    f"QPushButton {{ background: transparent; color: {C['text3']}; font-size: 8pt; "
+                    f"QPushButton {{ background: {C['glass']}; color: {C['text3']}; font-size: 8pt; "
                     f"font-weight: bold; border: 1px solid transparent; border-radius: 4px; padding: 0 6px; }}"
-                    f"QPushButton:hover {{ color: {C['text']}; border-color: {C['purple']}; }}")
+                    f"QPushButton:hover {{ color: {C['text']}; border-color: {C['secondary']}; }}")
 
         # Rebuild conteudo
         self._build_grid(key)
@@ -361,8 +354,8 @@ class FxPanel(QWidget):
         card.setFixedHeight(52)
         card.setObjectName("fxCard")
         card.setStyleSheet(
-            f"QFrame#fxCard {{ background: {C['card']}; border: 1px solid {C['border']}; border-radius: 6px; }}"
-            f"QFrame#fxCard:hover {{ border: 2px solid {C['purple']}; background: #1a1a3a; }}")
+            f"QFrame#fxCard {{ background: {C['glass']}; border: 1px solid {C['glass_border']}; border-radius: 10px; }}"
+            f"QFrame#fxCard:hover {{ border: 1px solid {C['primary']}; background: {C['glass_hover']}; }}")
         card.setCursor(Qt.PointingHandCursor)
         card.setToolTip(FX_TOOLTIPS.get(name, ""))
 
@@ -460,15 +453,15 @@ class FxPanel(QWidget):
             is_active = (val == current_easing)
             if is_active:
                 btn.setStyleSheet(
-                    f"QPushButton {{ background: {C['purple']}; color: #ffffff; "
+                    f"QPushButton {{ background: {C['secondary']}; color: {C['text']}; "
                     f"font-family: Consolas; font-size: 11pt; font-weight: bold; "
-                    f"border: 2px solid #bb77ff; border-radius: 4px; }}")
+                    f"border: 2px solid {C['accent']}; border-radius: 4px; }}")
             else:
                 btn.setStyleSheet(
-                    f"QPushButton {{ background: {C['card']}; color: {C['text3']}; "
+                    f"QPushButton {{ background: {C['glass']}; color: {C['text3']}; "
                     f"font-family: Consolas; font-size: 11pt; "
-                    f"border: 1px solid {C['border']}; border-radius: 4px; }}"
-                    f"QPushButton:hover {{ border: 1px solid {C['purple']}; color: {C['text']}; }}")
+                    f"border: 1px solid {C['glass_border']}; border-radius: 4px; }}"
+                    f"QPushButton:hover {{ border: 1px solid {C['secondary']}; color: {C['text']}; }}")
             btn.clicked.connect(lambda ck=False, v=val: self._set_easing(item, v))
             ease_layout.addWidget(btn)
             self._ease_buttons.append((btn, val))
@@ -491,8 +484,8 @@ class FxPanel(QWidget):
         btn_remove = QPushButton("REMOVER FX")
         btn_remove.setFixedHeight(28)
         btn_remove.setStyleSheet(
-            f"background: #2a0808; color: #ff4444; font-weight: bold; "
-            f"border: 1px solid #ff4444; border-radius: 4px;")
+            f"background: {C['danger_bg']}; color: {C['danger']}; font-weight: bold; "
+            f"border: 1px solid {C['danger']}; border-radius: 6px;")
         btn_remove.clicked.connect(lambda: self._remove_fx(item))
         self._content_layout.addWidget(btn_remove)
 
@@ -505,15 +498,15 @@ class FxPanel(QWidget):
         for btn, val in self._ease_buttons:
             if val == value:
                 btn.setStyleSheet(
-                    f"QPushButton {{ background: {C['purple']}; color: #ffffff; "
+                    f"QPushButton {{ background: {C['secondary']}; color: {C['text']}; "
                     f"font-family: Consolas; font-size: 11pt; font-weight: bold; "
-                    f"border: 2px solid #bb77ff; border-radius: 4px; }}")
+                    f"border: 2px solid {C['accent']}; border-radius: 4px; }}")
             else:
                 btn.setStyleSheet(
-                    f"QPushButton {{ background: {C['card']}; color: {C['text3']}; "
+                    f"QPushButton {{ background: {C['glass']}; color: {C['text3']}; "
                     f"font-family: Consolas; font-size: 11pt; "
-                    f"border: 1px solid {C['border']}; border-radius: 4px; }}"
-                    f"QPushButton:hover {{ border: 1px solid {C['purple']}; color: {C['text']}; }}")
+                    f"border: 1px solid {C['glass_border']}; border-radius: 4px; }}"
+                    f"QPushButton:hover {{ border: 1px solid {C['secondary']}; color: {C['text']}; }}")
 
     def _save_fx(self):
         self._auto_save()

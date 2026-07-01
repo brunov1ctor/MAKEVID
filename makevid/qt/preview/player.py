@@ -273,6 +273,8 @@ class TimelinePlayerQt(QObject):
         self._paused = False
         self._playing = True
         self._start_time = _time.time()
+        if not self._caps:
+            self._open_clips()
         self._start_audio()
         self._timer.start()
 

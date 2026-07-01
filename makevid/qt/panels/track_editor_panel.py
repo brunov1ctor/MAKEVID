@@ -15,7 +15,8 @@ from makevid.config import PROJECTS_DIR
 
 
 TRACK_COLORS = {
-    "voice": "#ff9944", "sfx": "#44cc88", "music": "#cc44aa", "audio": "#0ac8b9"
+    "voice": C["track_voice"], "sfx": C["track_sfx"],
+    "music": C["track_music"], "audio": C["track_audio"]
 }
 TRACK_TITLES = {
     "voice": "\U0001f3a4 VOZ", "sfx": "\U0001f50a SFX",
@@ -36,7 +37,6 @@ class TrackEditorPanel(QWidget):
         self._layer_refs = {}
         self.setMinimumWidth(250)
         self.setObjectName("trackEditorPanel")
-        self.setStyleSheet(f"QWidget#trackEditorPanel {{ background: {C['panel']}; }}")
         from PySide6.QtWidgets import QSizePolicy
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._build_shell()
@@ -114,7 +114,7 @@ class TrackEditorPanel(QWidget):
             f"QCheckBox {{ color: {C['text']}; font-size: 9pt; font-weight: bold; spacing: 6px; }}"
             f"QCheckBox::indicator {{ width: 16px; height: 16px; border-radius: 3px; border: 2px solid {color}; background: {C['card']}; }}"
             f"QCheckBox::indicator:checked {{ background: {color}; border: 2px solid {color}; }}"
-            f"QCheckBox::indicator:hover {{ border: 2px solid #ffd700; }}")
+            f"QCheckBox::indicator:hover {{ border: 2px solid {C['secondary']}; }}")
         L.addWidget(self._loop_cb)
 
         # Play All
@@ -139,7 +139,7 @@ class TrackEditorPanel(QWidget):
         save_btn = QPushButton("SALVAR")
         save_btn.setFixedHeight(28)
         save_btn.setStyleSheet(
-            f"background: {color}; color: #0a0a0f; font-weight: bold; font-size: 10pt; border-radius: 5px;")
+            f"background: {color}; color: {C['dark_text']}; font-weight: bold; font-size: 10pt; border-radius: 5px;")
         save_btn.clicked.connect(lambda: project.save(PROJECTS_DIR))
         L.addWidget(save_btn)
 
@@ -149,7 +149,7 @@ class TrackEditorPanel(QWidget):
     def _build_layer(self, layout, item, color):
         """Constroi um layer com header colapsavel, waveform, controles e botões."""
         frame = QFrame()
-        frame.setStyleSheet(f"background: #0c1018; border: 2px solid {color}; border-radius: 6px;")
+        frame.setStyleSheet(f"background: {C['dark']}; border: 2px solid {color}; border-radius: 6px;")
         fl = QVBoxLayout(frame)
         fl.setContentsMargins(4, 4, 4, 6)
         fl.setSpacing(3)
@@ -162,16 +162,16 @@ class TrackEditorPanel(QWidget):
         hdr_layout.setSpacing(4)
         collapse_btn = QPushButton("\u25bc")
         collapse_btn.setFixedSize(18, 18)
-        collapse_btn.setStyleSheet(f"background: transparent; color: #0a0a0f; font-weight: bold; border: none;")
+        collapse_btn.setStyleSheet(f"background: transparent; color: {C['dark_text']}; font-weight: bold; border: none;")
         hdr_layout.addWidget(collapse_btn)
         name_lbl = QLabel(f"\u266b {item.name[:20]}")
-        name_lbl.setStyleSheet(f"color: #0a0a0f; font-weight: bold; font-size: 9pt; border: none;")
+        name_lbl.setStyleSheet(f"color: {C['dark_text']}; font-weight: bold; font-size: 9pt; border: none;")
         name_lbl.setCursor(Qt.PointingHandCursor)
         name_lbl.mouseDoubleClickEvent = lambda e, i=item, l=name_lbl, f=hdr_frame, c=color: self._inline_rename_layer(i, l, f, c)
         hdr_layout.addWidget(name_lbl)
         hdr_layout.addStretch()
         dur_lbl = QLabel(f"{item.duration:.1f}s")
-        dur_lbl.setStyleSheet(f"color: #0a0a0f; font-family: Consolas; font-size: 9pt; font-weight: bold; border: none;")
+        dur_lbl.setStyleSheet(f"color: {C['dark_text']}; font-family: Consolas; font-size: 9pt; font-weight: bold; border: none;")
         hdr_layout.addWidget(dur_lbl)
         del_btn = QPushButton("X")
         del_btn.setObjectName("closeBtn")
@@ -202,7 +202,7 @@ class TrackEditorPanel(QWidget):
         play_btn = QPushButton("\u25b6 Play")
         play_btn.setFixedSize(60, 22)
         play_btn.setStyleSheet(
-            f"background: {color}; color: #0a0a0f; font-weight: bold; border-radius: 4px;")
+            f"background: {color}; color: {C['dark_text']}; font-weight: bold; border-radius: 4px;")
         play_btn.clicked.connect(lambda checked=False, i=item, b=play_btn, c=color: self._toggle_play(i, b, c))
         play_row.addWidget(play_btn)
         dup_btn = QPushButton("Duplicar")
@@ -218,7 +218,7 @@ class TrackEditorPanel(QWidget):
 
         # Sliders: VOL, PAN, FADE IN, FADE OUT, REVERB, ROOM, SPEED
         params_frame = QFrame()
-        params_frame.setStyleSheet(f"background: #080a12; border: 1px solid #1a1a2a; border-radius: 4px;")
+        params_frame.setStyleSheet(f"background: {C['bg']}; border: 1px solid {C['border']}; border-radius: 4px;")
         pl = QVBoxLayout(params_frame)
         pl.setContentsMargins(6, 4, 6, 4)
         pl.setSpacing(1)
@@ -227,15 +227,15 @@ class TrackEditorPanel(QWidget):
         pan = int(item.params.get("pan", 0))
         self._add_param_slider(pl, "PAN", -100, 100, pan, "", color, item, "pan")
         fi = int(item.params.get("fade_in", 0))
-        self._add_param_slider(pl, "FADE IN", 0, 100, fi, "%", "#6b3fa0", item, "fade_in")
+        self._add_param_slider(pl, "FADE IN", 0, 100, fi, "%", C["secondary"], item, "fade_in")
         fo = int(item.params.get("fade_out", 0))
-        self._add_param_slider(pl, "FADE OUT", 0, 100, fo, "%", "#6b3fa0", item, "fade_out")
+        self._add_param_slider(pl, "FADE OUT", 0, 100, fo, "%", C["secondary"], item, "fade_out")
         reverb = int(item.params.get("reverb", 0))
-        self._add_param_slider(pl, "REVERB", 0, 100, reverb, "%", "#8855bb", item, "reverb")
+        self._add_param_slider(pl, "REVERB", 0, 100, reverb, "%", C["primary"], item, "reverb")
         room = int(item.params.get("room", 0))
-        self._add_param_slider(pl, "ROOM", 0, 100, room, "%", "#8855bb", item, "room")
+        self._add_param_slider(pl, "ROOM", 0, 100, room, "%", C["primary"], item, "room")
         speed = int(item.params.get("speed", 100))
-        self._add_param_slider(pl, "SPEED", 50, 200, speed, "%", "#cc8844", item, "speed")
+        self._add_param_slider(pl, "SPEED", 50, 200, speed, "%", C["accent"], item, "speed")
         cl.addWidget(params_frame)
 
         fl.addWidget(content_widget)
@@ -273,7 +273,7 @@ class TrackEditorPanel(QWidget):
         slider.setValue(default)
         slider.setFixedHeight(14)
         slider.setStyleSheet(
-            f"QSlider::groove:horizontal {{ background: #1a1a2a; height: 3px; border-radius: 1px; }}"
+            f"QSlider::groove:horizontal {{ background: {C['border']}; height: 3px; border-radius: 1px; }}"
             f"QSlider::handle:horizontal {{ background: {color}; width: 8px; height: 8px; margin: -3px 0; border-radius: 4px; }}"
             f"QSlider::sub-page:horizontal {{ background: {color}; border-radius: 1px; }}")
         row.addWidget(slider)
@@ -296,7 +296,7 @@ class TrackEditorPanel(QWidget):
         entry = QLineEdit(item.name)
         entry.setFixedHeight(20)
         entry.setStyleSheet(
-            f"background: #ffffff; color: #0a0a0f; font-weight: bold; font-size: 9pt; "
+            f"background: {C['text']}; color: {C['dark_text']}; font-weight: bold; font-size: 9pt; "
             f"border: 1px solid {color}; border-radius: 3px; padding: 0 4px;")
         hdr_frame.layout().insertWidget(1, entry)
         entry.setFocus()
@@ -330,7 +330,7 @@ class TrackEditorPanel(QWidget):
                 pass
             self._playing[item_id] = False
             btn.setText("\u25b6 Play")
-            btn.setStyleSheet(f"background: {color}; color: #0a0a0f; font-weight: bold; border-radius: 4px;")
+            btn.setStyleSheet(f"background: {color}; color: {C['dark_text']}; font-weight: bold; border-radius: 4px;")
             # NÃO reseta playhead — mantém posição visual
         else:
             self._start_play(item, btn, color)
@@ -373,7 +373,7 @@ class TrackEditorPanel(QWidget):
 
             self._playing[item.id] = True
             btn.setText("\u25a0 Stop")
-            btn.setStyleSheet(f"background: #ff4444; color: #ffffff; font-weight: bold; border-radius: 4px;")
+            btn.setStyleSheet(f"background: {C['danger']}; color: {C['text']}; font-weight: bold; border-radius: 4px;")
 
             # Iniciar animação do playhead
             self._animate_playhead(item.id, 0.0, item.duration)
@@ -388,7 +388,7 @@ class TrackEditorPanel(QWidget):
             pass
         self._playing[item_id] = False
         btn.setText("\u25b6 Play")
-        btn.setStyleSheet(f"background: {color}; color: #0a0a0f; font-weight: bold; border-radius: 4px;")
+        btn.setStyleSheet(f"background: {color}; color: {C['dark_text']}; font-weight: bold; border-radius: 4px;")
         # Limpar playhead
         refs = self._layer_refs.get(item_id)
         if refs:
@@ -500,7 +500,7 @@ class TrackEditorPanel(QWidget):
             refs = self._layer_refs.get(item.id)
             if refs:
                 refs["play_btn"].setText("\u25a0 Stop")
-                refs["play_btn"].setStyleSheet(f"background: #ff4444; color: #ffffff; font-weight: bold; border-radius: 4px;")
+                refs["play_btn"].setStyleSheet(f"background: {C['danger']}; color: {C['text']}; font-weight: bold; border-radius: 4px;")
                 self._animate_playhead(item.id, ratio, item.duration * (1 - ratio))
         except Exception:
             pass
@@ -524,7 +524,7 @@ class TrackEditorPanel(QWidget):
                 self._playing[item_id] = False
                 waveform.set_playhead(-1)
                 refs["play_btn"].setText("\u25b6 Play")
-                refs["play_btn"].setStyleSheet(f"background: {refs['color']}; color: #0a0a0f; font-weight: bold; border-radius: 4px;")
+                refs["play_btn"].setStyleSheet(f"background: {refs['color']}; color: {C['dark_text']}; font-weight: bold; border-radius: 4px;")
                 time_lbl.setText(f"{waveform._item.duration:.1f}s / {waveform._item.duration:.1f}s")
                 return
             ratio = start_ratio + (elapsed / waveform._item.duration)
@@ -546,7 +546,7 @@ class TrackEditorPanel(QWidget):
         rl.addWidget(entry)
         ok_btn = QPushButton("OK")
         ok_btn.setFixedSize(30, 24)
-        ok_btn.setStyleSheet(f"background: {TRACK_COLORS.get(item.track, C['cyan'])}; color: #0a0a0f; font-weight: bold; border-radius: 3px;")
+        ok_btn.setStyleSheet(f"background: {TRACK_COLORS.get(item.track, C['accent'])}; color: {C['dark_text']}; font-weight: bold; border-radius: 3px;")
 
         def _confirm():
             new_name = entry.text().strip()
@@ -617,7 +617,7 @@ class _WaveformWidget(QWidget):
         w, h = self.width(), self.height()
 
         # Fundo
-        p.fillRect(0, 0, w, h, QColor("#0a0c14"))
+        p.fillRect(0, 0, w, h, QColor(C["dark"]))
 
         # Waveform
         if self._waveform_data:
@@ -639,12 +639,12 @@ class _WaveformWidget(QWidget):
         # Playhead
         if 0 <= self._playhead_ratio <= 1:
             px = int(self._playhead_ratio * w)
-            p.setPen(QPen(QColor("#ff2222"), 2))
+            p.setPen(QPen(QColor(C["playhead"]), 2))
             p.drawLine(px, 0, px, h)
             # Triangulo no topo
             from PySide6.QtGui import QPolygon
             from PySide6.QtCore import QPoint
-            p.setBrush(QColor("#ff2222"))
+            p.setBrush(QColor(C["playhead"]))
             p.setPen(Qt.NoPen)
             p.drawPolygon(QPolygon([QPoint(px - 4, 0), QPoint(px + 4, 0), QPoint(px, 5)]))
 

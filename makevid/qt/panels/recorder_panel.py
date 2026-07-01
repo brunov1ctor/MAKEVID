@@ -15,33 +15,31 @@ from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QPainter, QColor, QPen
 
 from makevid.qt.theme import C
+from makevid.qt.widgets import GlassButton
 from makevid.config import AUDIO_DIR, PROJECTS_DIR
 
 
 class _LiveWaveformWidget(QWidget):
     """Waveform em tempo real — desenha últimos blocos de áudio."""
 
-    def __init__(self, color="#ff9944", parent=None):
+    def __init__(self, color=None, parent=None):
         super().__init__(parent)
-        self._color = QColor(color)
-        self._data = np.zeros(300, dtype=np.float32)  # últimos N pontos normalizados
+        self._color = QColor(color or C["track_voice"])
+        self._data = np.zeros(300, dtype=np.float32)
         self._static_mode = False
         self.setMinimumHeight(64)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
     def push_block(self, block):
-        """Recebe bloco de samples int16, extrai envelope e atualiza."""
         if len(block) == 0:
             return
         samples = block.flatten().astype(np.float32) / 32768.0
-        # Reduzir bloco para ~10 pontos
         n_points = min(10, len(samples))
         chunk_size = max(1, len(samples) // n_points)
         envelope = []
         for i in range(0, len(samples), chunk_size):
             seg = samples[i:i+chunk_size]
             envelope.append(float(np.abs(seg).max()))
-        # Shift e append
         n = len(envelope)
         self._data = np.roll(self._data, -n)
         self._data[-n:] = envelope[:n]
@@ -49,7 +47,6 @@ class _LiveWaveformWidget(QWidget):
         self.update()
 
     def set_static(self, audio_data):
-        """Mostra waveform estática completa do áudio gravado."""
         if len(audio_data) == 0:
             return
         samples = audio_data.flatten().astype(np.float32) / 32768.0
@@ -77,32 +74,22 @@ class _LiveWaveformWidget(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, False)
         w, h = self.width(), self.height()
-
-        # Fundo
-        p.fillRect(0, 0, w, h, QColor("#080a14"))
-
-        # Borda
+        p.fillRect(0, 0, w, h, QColor(C["dark"]))
         p.setPen(QPen(self._color, 1))
         p.setBrush(Qt.NoBrush)
         p.drawRoundedRect(0, 0, w - 1, h - 1, 4, 4)
-
         mid = h / 2
         n = len(self._data)
         bar_w = max(1.0, (w - 8) / n)
-
-        # Se tudo zero, linha central
         if np.max(self._data) < 0.001:
             p.setPen(QPen(QColor(C['text3']), 1, Qt.DashLine))
             p.drawLine(8, int(mid), w - 8, int(mid))
             return
-
-        # Normalizar para visualização
         peak = max(float(np.max(self._data)), 0.01)
         color = QColor(self._color)
         color.setAlpha(210)
         p.setPen(Qt.NoPen)
         p.setBrush(color)
-
         for i in range(n):
             amp = self._data[i] / peak
             x = int(4 + i * bar_w)
@@ -121,22 +108,20 @@ class RecorderPanel(QWidget):
         super().__init__(parent)
         self._recording = False
         self._frames = []
-        self._last_block = None  # último bloco para waveform
+        self._last_block = None
         self._stream = None
         self._start_time = 0
         self._target_track = "voice"
         self._project = None
         self._timeline = None
-        self._color = "#ff9944"
+        self._color = C["track_voice"]
 
-        # Timer para atualizar UI a cada 50ms
         self._ui_timer = QTimer(self)
         self._ui_timer.setInterval(50)
         self._ui_timer.timeout.connect(self._tick)
 
         self.setMinimumWidth(250)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setStyleSheet(f"background: {C['panel']};")
         self._build_ui()
 
     def _build_ui(self):
@@ -147,7 +132,7 @@ class RecorderPanel(QWidget):
         # Header
         hdr = QHBoxLayout()
         self._title_lbl = QLabel("\u25cf GRAVAR")
-        self._title_lbl.setStyleSheet(f"color: #ff9944; font-size: 13pt; font-weight: bold;")
+        self._title_lbl.setStyleSheet(f"color: {C['track_voice']}; font-size: 13pt; font-weight: bold;")
         hdr.addWidget(self._title_lbl)
         hdr.addStretch()
         close_btn = QPushButton("X")
@@ -157,11 +142,6 @@ class RecorderPanel(QWidget):
         hdr.addWidget(close_btn)
         layout.addLayout(hdr)
 
-        sep = QFrame()
-        sep.setFixedHeight(2)
-        sep.setStyleSheet("background: #ff9944;")
-        layout.addWidget(sep)
-
         # Timer display
         self._time_label = QLabel("00:00.0")
         self._time_label.setAlignment(Qt.AlignCenter)
@@ -169,7 +149,7 @@ class RecorderPanel(QWidget):
         layout.addWidget(self._time_label)
 
         # Waveform em tempo real
-        self._waveform = _LiveWaveformWidget("#ff9944")
+        self._waveform = _LiveWaveformWidget(C["track_voice"])
         layout.addWidget(self._waveform)
 
         # Level meter
@@ -179,8 +159,8 @@ class RecorderPanel(QWidget):
         self._level.setValue(0)
         self._level.setTextVisible(False)
         self._level.setStyleSheet(
-            f"QProgressBar {{ background: #1a1a2a; border: none; border-radius: 4px; }}"
-            f"QProgressBar::chunk {{ background: #ff9944; border-radius: 4px; }}")
+            f"QProgressBar {{ background: {C['border']}; border: none; border-radius: 4px; }}"
+            f"QProgressBar::chunk {{ background: {C['track_voice']}; border-radius: 4px; }}")
         layout.addWidget(self._level)
 
         # Info labels
@@ -200,11 +180,7 @@ class RecorderPanel(QWidget):
         layout.addWidget(self._status)
 
         # REC button
-        self._rec_btn = QPushButton("\u25cf REC")
-        self._rec_btn.setFixedHeight(44)
-        self._rec_btn.setStyleSheet(
-            f"background: #ff9944; color: #0a0a0f; font-size: 14pt; font-weight: bold; "
-            f"border: 2px solid #ff9944; border-radius: 6px;")
+        self._rec_btn = GlassButton("● REC", accent=True, height=44)
         self._rec_btn.clicked.connect(self._toggle_rec)
         layout.addWidget(self._rec_btn)
 
@@ -214,14 +190,14 @@ class RecorderPanel(QWidget):
         self._project = project
         self._timeline = timeline
         self._target_track = track
-        self._color = {"voice": "#ff9944", "sfx": "#44cc88", "music": "#cc44aa", "audio": C["cyan"]}.get(track, C["cyan"])
+        self._color = {"voice": C["track_voice"], "sfx": C["track_sfx"], "music": C["track_music"], "audio": C["track_audio"]}.get(track, C["accent"])
         self._title_lbl.setText(f"\u25cf GRAVAR ({track.upper()})")
         self._title_lbl.setStyleSheet(f"color: {self._color}; font-size: 13pt; font-weight: bold;")
         self._waveform.set_color(self._color)
         self._waveform.clear()
         self._level.setValue(0)
         self._level.setStyleSheet(
-            f"QProgressBar {{ background: #1a1a2a; border: none; border-radius: 4px; }}"
+            f"QProgressBar {{ background: {C['border']}; border: none; border-radius: 4px; }}"
             f"QProgressBar::chunk {{ background: {self._color}; border-radius: 4px; }}")
         self._status.setText(f"Track: {track.upper()}")
         self._status.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
@@ -239,7 +215,7 @@ class RecorderPanel(QWidget):
             import sounddevice as sd
         except ImportError:
             self._status.setText("Erro: pip install sounddevice")
-            self._status.setStyleSheet(f"color: #ff4444; font-size: 9pt;")
+            self._status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
             return
 
         self._recording = True
@@ -248,11 +224,9 @@ class RecorderPanel(QWidget):
         self._start_time = _time.time()
         self._waveform.clear()
         self._status.setText("\u25cf GRAVANDO...")
-        self._status.setStyleSheet(f"color: #ff4444; font-size: 9pt; font-weight: bold;")
-        self._rec_btn.setText("\u25a0 PARAR")
-        self._rec_btn.setStyleSheet(
-            f"background: #2a0808; color: #ff4444; font-size: 14pt; font-weight: bold; "
-            f"border: 2px solid #ff4444; border-radius: 6px;")
+        self._status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt; font-weight: bold;")
+        self._rec_btn.setText("■ PARAR")
+        self._rec_btn.setStyleSheet("background: transparent; border: none;")
         self._ui_timer.start()
 
         def callback(indata, frames, t, status):
@@ -265,30 +239,21 @@ class RecorderPanel(QWidget):
         self._stream.start()
 
     def _tick(self):
-        """Chamado a cada 50ms para atualizar UI."""
         if not self._recording:
             return
-
-        # Tempo
         elapsed = _time.time() - self._start_time
         m = int(elapsed) // 60
         s = elapsed % 60
         self._time_label.setText(f"{m:02d}:{s:04.1f}")
-
-        # Waveform do último bloco
         if self._last_block is not None:
             block = self._last_block
             self._last_block = None
             self._waveform.push_block(block)
-
-            # Level meter
             peak = float(np.abs(block).max())
             level = int(min(100, peak / 32768.0 * 300))
             self._level.setValue(level)
-
-        # Tamanho estimado
         n_samples = sum(len(f) for f in self._frames)
-        size_kb = (n_samples * 2) / 1024  # 16bit = 2 bytes
+        size_kb = (n_samples * 2) / 1024
         if size_kb > 1024:
             self._info_size.setText(f"{size_kb/1024:.1f} MB")
         else:
@@ -306,17 +271,14 @@ class RecorderPanel(QWidget):
 
         if not self._frames:
             self._status.setText("Nenhum audio capturado")
-            self._status.setStyleSheet(f"color: #ff4444; font-size: 9pt;")
+            self._status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
             self._reset_btn()
             return
 
         audio_data = np.concatenate(self._frames, axis=0)
         duration = len(audio_data) / 44100
-
-        # Waveform estática final
         self._waveform.set_static(audio_data)
 
-        # Salvar
         out_dir = AUDIO_DIR / self._project.id
         out_dir.mkdir(parents=True, exist_ok=True)
         filepath = out_dir / f"rec_{int(_time.time())}.wav"
@@ -327,11 +289,9 @@ class RecorderPanel(QWidget):
             wf.setframerate(44100)
             wf.writeframes(audio_data.tobytes())
 
-        # Info
         size_kb = filepath.stat().st_size / 1024
         self._info_size.setText(f"{size_kb:.0f} KB")
 
-        # Adicionar na timeline
         existing = self._project.get_track_items(self._target_track)
         if existing:
             last = max(existing, key=lambda i: i.start_time + i.duration)
@@ -348,17 +308,23 @@ class RecorderPanel(QWidget):
         self._status.setText(f"\u2714 Salvo! {duration:.1f}s \u2192 {self._target_track.upper()} | {filepath.name}")
         self._status.setStyleSheet(f"color: {C['cyan']}; font-size: 9pt;")
         self._time_label.setText(f"{int(duration)//60:02d}:{duration%60:04.1f}")
-        self._rec_btn.setText("\u25cf GRAVAR NOVO")
-        self._rec_btn.setStyleSheet(
-            f"background: {self._color}; color: #0a0a0f; font-size: 14pt; font-weight: bold; "
-            f"border: 2px solid {self._color}; border-radius: 6px;")
+        self._rec_btn.setText("● GRAVAR NOVO")
+        self._rec_btn.setStyleSheet("background: transparent; border: none;")
         self.recorded.emit()
+        QTimer.singleShot(200, self._refresh_browser)
 
     def _reset_btn(self):
-        self._rec_btn.setText("\u25cf REC")
-        self._rec_btn.setStyleSheet(
-            f"background: {self._color}; color: #0a0a0f; font-size: 14pt; font-weight: bold; "
-            f"border: 2px solid {self._color}; border-radius: 6px;")
+        self._rec_btn.setText("● REC")
+        self._rec_btn.setStyleSheet("background: transparent; border: none;")
+
+    def _refresh_browser(self):
+        """Atualiza AudioBrowserPanel se estiver visível."""
+        try:
+            top = self.window()
+            if hasattr(top, 'audio_browser'):
+                top.audio_browser.refresh()
+        except Exception:
+            pass
 
 
 class TTSPanel(QWidget):
@@ -373,7 +339,6 @@ class TTSPanel(QWidget):
         self._timeline = None
         self.setMinimumWidth(250)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setStyleSheet(f"background: {C['panel']};")
         self._build_ui()
 
     def _build_ui(self):
@@ -384,7 +349,7 @@ class TTSPanel(QWidget):
         # Header
         hdr = QHBoxLayout()
         lbl = QLabel("\U0001f3a4 GERAR VOZ")
-        lbl.setStyleSheet(f"color: #ff9944; font-size: 13pt; font-weight: bold;")
+        lbl.setStyleSheet(f"color: {C['track_voice']}; font-size: 13pt; font-weight: bold;")
         hdr.addWidget(lbl)
         hdr.addStretch()
         close_btn = QPushButton("X")
@@ -394,23 +359,18 @@ class TTSPanel(QWidget):
         hdr.addWidget(close_btn)
         layout.addLayout(hdr)
 
-        sep = QFrame()
-        sep.setFixedHeight(2)
-        sep.setStyleSheet("background: #ff9944;")
-        layout.addWidget(sep)
-
         # Texto
         layout.addWidget(self._lbl("Texto:"))
         self._text = QTextEdit()
         self._text.setMinimumHeight(80)
         self._text.setPlaceholderText("Digite o texto para gerar voz...")
         self._text.setStyleSheet(
-            f"background: {C['input']}; color: {C['text']}; border: 2px solid #ff9944; "
+            f"background: {C['input']}; color: {C['text']}; border: 2px solid {C['track_voice']}; "
             f"border-radius: 6px; font-size: 10pt;")
         layout.addWidget(self._text)
 
         # Waveform (resultado)
-        self._waveform = _LiveWaveformWidget("#ff9944")
+        self._waveform = _LiveWaveformWidget(C["track_voice"])
         self._waveform.setMinimumHeight(50)
         layout.addWidget(self._waveform)
 
@@ -427,14 +387,11 @@ class TTSPanel(QWidget):
         self._progress.setTextVisible(False)
         self._progress.setStyleSheet(
             f"QProgressBar {{ background: {C['card']}; border: none; border-radius: 3px; }}"
-            f"QProgressBar::chunk {{ background: #ff9944; border-radius: 3px; }}")
+            f"QProgressBar::chunk {{ background: {C['track_voice']}; border-radius: 3px; }}")
         layout.addWidget(self._progress)
 
         # Gerar button
-        gen_btn = QPushButton("GERAR")
-        gen_btn.setFixedHeight(36)
-        gen_btn.setStyleSheet(
-            f"background: #ff9944; color: #0a0a0f; font-size: 12pt; font-weight: bold; border-radius: 4px;")
+        gen_btn = GlassButton("GERAR", accent=True, height=36)
         gen_btn.clicked.connect(self._generate)
         layout.addWidget(gen_btn)
 
@@ -451,7 +408,7 @@ class TTSPanel(QWidget):
             return
 
         self._status.setText("Gerando...")
-        self._status.setStyleSheet(f"color: #ff9944; font-size: 9pt;")
+        self._status.setStyleSheet(f"color: {C['track_voice']}; font-size: 9pt;")
         self._progress.setValue(30)
         self._waveform.clear()
 
@@ -466,23 +423,18 @@ class TTSPanel(QWidget):
                 if result:
                     with wave.open(str(path), "r") as wf:
                         dur = wf.getnframes() / wf.getframerate()
-
-                    # Waveform do resultado
                     self._load_waveform(str(path))
-
                     existing = self._project.get_track_items("voice")
                     if existing:
                         last = max(existing, key=lambda i: i.start_time + i.duration)
                         start = last.start_time + last.duration
                     else:
                         start = self._timeline.playhead_pos if self._timeline else 0
-
                     self._project.add_track_item(
                         name=text[:20], track="voice",
                         start_time=start, duration=dur, file_path=str(path),
                         params={"text": text, "block_name": f"\U0001f5e3 {text[:15]}"})
                     self._project.save(PROJECTS_DIR)
-
                     QTimer.singleShot(0, lambda: self._on_done(dur))
                 else:
                     QTimer.singleShot(0, self._on_error)
@@ -510,7 +462,7 @@ class TTSPanel(QWidget):
 
     def _on_error(self, msg="Erro na geração"):
         self._status.setText(f"Erro: {msg[:40]}" if msg else "Erro na geração")
-        self._status.setStyleSheet(f"color: #ff4444; font-size: 9pt;")
+        self._status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
         self._progress.setValue(0)
 
     def _lbl(self, text):

@@ -22,7 +22,6 @@ class MixerPanel(QWidget):
         self._item = None
         self._sliders = {}
         self.setObjectName("mixerPanel")
-        self.setStyleSheet(f"QWidget#mixerPanel {{ background: {C['panel']}; }}")
         self.setMinimumWidth(250)
         self._build_ui()
 
@@ -84,8 +83,8 @@ class MixerPanel(QWidget):
 
         # FADES
         L.addWidget(self._section("FADES"))
-        self._sliders["fade_in"] = self._add_slider(L, "Fade In", 0, 50, 0, "s", "#6b3fa0", divisor=10)
-        self._sliders["fade_out"] = self._add_slider(L, "Fade Out", 0, 50, 0, "s", "#6b3fa0", divisor=10)
+        self._sliders["fade_in"] = self._add_slider(L, "Fade In", 0, 50, 0, "s", C["secondary"], divisor=10)
+        self._sliders["fade_out"] = self._add_slider(L, "Fade Out", 0, 50, 0, "s", C["secondary"], divisor=10)
 
         # PITCH
         self._sliders["pitch"] = self._add_slider(L, "PITCH (semitons)", -12, 12, 0, "st", C["gold"])
@@ -96,12 +95,12 @@ class MixerPanel(QWidget):
 
         # EQ
         L.addWidget(self._section("EQUALIZADOR"))
-        self._sliders["eq_low"] = self._add_slider(L, "Low", -12, 12, 0, "dB", "#ff6644")
-        self._sliders["eq_mid"] = self._add_slider(L, "Mid", -12, 12, 0, "dB", "#ffcc44")
-        self._sliders["eq_high"] = self._add_slider(L, "High", -12, 12, 0, "dB", "#44ccff")
+        self._sliders["eq_low"] = self._add_slider(L, "Low", -12, 12, 0, "dB", C["danger"])
+        self._sliders["eq_mid"] = self._add_slider(L, "Mid", -12, 12, 0, "dB", C["track_voice"])
+        self._sliders["eq_high"] = self._add_slider(L, "High", -12, 12, 0, "dB", C["accent"])
 
         # REVERB
-        self._sliders["reverb"] = self._add_slider(L, "REVERB", 0, 100, 0, "%", "#8855bb")
+        self._sliders["reverb"] = self._add_slider(L, "REVERB", 0, 100, 0, "%", C["primary"])
 
         # KEYFRAMES DE VOLUME
         from makevid.qt.panels.keyframe_editor import KeyframeEditorWidget

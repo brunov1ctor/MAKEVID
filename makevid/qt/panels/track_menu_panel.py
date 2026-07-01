@@ -2,11 +2,10 @@
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QFileDialog, QGridLayout
+    QScrollArea, QFrame, QGridLayout
 )
 from PySide6.QtCore import Qt, Signal
-import shutil
-from pathlib import Path
+from PySide6.QtGui import QColor
 
 from makevid.qt.theme import C
 from makevid.config import AUDIO_DIR, PROJECTS_DIR
@@ -14,23 +13,33 @@ from makevid.data.fx_definitions import FX_TABS, FX_TAB_TOOLTIPS
 
 
 TRACK_CONFIG = {
-    "voice": ("#ff9944", "\U0001f3a4 VOZ", [
+    "voice": (lambda: C["track_voice"], "\U0001f3a4 VOZ", [
         ("\U0001f4c2 Importar Voz", "WAV, MP3", "import"),
         ("\U0001f3a7 Gravar", "Gravar microfone", "record"),
         ("\U0001f5e3 Gerar TTS", "Texto para fala (edge-tts)", "tts"),
     ]),
-    "sfx": ("#44cc88", "\U0001f50a SFX", [
+    "sfx": (lambda: C["track_sfx"], "\U0001f50a SFX", [
         ("\U0001f4c2 Importar SFX", "WAV, MP3, OGG", "import"),
         ("\U0001f3a7 Gravar", "Gravar microfone", "record"),
     ]),
-    "music": ("#cc44aa", "\U0001f3b5 MUSICA", [
+    "music": (lambda: C["track_music"], "\U0001f3b5 MUSICA", [
         ("\U0001f4c2 Importar Musica", "WAV, MP3, OGG", "import"),
     ]),
-    "audio": ("#0ac8b9", "\U0001f3a7 AUDIO", [
+    "audio": (lambda: C["track_audio"], "\U0001f3a7 AUDIO", [
         ("\U0001f4c2 Importar Audio", "MP3, WAV, OGG", "import"),
         ("\U0001f3a7 Gravar", "Gravar microfone", "record"),
     ]),
 }
+
+
+def _mix(base_hex: str, tint_hex: str, t: float = 0.14) -> str:
+    """Mistura base com tint em proporção t (0-1). Retorna hex."""
+    b = QColor(base_hex)
+    c = QColor(tint_hex)
+    r = int(b.red()   * (1 - t) + c.red()   * t)
+    g = int(b.green() * (1 - t) + c.green() * t)
+    bl = int(b.blue()  * (1 - t) + c.blue()  * t)
+    return QColor(r, g, bl).name()
 
 
 class TrackMenuPanel(QWidget):
@@ -47,7 +56,6 @@ class TrackMenuPanel(QWidget):
         super().__init__(parent)
         self.setMinimumWidth(250)
         self.setObjectName("trackMenuPanel")
-        self.setStyleSheet(f"QWidget#trackMenuPanel {{ background-color: {C['panel']}; }}")
         from PySide6.QtWidgets import QSizePolicy
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._outer = QVBoxLayout(self)
@@ -55,44 +63,72 @@ class TrackMenuPanel(QWidget):
         self._outer.setSpacing(0)
         self._fx_tab_buttons = []
         self._fx_content_area = None
+        self._apply_bg(C["glass"])
+
+    def _apply_bg(self, color_hex: str):
+        """Aplica cor de fundo via stylesheet — garante repaint imediato."""
+        mixed = _mix(C["glass"], color_hex)
+        self.setStyleSheet(
+            f"QWidget#trackMenuPanel {{ background: {mixed}; }}"
+            f"QScrollArea {{ background: transparent; border: none; }}"
+            f"QWidget {{ background: transparent; }}"
+        )
 
     def show_track(self, track_name, project):
-        """Mostra menu para a track especificada."""
+        # Se já está mostrando a mesma track, não reconstrói
+        if getattr(self, '_track', None) == track_name and getattr(self, '_project', None) is project:
+            return
+
         self._track = track_name
         self._project = project
 
-        # Limpar
-        while self._outer.count():
-            child = self._outer.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
-            elif child.layout():
-                sub = child.layout()
+        # Destruir e recriar o layout interno para limpar tudo (layouts + widgets)
+        old_layout = self._outer
+        # Remover todos os itens do layout antigo
+        while old_layout.count():
+            item = old_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.hide()
+                w.setParent(None)
+            sub = item.layout()
+            if sub:
                 while sub.count():
-                    item = sub.takeAt(0)
-                    if item.widget():
-                        item.widget().deleteLater()
+                    si = sub.takeAt(0)
+                    sw = si.widget()
+                    if sw:
+                        sw.hide()
+                        sw.setParent(None)
+
+        # Aplicar cor de fundo
+        cfg = TRACK_CONFIG.get(track_name)
+        if cfg:
+            self._apply_bg(cfg[0]())
+        elif track_name == "fx":
+            self._apply_bg(C["purple"])
+        elif track_name == "video":
+            self._apply_bg(C["blue"])
+        else:
+            self._apply_bg(C["glass"])
 
         if track_name == "fx":
             self._build_fx_menu()
         else:
             self._build_audio_menu(track_name)
 
-        self.show()
-
     def _build_audio_menu(self, track_name):
         config = TRACK_CONFIG.get(track_name)
         if not config:
             return
-        color, title, items = config
-
+        color_fn, title, items = config
+        color = color_fn()
         L = self._outer
 
-        # Header
-        hdr_l = QHBoxLayout()
+        hdr = QWidget()
+        hdr_l = QHBoxLayout(hdr)
         hdr_l.setContentsMargins(10, 6, 10, 4)
         lbl = QLabel(title)
-        lbl.setStyleSheet(f"color: {color}; font-size: 13pt; font-weight: bold; background: transparent; border: none;")
+        lbl.setStyleSheet(f"color: {color}; font-size: 13pt; font-weight: bold;")
         hdr_l.addWidget(lbl)
         hdr_l.addStretch()
         close_btn = QPushButton("X")
@@ -100,19 +136,17 @@ class TrackMenuPanel(QWidget):
         close_btn.setFixedSize(24, 24)
         close_btn.clicked.connect(self.closed.emit)
         hdr_l.addWidget(close_btn)
-        L.addLayout(hdr_l)
+        L.addWidget(hdr)
 
-        # Scroll com opcoes
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("border: none;")
         content = QWidget()
         cl = QVBoxLayout(content)
         cl.setContentsMargins(10, 6, 10, 10)
         cl.setSpacing(4)
 
         info = QLabel("Clique para adicionar na track")
-        info.setStyleSheet(f"color: {C['text3']}; font-size: 9pt; border: none;")
+        info.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
         cl.addWidget(info)
 
         grid = QGridLayout()
@@ -122,16 +156,16 @@ class TrackMenuPanel(QWidget):
             item_frame.setObjectName("trackItem")
             item_frame.setStyleSheet(
                 f"QFrame#trackItem {{ background: {color}; border: 2px solid {color}; border-radius: 6px; }}"
-                f"QFrame#trackItem:hover {{ background: #ffd700; border-color: #ffd700; }}")
+                f"QFrame#trackItem:hover {{ background: {C['secondary']}; border-color: {C['secondary']}; }}")
             il = QVBoxLayout(item_frame)
             il.setContentsMargins(10, 6, 10, 6)
             n_lbl = QLabel(name)
             n_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
-            n_lbl.setStyleSheet(f"color: #0a0a0f; font-size: 10pt; font-weight: bold; border: none; background: transparent;")
+            n_lbl.setStyleSheet(f"color: {C['dark_text']}; font-size: 10pt; font-weight: bold;")
             il.addWidget(n_lbl)
             d_lbl = QLabel(desc)
             d_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
-            d_lbl.setStyleSheet(f"color: #1a1a2a; font-size: 8pt; border: none; background: transparent;")
+            d_lbl.setStyleSheet(f"color: {C['bg']}; font-size: 8pt;")
             il.addWidget(d_lbl)
 
             if action_type == "import":
@@ -144,31 +178,28 @@ class TrackMenuPanel(QWidget):
             item_frame.setCursor(Qt.PointingHandCursor)
             grid.addWidget(item_frame, idx // 2, idx % 2)
         cl.addLayout(grid)
-
         cl.addStretch()
         scroll.setWidget(content)
         L.addWidget(scroll)
 
-        # Limpar Track
         clear_btn = QPushButton("Limpar Track")
         clear_btn.setFixedHeight(34)
         clear_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; color: #ff4444; font-weight: bold; font-size: 10pt; "
-            f"border: 1px solid #ff4444; border-radius: 4px; padding: 4px 12px; margin: 4px 10px; }}"
-            f"QPushButton:hover {{ background: #2a0808; border-color: #ff6666; color: #ff6666; }}")
+            f"QPushButton {{ background: transparent; color: {C['danger']}; font-weight: bold; font-size: 10pt; "
+            f"border: 1px solid {C['danger']}; border-radius: 4px; padding: 4px 12px; margin: 4px 10px; }}"
+            f"QPushButton:hover {{ background: {C['danger_bg']}; }}")
         clear_btn.clicked.connect(lambda: self.action_clear.emit(track_name))
         L.addWidget(clear_btn)
 
     def _build_fx_menu(self):
-        """Menu de FX com abas clicaveis por categoria (estilo CapCut)."""
         color = C["purple"]
         L = self._outer
 
-        # Header
-        hdr_l = QHBoxLayout()
+        hdr = QWidget()
+        hdr_l = QHBoxLayout(hdr)
         hdr_l.setContentsMargins(10, 6, 10, 4)
         lbl = QLabel("EFEITOS")
-        lbl.setStyleSheet(f"color: {color}; font-size: 13pt; font-weight: bold; background: transparent; border: none;")
+        lbl.setStyleSheet(f"color: {color}; font-size: 13pt; font-weight: bold;")
         hdr_l.addWidget(lbl)
         hdr_l.addStretch()
         close_btn = QPushButton("X")
@@ -176,9 +207,8 @@ class TrackMenuPanel(QWidget):
         close_btn.setFixedSize(24, 24)
         close_btn.clicked.connect(self.closed.emit)
         hdr_l.addWidget(close_btn)
-        L.addLayout(hdr_l)
+        L.addWidget(hdr)
 
-        # Barra de abas horizontal
         tabs_bar = QWidget()
         tabs_bar.setFixedHeight(36)
         tabs_bar.setStyleSheet(f"background: {C['card']}; border-radius: 4px;")
@@ -188,7 +218,6 @@ class TrackMenuPanel(QWidget):
 
         self._fx_tab_buttons = []
         tab_keys = list(FX_TABS.keys())
-
         for key in tab_keys:
             tab = FX_TABS[key]
             btn = QPushButton(f"{tab['icon']} {tab['label']}")
@@ -203,33 +232,25 @@ class TrackMenuPanel(QWidget):
             tip = FX_TAB_TOOLTIPS.get(key, "")
             if tip:
                 btn.setToolTip(tip)
-
         L.addWidget(tabs_bar)
 
-        # Area de conteudo
         self._fx_content_area = QScrollArea()
         self._fx_content_area.setWidgetResizable(True)
-        self._fx_content_area.setStyleSheet("border: none;")
         L.addWidget(self._fx_content_area)
 
-        # Limpar Track
         clear_btn = QPushButton("Limpar Track")
         clear_btn.setFixedHeight(34)
         clear_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; color: #ff4444; font-weight: bold; font-size: 10pt; "
-            f"border: 1px solid #ff4444; border-radius: 4px; padding: 4px 12px; margin: 4px 10px; }}"
-            f"QPushButton:hover {{ background: #2a0808; border-color: #ff6666; color: #ff6666; }}")
+            f"QPushButton {{ background: transparent; color: {C['danger']}; font-weight: bold; font-size: 10pt; "
+            f"border: 1px solid {C['danger']}; border-radius: 4px; padding: 4px 12px; margin: 4px 10px; }}"
+            f"QPushButton:hover {{ background: {C['danger_bg']}; }}")
         clear_btn.clicked.connect(lambda: self.action_clear.emit("fx"))
         L.addWidget(clear_btn)
 
-        # Selecionar primeira aba
         self._select_fx_tab(tab_keys[0])
 
     def _select_fx_tab(self, selected_key):
-        """Seleciona aba FX e mostra seus efeitos."""
         color = C["purple"]
-
-        # Atualizar estilo dos botoes
         for key, btn in self._fx_tab_buttons:
             if key == selected_key:
                 btn.setStyleSheet(
@@ -241,7 +262,6 @@ class TrackMenuPanel(QWidget):
                     f"font-weight: bold; border: none; border-radius: 3px; padding: 2px 6px; }}"
                     f"QPushButton:hover {{ background: {C['card_hover']}; }}")
 
-        # Construir conteudo da aba
         tab = FX_TABS[selected_key]
         content = QWidget()
         cl = QVBoxLayout(content)
@@ -255,26 +275,24 @@ class TrackMenuPanel(QWidget):
             item_frame.setObjectName("fxItem")
             item_frame.setStyleSheet(
                 f"QFrame#fxItem {{ background: {color}; border: 2px solid {color}; border-radius: 5px; }}"
-                f"QFrame#fxItem:hover {{ background: #bb77ff; border-color: #bb77ff; }}")
+                f"QFrame#fxItem:hover {{ background: {C['secondary']}; border-color: {C['secondary']}; }}")
             il = QVBoxLayout(item_frame)
             il.setContentsMargins(8, 5, 8, 5)
             n_lbl = QLabel(name)
             n_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
-            n_lbl.setStyleSheet(f"color: #0a0a0f; font-size: 9pt; font-weight: bold; border: none; background: transparent;")
+            n_lbl.setStyleSheet(f"color: {C['dark_text']}; font-size: 9pt; font-weight: bold;")
             il.addWidget(n_lbl)
             d_lbl = QLabel(desc)
             d_lbl.setWordWrap(True)
             d_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
-            d_lbl.setStyleSheet(f"color: #1a1a2a; font-size: 8pt; border: none; background: transparent;")
+            d_lbl.setStyleSheet(f"color: {C['bg']}; font-size: 8pt;")
             il.addWidget(d_lbl)
             item_frame.setCursor(Qt.PointingHandCursor)
             item_frame.mousePressEvent = lambda e, n=name: self._add_fx(n)
             grid.addWidget(item_frame, idx // 2, idx % 2)
         cl.addLayout(grid)
         cl.addStretch()
-
         self._fx_content_area.setWidget(content)
 
     def _add_fx(self, name):
-        """Adiciona FX item na timeline na posicao do playhead."""
         self.action_add_fx.emit(name)

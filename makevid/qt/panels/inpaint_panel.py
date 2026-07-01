@@ -13,6 +13,7 @@ from PySide6.QtGui import (
 )
 
 from makevid.qt.theme import C
+from makevid.qt.widgets import GlassButton
 
 
 class MaskCanvas(QWidget):
@@ -73,7 +74,7 @@ class MaskCanvas(QWidget):
                     scaled.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 p.drawPixmap(ox, oy, mask_pix)
         else:
-            p.fillRect(self.rect(), QColor("#0a0c18"))
+            p.fillRect(self.rect(), QColor(C["dark"]))
             p.setPen(QColor(C['text3']))
             p.drawText(self.rect(), Qt.AlignCenter, "Nenhum frame carregado")
 
@@ -126,7 +127,6 @@ class InpaintPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedWidth(300)
-        self.setStyleSheet(f"background: {C['panel']};")
         self._frame = None
         self._build_ui()
 
@@ -138,12 +138,12 @@ class InpaintPanel(QWidget):
         # Header
         hdr = QHBoxLayout()
         lbl = QLabel("\U0001f3a8 INPAINT")
-        lbl.setStyleSheet(f"color: {C['gold']}; font-size: 12pt; font-weight: bold;")
+        lbl.setStyleSheet(f"color: {C['primary']}; font-size: 12pt; font-weight: bold;")
         hdr.addWidget(lbl)
         hdr.addStretch()
         close_btn = QPushButton("X")
         close_btn.setFixedSize(24, 20)
-        close_btn.setStyleSheet(f"background: {C['card']}; color: {C['text3']}; font-weight: bold;")
+        close_btn.setStyleSheet(f"background: {C['glass']}; color: {C['text3']}; font-weight: bold; border-radius: 6px;")
         close_btn.clicked.connect(self.closed.emit)
         hdr.addWidget(close_btn)
         L.addLayout(hdr)
@@ -158,7 +158,7 @@ class InpaintPanel(QWidget):
         self._btn_brush = QPushButton("\U0001f58c Pincel")
         self._btn_brush.setCheckable(True)
         self._btn_brush.setChecked(True)
-        self._btn_brush.setStyleSheet(f"background: {C['card']}; color: {C['cyan']}; font-weight: bold; border: 1px solid {C['cyan']}; border-radius: 4px; padding: 4px 8px;")
+        self._btn_brush.setStyleSheet(f"background: {C['glass']}; color: {C['accent']}; font-weight: bold; border: 1px solid {C['accent']}; border-radius: 8px; padding: 4px 8px;")
         self._btn_brush.clicked.connect(lambda: self._set_tool(False))
         tools.addWidget(self._btn_brush)
 
@@ -169,7 +169,7 @@ class InpaintPanel(QWidget):
         tools.addWidget(self._btn_eraser)
 
         btn_clear = QPushButton("Limpar")
-        btn_clear.setStyleSheet(f"background: {C['card']}; color: #ff4444; border: 1px solid #ff4444; border-radius: 4px; padding: 4px 8px;")
+        btn_clear.setStyleSheet(f"background: {C['glass']}; color: {C['danger']}; border: 1px solid {C['danger']}; border-radius: 8px; padding: 4px 8px;")
         btn_clear.clicked.connect(self._canvas.clear_mask)
         tools.addWidget(btn_clear)
         L.addLayout(tools)
@@ -189,13 +189,11 @@ class InpaintPanel(QWidget):
         self._prompt = QTextEdit()
         self._prompt.setFixedHeight(50)
         self._prompt.setPlaceholderText("Descreva o que colocar na regiao pintada...")
-        self._prompt.setStyleSheet(f"background: {C['input']}; color: {C['text']}; border: 2px solid {C['gold']}; border-radius: 6px; font-size: 10pt;")
+        self._prompt.setStyleSheet(f"background: {C['input']}; color: {C['text']}; border: 1px solid {C['glass_border']}; border-radius: 10px; font-size: 10pt;")
         L.addWidget(self._prompt)
 
         # Generate
-        gen_btn = QPushButton("INPAINT")
-        gen_btn.setFixedHeight(36)
-        gen_btn.setStyleSheet(f"background: {C['gold']}; color: #0a0a0f; font-size: 12pt; font-weight: bold; border-radius: 4px;")
+        gen_btn = GlassButton("INPAINT", accent=True, height=36)
         gen_btn.clicked.connect(self._do_inpaint)
         L.addWidget(gen_btn)
 
@@ -237,7 +235,7 @@ class InpaintPanel(QWidget):
 
     def on_error(self, msg):
         self._status.setText(f"Erro: {msg[:40]}")
-        self._status.setStyleSheet(f"color: #ff4444; font-size: 9pt;")
+        self._status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
 
     def _sub(self, text):
         lbl = QLabel(text)

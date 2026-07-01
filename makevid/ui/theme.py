@@ -1,28 +1,48 @@
-"""Theme - Cores e constantes visuais."""
+"""Theme - Liquid Glass Design System."""
 
 C = {
-    "bg": "#0a0a0f",
-    "panel": "#0d0f1a",
-    "card": "#111328",
-    "card_hover": "#1a1d3a",
-    "input": "#0a0c18",
-    "border": "#1e2a4a",
-    "gold": "#c89b3c",
-    "cyan": "#0ac8b9",
-    "purple": "#6b3fa0",
-    "blue": "#005a82",
-    "text": "#f0e6d2",
-    "text2": "#a09b8c",
-    "text3": "#5b5a56",
-    "red": "#ff4444",
-    "green": "#0ac8b9",
-    "playhead": "#ff3333",
-    "ruler": "#1a1d2a",
-    "ruler_text": "#666688",
-    "ruler_line": "#333355",
-    "trim_handle": "#c89b3c",
-    # Neon glow variants
-    "neon_gold": "#ffd700",
-    "neon_cyan": "#00ffee",
-    "neon_purple": "#bb77ff",
+    # Backgrounds
+    "bg": "#07111F",
+    "panel": "#0d1829",
+    "card": "#0f1e30",
+    "card_hover": "#162438",
+    "input": "#081018",
+    "border": "#2d3f5a",
+
+    # Liquid Glass
+    "glass": "#111e2e",          # painel glass (simula rgba(255,255,255,0.15) sobre #07111F)
+    "glass_hover": "#1a2a3e",    # hover glass
+    "glass_border": "#3a4f6a",   # borda glass (simula rgba(255,255,255,0.18))
+
+    # Brand
+    "primary": "#6C63FF",
+    "secondary": "#8A7DFF",
+    "accent": "#5AE4FF",
+
+    # Legacy aliases (compatibilidade)
+    "gold": "#6C63FF",
+    "cyan": "#5AE4FF",
+    "purple": "#8A7DFF",
+    "blue": "#3a5a8a",
+
+    # Text
+    "text": "#E8EAF0",
+    "text2": "#8A9BB5",
+    "text3": "#4a5a72",
+
+    # States
+    "red": "#ff4466",
+    "green": "#5AE4FF",
+    "playhead": "#ff3355",
+
+    # Timeline
+    "ruler": "#0d1829",
+    "ruler_text": "#4a6080",
+    "ruler_line": "#1e3050",
+    "trim_handle": "#6C63FF",
+
+    # Neon glow
+    "neon_gold": "#8A7DFF",
+    "neon_cyan": "#5AE4FF",
+    "neon_purple": "#6C63FF",
 }

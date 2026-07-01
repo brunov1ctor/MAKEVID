@@ -16,15 +16,18 @@ from makevid.qt.timeline.playhead import PlayheadItem
 from makevid.qt.timeline.interaction import SceneInteraction
 
 
-TRACK_CONFIG = [
-    # (key, label, color, weight, sub_label)
-    ("video", "VIDEO", "#3399ff", 3.0, "Track"),
-    ("fx", "FX", "#6b3fa0", 1.2, "Effects"),
-    ("voice", "VOICE", "#ff9944", 1.2, "TTS"),
-    ("sfx", "SFX", "#44cc88", 1.2, "Foley"),
-    ("music", "MUSIC", "#cc44aa", 1.2, "Score"),
-    ("audio", "AUDIO", "#0ac8b9", 1.5, "Mix"),
-]
+def _track_config():
+    return [
+        # (key, label, color, weight, sub_label)
+        ("video", "VIDEO", C["blue"],         3.0, "Track"),
+        ("fx",    "FX",    C["track_fx"],     1.2, "Effects"),
+        ("voice", "VOICE", C["track_voice"],  1.2, "TTS"),
+        ("sfx",   "SFX",   C["track_sfx"],   1.2, "Foley"),
+        ("music", "MUSIC", C["track_music"],  1.2, "Score"),
+        ("audio", "AUDIO", C["track_audio"],  1.5, "Mix"),
+    ]
+
+TRACK_CONFIG = _track_config()
 
 
 class TimelineScene(QGraphicsScene):
@@ -49,6 +52,9 @@ class TimelineScene(QGraphicsScene):
         self.clear()
         self._playhead_item = None
         self._drag_guide_line = None
+        # Atualizar config com cores atuais do tema
+        global TRACK_CONFIG
+        TRACK_CONFIG = _track_config()
 
         lbl_w = self.tl.LBL_W
         ruler_h = self.tl.RULER_H
@@ -60,6 +66,7 @@ class TimelineScene(QGraphicsScene):
         scene_h = view_h
 
         self.setSceneRect(0, 0, scene_w, scene_h)
+        self.setBackgroundBrush(QColor(C["dark"]))
 
         # Calcular posicoes das tracks
         self._calc_track_positions(scene_h, ruler_h)
@@ -67,11 +74,11 @@ class TimelineScene(QGraphicsScene):
         # Desenhar backgrounds e separadores
         self._draw_all_track_bgs(lbl_w, scene_w, scene_h)
 
-        # Centerline na track AUDIO (DAW style)
+        # Centerline na track AUDIO (DAW style) — muito sutil
         ay, ah = self._track_positions["audio"]
         mid_audio = ay + ah // 2
         cl = QGraphicsLineItem(lbl_w, mid_audio, scene_w, mid_audio)
-        cl.setPen(QPen(QColor("#0a1a20"), 1, Qt.DashDotLine))
+        cl.setPen(QPen(QColor(C["ruler_line"]), 1, Qt.DashLine))
         cl.setZValue(-8)
         self.addItem(cl)
 
@@ -126,50 +133,30 @@ class TimelineScene(QGraphicsScene):
     # ============================================================
 
     def _draw_all_track_bgs(self, lbl_w, scene_w, scene_h):
-        bg_colors = {
-            "video": "#0b0e18", "fx": "#0c0818", "voice": "#0e0a08",
-            "sfx": "#080e0a", "music": "#0e080c", "audio": "#080e16",
-        }
-        prev_end = None
-        for name, _, color, _, _ in TRACK_CONFIG:
+        for i, (name, _, color, _, _) in enumerate(TRACK_CONFIG):
             y, h = self._track_positions[name]
+            bg_color = QColor(C["panel"]) if i % 2 == 0 else QColor(C["bg"])
 
-            # Separador entre tracks
-            if prev_end is not None and y > prev_end:
-                sep = QGraphicsRectItem(lbl_w, prev_end, scene_w - lbl_w, y - prev_end)
-                sep.setPen(QPen(Qt.NoPen))
-                sep.setBrush(QBrush(QColor("#050710")))
-                sep.setZValue(-11)
-                self.addItem(sep)
-
-            # Fundo da track
             bg = QGraphicsRectItem(lbl_w, y, scene_w - lbl_w, h)
             bg.setPen(QPen(Qt.NoPen))
-            bg.setBrush(QBrush(QColor(bg_colors.get(name, "#0b0e18"))))
+            bg.setBrush(QBrush(bg_color))
             bg.setZValue(-10)
             self.addItem(bg)
 
-            # Borda superior colorida
-            line = QGraphicsLineItem(lbl_w, y, scene_w, y)
-            line.setPen(QPen(QColor(color), 1.5))
-            line.setZValue(-9)
-            self.addItem(line)
+            # Tint colorido sutil da cor da track
+            tint = QColor(color)
+            tint.setAlpha(28)
+            tint_item = QGraphicsRectItem(lbl_w, y, scene_w - lbl_w, h)
+            tint_item.setPen(QPen(Qt.NoPen))
+            tint_item.setBrush(QBrush(tint))
+            tint_item.setZValue(-9)
+            self.addItem(tint_item)
 
-            # Borda inferior sutil
-            bline = QGraphicsLineItem(lbl_w, y + h, scene_w, y + h)
-            bline.setPen(QPen(QColor("#0a1020"), 1))
-            bline.setZValue(-9)
-            self.addItem(bline)
-
-            prev_end = y + h
-
-        # Footer (area abaixo da ultima track)
-        if prev_end and prev_end < scene_h:
-            footer = QGraphicsRectItem(lbl_w, prev_end, scene_w - lbl_w, scene_h - prev_end)
-            footer.setPen(QPen(Qt.NoPen))
-            footer.setBrush(QBrush(QColor("#050710")))
-            footer.setZValue(-11)
-            self.addItem(footer)
+            # Linha separadora superior
+            sep = QGraphicsLineItem(lbl_w, y, scene_w, y)
+            sep.setPen(QPen(QColor(255, 255, 255, 10), 1))
+            sep.setZValue(-8)
+            self.addItem(sep)
 
     # ============================================================
     # LABELS LATERAIS (com volume %)
@@ -179,30 +166,30 @@ class TimelineScene(QGraphicsScene):
         lbl_w = self.tl.LBL_W
         ruler_h = self.tl.RULER_H
 
-        # Fundo
+        # Fundo do painel lateral — mesmo glass da interface
         bg = QGraphicsRectItem(0, 0, lbl_w, scene_h)
         bg.setPen(QPen(Qt.NoPen))
-        bg.setBrush(QBrush(QColor("#060810")))
+        bg.setBrush(QBrush(QColor(C["glass"])))
         bg.setZValue(5)
         self.addItem(bg)
 
-        # Borda dourada
-        border = QGraphicsLineItem(lbl_w - 1, 0, lbl_w - 1, scene_h)
-        border.setPen(QPen(QColor(C["gold"]), 2))
+        # Borda direita sutil
+        border = QGraphicsLineItem(lbl_w - 1, ruler_h, lbl_w - 1, scene_h)
+        border.setPen(QPen(QColor(C["glass_border"]), 1))
         border.setZValue(6)
         self.addItem(border)
 
-        # Ícone ⏱ na area da ruler (canto esquerdo)
+        # ⏱ na ruler
         ruler_icon = QGraphicsTextItem("\u23f1")
-        ruler_icon.setFont(QFont("Segoe UI", 11))
-        ruler_icon.setDefaultTextColor(QColor(C["gold"]))
+        ruler_icon.setFont(QFont("Segoe UI", 10))
+        ruler_icon.setDefaultTextColor(QColor(C["primary"]))
         ruler_icon.setPos(lbl_w // 2 - 8, ruler_h // 2 - 10)
         ruler_icon.setZValue(8)
         self.addItem(ruler_icon)
 
-        # Borda dourada horizontal na ruler (lateral esquerda)
+        # Linha inferior da ruler
         ruler_border = QGraphicsLineItem(0, ruler_h - 1, lbl_w, ruler_h - 1)
-        ruler_border.setPen(QPen(QColor(C["gold"]), 2))
+        ruler_border.setPen(QPen(QColor(C["glass_border"]), 1))
         ruler_border.setZValue(6)
         self.addItem(ruler_border)
 
@@ -213,15 +200,8 @@ class TimelineScene(QGraphicsScene):
             y, h = self._track_positions[name]
             cy = y + h / 2
 
-            # Card de fundo
-            card = QGraphicsRectItem(3, y + 1, lbl_w - 7, h - 2)
-            card.setPen(QPen(QColor("#151a30"), 1))
-            card.setBrush(QBrush(QColor("#0a0e1a")))
-            card.setZValue(6)
-            self.addItem(card)
-
             # Barra lateral colorida
-            bar = QGraphicsRectItem(3, y + 1, 4, h - 2)
+            bar = QGraphicsRectItem(0, y + 2, 4, h - 4)
             bar.setPen(QPen(Qt.NoPen))
             bar.setBrush(QBrush(QColor(color)))
             bar.setZValue(7)
@@ -229,9 +209,9 @@ class TimelineScene(QGraphicsScene):
 
             # Nome da track
             txt = QGraphicsTextItem(label)
-            txt.setFont(QFont("Segoe UI", 8, QFont.Bold))
-            txt.setDefaultTextColor(QColor("#e0d8c8"))
-            txt.setPos(10, cy - 12)
+            txt.setFont(QFont("Segoe UI", 7, QFont.Bold))
+            txt.setDefaultTextColor(QColor(C["text2"]))
+            txt.setPos(7, cy - 12)
             txt.setZValue(7)
             self.addItem(txt)
 
@@ -240,15 +220,14 @@ class TimelineScene(QGraphicsScene):
                          "SFX": "sfx", "MUSIC": "music", "AUDIO": "audio"}.get(label)
             if track_key and hasattr(project, 'track_volumes'):
                 vol = project.track_volumes.get(track_key, 1.0)
-                vol_pct = int(vol * 100)
-                sub_txt = QGraphicsTextItem(f"{vol_pct}%")
-                sub_txt.setFont(QFont("Consolas", 7, QFont.Bold))
+                sub_txt = QGraphicsTextItem(f"{int(vol * 100)}%")
+                sub_txt.setFont(QFont("Consolas", 6, QFont.Bold))
                 sub_txt.setDefaultTextColor(QColor(C["text3"]))
             else:
                 sub_txt = QGraphicsTextItem(sub)
                 sub_txt.setFont(QFont("Segoe UI", 6))
                 sub_txt.setDefaultTextColor(QColor(C["text3"]))
-            sub_txt.setPos(10, cy + 1)
+            sub_txt.setPos(7, cy + 1)
             sub_txt.setZValue(7)
             self.addItem(sub_txt)
 
@@ -260,11 +239,20 @@ class TimelineScene(QGraphicsScene):
         vy, vh = self._track_positions["video"]
         current_time = 0.0
         clips = sorted(project.clips, key=lambda c: c.position)
+        drag = self._interaction
+        dragging_id = drag._drag_target.id if drag._drag_mode == "clip_move" and drag._drag_target else None
+        selected_id = getattr(self.tl, '_selected_clip_id', None)
+
         for clip in clips:
             x = lbl_w + int(current_time * zoom)
             w = int(clip.duration * zoom)
-            item = ClipGraphicsItem(clip, x, vy, w, vh)
+            is_dragging = (clip.id == dragging_id)
+            is_selected = is_dragging or (clip.id == selected_id)
+            item = ClipGraphicsItem(clip, x, vy, w, vh, selected=is_selected)
             self.addItem(item)
+            if is_dragging:
+                drag._drag_clip_item = item
+                item.setZValue(10)
             current_time += clip.duration
 
     # ============================================================
@@ -327,55 +315,22 @@ class TimelineScene(QGraphicsScene):
     # ============================================================
 
     def _draw_track_items(self, project, zoom, lbl_w):
+        selected_id = getattr(self.tl, '_selected_track_item_id', None)
         for track_name in ("fx", "voice", "sfx", "music", "audio"):
             ty, th = self._track_positions[track_name]
             color = next(c[2] for c in TRACK_CONFIG if c[0] == track_name)
             items = sorted(project.get_track_items(track_name), key=lambda i: i.start_time)
 
-            # Agrupar por clip_index
-            groups = []
             for ti in items:
-                placed = False
-                for group in groups:
-                    g0 = group[0]
-                    if ti.clip_index >= 0 and g0.clip_index == ti.clip_index:
-                        group.append(ti)
-                        placed = True
-                        break
-                    elif ti.clip_index < 0 and g0.clip_index < 0 and abs(ti.start_time - g0.start_time) < 0.05:
-                        group.append(ti)
-                        placed = True
-                        break
-                if not placed:
-                    groups.append([ti])
-
-            for group in groups:
-                g_start = min(i.start_time for i in group)
-                g_end = max(i.start_time + i.duration for i in group)
-                rep = group[0]
-
-                x = lbl_w + int(g_start * zoom)
-                w = max(4, int((g_end - g_start) * zoom))
+                x = lbl_w + int(ti.start_time * zoom)
+                w = max(4, int(ti.duration * zoom))
+                is_selected = (ti.id == selected_id)
 
                 if track_name == "fx":
-                    gitem = _FxTrackItem(rep, x, ty, w, th, color)
+                    gitem = _FxTrackItem(ti, x, ty, w, th, color)
                 else:
-                    gitem = TrackGraphicsItem(rep, x, ty, w, th, color)
+                    gitem = TrackGraphicsItem(ti, x, ty, w, th, color, selected=is_selected)
                 self.addItem(gitem)
-
-                # Badge de layers se grupo > 1 (em cima do retangulo)
-                if len(group) > 1:
-                    badge = QGraphicsRectItem(x + 2, ty + 2, 12, 12)
-                    badge.setPen(QPen(Qt.NoPen))
-                    badge.setBrush(QBrush(QColor(color)))
-                    badge.setZValue(4)
-                    self.addItem(badge)
-                    btxt = QGraphicsTextItem(str(len(group)))
-                    btxt.setFont(QFont("Consolas", 7, QFont.Bold))
-                    btxt.setDefaultTextColor(QColor("#0a0a0f"))
-                    btxt.setPos(x + 3, ty)
-                    btxt.setZValue(5)
-                    self.addItem(btxt)
 
     # ============================================================
     # MOUSE — delegado para SceneInteraction

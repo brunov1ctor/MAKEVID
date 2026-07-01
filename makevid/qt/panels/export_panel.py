@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QThread, QObject
 
 from makevid.qt.theme import C
+from makevid.qt.widgets import GlassButton, SectionLabel
 from makevid.config import OUTPUTS_DIR
 
 
@@ -23,8 +24,12 @@ class ExportPanel(QWidget):
     def __init__(self, project, parent=None):
         super().__init__(parent)
         self.project = project
-        self.setFixedWidth(300)
-        self.setStyleSheet(f"background: {C['panel']};")
+        from PySide6.QtWidgets import QSizePolicy
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumWidth(250)
+        self._format = None
+        self._track_checks = {}
+        self._est_dur = self._est_size = self._est_res = self._est_clips = None
         self._build_ui()
 
     def _build_ui(self):
@@ -34,47 +39,76 @@ class ExportPanel(QWidget):
 
         # Header
         hdr = QHBoxLayout()
-        lbl = QLabel("EXPORTAR")
-        lbl.setStyleSheet(f"color: {C['gold']}; font-size: 12pt; font-weight: bold;")
-        hdr.addWidget(lbl)
+        title = QLabel("EXPORTAR")
+        title.setStyleSheet(f"color: {C['primary']}; font-size: 10pt; font-weight: bold; letter-spacing: 1px;")
+        hdr.addWidget(title)
         hdr.addStretch()
-        close_btn = QPushButton("X")
-        close_btn.setFixedSize(24, 20)
-        close_btn.setStyleSheet(f"background: {C['card']}; color: {C['text3']}; font-weight: bold;")
+        close_btn = QPushButton("✕")
+        close_btn.setObjectName("closeBtn")
+        close_btn.setFixedSize(24, 24)
         close_btn.clicked.connect(self.closed.emit)
         hdr.addWidget(close_btn)
         layout.addLayout(hdr)
-
-        # Separador
-        sep = QFrame()
-        sep.setFixedHeight(1)
-        sep.setStyleSheet(f"background: {C['gold']};")
-        layout.addWidget(sep)
 
         # Nome
         layout.addWidget(self._sub("Nome:"))
         self._name_entry = QLineEdit(self.project.name or "meu_video")
         self._name_entry.setStyleSheet(
-            f"background: #141828; color: #ffffff; border: 2px solid {C['gold']}; "
-            f"border-radius: 4px; padding: 4px; font-size: 11pt; font-weight: bold;")
+            f"background: {C['dark']}; color: {C['text']}; border: 2px solid {C['primary']}; "
+            f"border-radius: 10px; padding: 4px; font-size: 11pt; font-weight: bold;")
         layout.addWidget(self._name_entry)
 
-        # Tracks
-        layout.addWidget(self._sub("Tracks:"))
+        # Tracks — Selecionar Faixas
+        sel_hdr = QHBoxLayout()
+        sel_hdr.addWidget(self._sub("Selecionar"))
+        sel_hdr.addStretch()
+        self._sel_all_btn = QPushButton("Todas")
+        self._sel_all_btn.setFixedHeight(18)
+        self._sel_all_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {C['text3']}; font-size: 7pt; "
+            f"border: 1px solid {C['border']}; border-radius: 3px; padding: 0 5px; }}"
+            f"QPushButton:hover {{ color: {C['text']}; border-color: {C['primary']}; }}")
+        self._sel_all_btn.clicked.connect(lambda: [cb.setChecked(True) for cb in self._track_checks.values()])
+        sel_hdr.addWidget(self._sel_all_btn)
+        layout.addLayout(sel_hdr)
+
         tracks_frame = QFrame()
-        tracks_frame.setStyleSheet(f"background: {C['card']}; border-radius: 4px;")
+        tracks_frame.setStyleSheet(
+            f"background: {C['card']}; border: 1px solid {C['border']}; border-radius: 6px;")
         tracks_layout = QVBoxLayout(tracks_frame)
-        tracks_layout.setContentsMargins(6, 6, 6, 6)
+        tracks_layout.setContentsMargins(8, 6, 8, 6)
+        tracks_layout.setSpacing(3)
         self._track_checks = {}
-        for key, label, color in [
-            ("video", "VIDEO", "#3399ff"), ("voice", "VOICE", "#ff9944"),
-            ("sfx", "SFX", "#44cc88"), ("music", "MUSIC", "#cc44aa"),
-            ("audio", "AUDIO", "#0ac8b9"),
-        ]:
+        _TRACKS = [
+            ("video", "🎬 VIDEO",  C["primary"]),
+            ("voice", "🎤 VOZ",    C["track_voice"]),
+            ("sfx",   "🔊 SFX",    C["track_sfx"]),
+            ("music", "🎵 MÚSICA", C["track_music"]),
+            ("audio", "🎧 AUDIO",  C["track_audio"]),
+        ]
+        for key, label, color in _TRACKS:
+            row = QHBoxLayout()
+            row.setSpacing(6)
             cb = QCheckBox(label)
             cb.setChecked(True)
-            cb.setStyleSheet(f"color: {C['text']}; font-family: Consolas; font-size: 9pt; font-weight: bold;")
-            tracks_layout.addWidget(cb)
+            cb.setStyleSheet(
+                f"QCheckBox {{ color: {color}; font-family: Consolas; font-size: 9pt; "
+                f"font-weight: bold; spacing: 6px; background: transparent; }}"
+                f"QCheckBox::indicator {{ width: 14px; height: 14px; border-radius: 3px; "
+                f"border: 2px solid {color}; background: {C['card']}; }}"
+                f"QCheckBox::indicator:checked {{ background: {color}; }}"
+                f"QCheckBox::indicator:hover {{ border-color: {C['text']}; }}")
+            cb.stateChanged.connect(self._update_estimate)
+            row.addWidget(cb)
+            row.addStretch()
+            # Contagem de itens na faixa
+            n = len(self.project.get_track_items(key)) if key != "video" else len(self.project.clips)
+            count_lbl = QLabel(f"{n}")
+            count_lbl.setFixedWidth(20)
+            count_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            count_lbl.setStyleSheet(f"color: {C['text3']}; font-size: 8pt; background: transparent;")
+            row.addWidget(count_lbl)
+            tracks_layout.addLayout(row)
             self._track_checks[key] = cb
         layout.addWidget(tracks_frame)
 
@@ -89,7 +123,28 @@ class ExportPanel(QWidget):
         self._format.setStyleSheet(
             f"background: {C['input']}; color: {C['text']}; border: 1px solid {C['border']}; "
             f"border-radius: 3px; padding: 2px 6px;")
+        self._format.currentIndexChanged.connect(self._update_estimate)
         layout.addWidget(self._format)
+
+        # Estimativas
+        est_frame = QFrame()
+        est_frame.setStyleSheet(
+            f"background: {C['card']}; border: 1px solid {C['border']}; border-radius: 6px;")
+        est_layout = QVBoxLayout(est_frame)
+        est_layout.setContentsMargins(8, 6, 8, 6)
+        est_layout.setSpacing(2)
+        est_title = QLabel("Estimativas")
+        est_title.setStyleSheet(f"color: {C['text2']}; font-size: 8pt; font-weight: bold; background: transparent;")
+        est_layout.addWidget(est_title)
+        self._est_dur   = QLabel()
+        self._est_size  = QLabel()
+        self._est_res   = QLabel()
+        self._est_clips = QLabel()
+        for lbl in (self._est_dur, self._est_size, self._est_res, self._est_clips):
+            lbl.setStyleSheet(f"color: {C['text3']}; font-family: Consolas; font-size: 8pt; background: transparent;")
+            est_layout.addWidget(lbl)
+        layout.addWidget(est_frame)
+        self._update_estimate()
 
         # Progress
         self._progress = QProgressBar()
@@ -98,8 +153,8 @@ class ExportPanel(QWidget):
         self._progress.setValue(0)
         self._progress.setTextVisible(False)
         self._progress.setStyleSheet(
-            f"QProgressBar {{ background: #1a1a2e; border: none; border-radius: 4px; }}"
-            f"QProgressBar::chunk {{ background: {C['gold']}; border-radius: 4px; }}")
+            f"QProgressBar {{ background: {C['card']}; border: none; border-radius: 4px; }}"
+            f"QProgressBar::chunk {{ background: {C['primary']}; border-radius: 4px; }}")
         layout.addWidget(self._progress)
 
         # Status
@@ -109,11 +164,7 @@ class ExportPanel(QWidget):
         layout.addWidget(self._status)
 
         # Botão exportar
-        self._export_btn = QPushButton("EXPORTAR")
-        self._export_btn.setFixedHeight(36)
-        self._export_btn.setStyleSheet(
-            f"background: {C['gold']}; color: #0a0a0f; font-size: 12pt; "
-            f"font-weight: bold; border-radius: 4px;")
+        self._export_btn = GlassButton("EXPORTAR", accent=True, height=36)
         self._export_btn.clicked.connect(self._do_export)
         layout.addWidget(self._export_btn)
 
@@ -123,6 +174,34 @@ class ExportPanel(QWidget):
         lbl = QLabel(text)
         lbl.setStyleSheet(f"color: {C['text2']}; font-size: 9pt; font-weight: bold;")
         return lbl
+
+    def _update_estimate(self):
+        if not self._format or not self._est_dur:
+            return
+        p = self.project
+        total_dur = p.total_duration()
+        fps = p.output_fps or 16
+        width = p.output_width or 832
+        height = p.output_height or 480
+        clips_done = sum(1 for c in p.clips if c.status == "done")
+
+        _bitrates = {
+            "MP4 (H.264)": 4.0, "MP4 (H.265/HEVC)": 2.5, "MOV (ProRes)": 45.0,
+            "WEBM (VP9)": 2.0, "MKV (H.264)": 4.0,
+            "WAV (audio 16bit)": 1.4, "MP3 (320kbps)": 0.32, "FLAC (lossless)": 3.0,
+        }
+        mbps = _bitrates.get(self._format.currentText(), 4.0)
+        has_audio = any(cb.isChecked() for k, cb in self._track_checks.items() if k != "video")
+        audio_mb = (total_dur * 0.17) if has_audio else 0
+        video_cb = self._track_checks.get("video")
+        video_mb = (total_dur * mbps / 8) if video_cb and video_cb.isChecked() else 0
+        est_mb = video_mb + audio_mb
+
+        m, s = int(total_dur) // 60, total_dur % 60
+        self._est_dur.setText(f"⏱  Duração:  {m:02d}:{s:04.1f}")
+        self._est_size.setText(f"💾  Tamanho:  ~{est_mb:.0f} MB" if est_mb >= 1 else f"💾  Tamanho:  ~{est_mb*1024:.0f} KB")
+        self._est_res.setText(f"🎬  Resolução: {width}×{height}  {fps}fps")
+        self._est_clips.setText(f"🎞  Clips prontos: {clips_done}/{len(p.clips)}")
 
     def get_enabled_tracks(self):
         return [k for k, cb in self._track_checks.items() if cb.isChecked() and k != "video"]
@@ -147,7 +226,7 @@ class ExportPanel(QWidget):
 
         self._export_btn.setEnabled(False)
         self._status.setText("Exportando...")
-        self._status.setStyleSheet(f"color: {C['gold']}; font-size: 9pt;")
+        self._status.setStyleSheet(f"color: {C['primary']}; font-size: 9pt;")
         self._progress.setValue(0)
 
         try:

@@ -21,7 +21,6 @@ class StylePanel(StoryboardMixin, CharactersMixin, VoiceConfigMixin, AmbienceMix
     def __init__(self, project, parent=None):
         super().__init__(parent)
         self.project = project
-        self.setStyleSheet(f"background: {C['panel']};")
         self._build_ui()
 
     def _build_ui(self):
@@ -40,7 +39,7 @@ class StylePanel(StoryboardMixin, CharactersMixin, VoiceConfigMixin, AmbienceMix
         hdr_l.addStretch()
         close_btn = QPushButton("\u2715")
         close_btn.setFixedSize(30, 26)
-        close_btn.setStyleSheet(f"background: transparent; color: #ff4444; font-size: 14pt; font-weight: bold;")
+        close_btn.setObjectName("closeBtn")
         close_btn.clicked.connect(self.closed.emit)
         hdr_l.addWidget(close_btn)
         layout.addWidget(hdr)

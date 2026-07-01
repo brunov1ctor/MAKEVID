@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsRectItem, QGraphicsTex
 
 from makevid.qt.timeline.clip_item import ClipGraphicsItem
 from makevid.qt.timeline.track_item import TrackGraphicsItem
+from makevid.qt.theme import C
 
 
 class SceneInteraction:
@@ -43,7 +44,9 @@ class SceneInteraction:
         self._drag_orig = 0
         self._drag_orig_start = 0
         self._drag_group = None
-        self._last_diamond_toggle = None  # (diamond_id, was_marked_before)
+        self._drag_ghost_pos = None
+        self._drag_clip_item = None   # QGraphicsItem do clip sendo arrastado
+        self._last_diamond_toggle = None
 
     # ============================================================
     # DOUBLE-CLICK
@@ -144,6 +147,10 @@ class SceneInteraction:
         zoom = self.tl.zoom
 
         self._reset_drag()
+
+        # Limpar seleção anterior ao iniciar novo press
+        self.tl._selected_track_item_id = None
+        self.tl._selected_clip_id = None
 
         # Right-click = remover item
         if button == Qt.RightButton:
@@ -262,6 +269,10 @@ class SceneInteraction:
                 self._drag_target = clip
                 self._drag_start_x = pos.x()
                 self._drag_orig = clip.position
+                self._drag_clip_item = item
+                item._orig_x = item._x
+                item._selected = True
+                item.setZValue(10)
             return True
 
         # Area vazia fora de tracks = mover playhead
@@ -290,17 +301,28 @@ class SceneInteraction:
             return True
 
         elif self._drag_mode == "clip_move":
-            # Reordenar clips por deslocamento
-            moved = int(dx / 60)
-            if moved != 0:
-                clip = self._drag_target
-                project = self.tl.project
-                new_pos = max(0, min(len(project.clips) - 1, int(self._drag_orig) + moved))
-                if new_pos != clip.position:
-                    project.move_clip(clip.id, new_pos)
-                    self._drag_start_x = pos.x()
-                    self._drag_orig = new_pos
-                    self.tl.redraw()
+            dx = pos.x() - self._drag_start_x
+            zoom = self.tl.zoom
+
+            # Mover item visualmente atualizando _x (usado pelo paint)
+            if self._drag_clip_item:
+                item = self._drag_clip_item
+                new_x = item._orig_x + dx
+                item._x = new_x
+                item.setRect(new_x + 1, item._y + 2, item._w - 2, item._h - 4)
+                item.update()
+
+            # Calcular slot destino
+            t = max(0, (pos.x() - self.tl.LBL_W) / zoom)
+            clips = sorted(self.tl.project.clips, key=lambda c: c.position)
+            current = 0.0
+            new_pos = len(clips) - 1
+            for i, c in enumerate(clips):
+                if t < current + c.duration:
+                    new_pos = i
+                    break
+                current += c.duration
+            self._drag_ghost_pos = max(0, min(len(clips) - 1, new_pos))
             return True
 
         elif self._drag_mode == "clip_trim_right":
@@ -389,8 +411,37 @@ class SceneInteraction:
 
         # Click sem movimento em clip = selecionar
         if self._drag_mode == "clip_move" and dx_total < 3:
+            if self._drag_target:
+                self.tl._selected_clip_id = self._drag_target.id
             if self.clip_clicked and self._drag_target:
                 self.clip_clicked(self._drag_target)
+
+        # Reordenar clip no release se houve movimento
+        if self._drag_mode == "clip_move" and dx_total >= 3:
+            self.tl._selected_clip_id = None
+            clip = self._drag_target
+            orig_pos = int(self._drag_orig)
+            new_pos = self._drag_ghost_pos if self._drag_ghost_pos is not None else orig_pos
+            project = self.tl.project
+
+            if new_pos != orig_pos:
+                # Inserir clip vazio no slot que ficou vago (entre os dois)
+                gap_pos = orig_pos if new_pos > orig_pos else orig_pos
+                empty = project.add_clip(prompt="", position=gap_pos)
+                empty.status = "empty"
+                empty.duration = clip.duration
+                # Reordenar o clip arrastado para o destino
+                project.move_clip(clip.id, new_pos)
+                from makevid.config import PROJECTS_DIR
+                project.save(PROJECTS_DIR)
+
+            if self._drag_clip_item:
+                # Restaurar _x original antes do redraw
+                self._drag_clip_item._x = self._drag_clip_item._orig_x
+                self._drag_clip_item.setPos(0, 0)
+                self._drag_clip_item.setZValue(1)
+                self._drag_clip_item._selected = False
+            self._remove_clip_ghost()
 
         self._remove_drag_guide()
         self._remove_trim_preview()
@@ -582,6 +633,12 @@ class SceneInteraction:
     # ============================================================
     # HELPERS
     # ============================================================
+
+    def _remove_clip_ghost(self):
+        pass  # sem ghost visual — clip vazio é inserido no release
+
+    def _highlight_dragged_clip(self, clip):
+        pass
 
     def _get_item_group(self, item):
         """Retorna lista de (track_item, offset_relativo) do grupo."""

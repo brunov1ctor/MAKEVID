@@ -8,103 +8,14 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTextEdit, QLineEdit, QComboBox, QCheckBox, QRadioButton,
     QButtonGroup, QProgressBar, QScrollArea, QFrame, QFileDialog,
-    QStackedWidget
+    QStackedWidget, QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal, QObject, QRect, QTimer
 from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QPen
 
 from makevid.qt.theme import C
+from makevid.qt.widgets import GlassTabBar, GlassButton, SectionLabel
 from makevid.config import PROJECTS_DIR
-
-
-class _GoldTabBar(QWidget):
-    """Tab bar custom com bordas douradas estilo Excel (replica do antigo tkinter)."""
-
-    tab_clicked = Signal(int)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._active = 0
-        self._tabs = ["GERAR CLIP", "GERAR IMAGEM"]
-        self._hover = -1
-        self.setFixedHeight(30)
-        self.setCursor(Qt.PointingHandCursor)
-        self.setMouseTracking(True)
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing, False)
-        w = self.width()
-        h = self.height()
-        tw = w // 2
-        gold = QColor(C["gold"])
-        panel = QColor(C["panel"])
-        card = QColor(C["card"])
-        text3 = QColor(C["text3"])
-        cyan = QColor(C["cyan"])
-
-        pen = QPen(gold, 2)
-        p.setPen(pen)
-
-        if self._active == 0:
-            # Aba CLIP ativa: fundo panel, bordas gold L/T/R
-            p.fillRect(QRect(0, 0, tw, h), panel)
-            p.fillRect(QRect(tw, 4, tw, h - 4), card)
-            # Bordas da aba ativa
-            p.drawLine(0, h - 1, 0, 0)       # esquerda
-            p.drawLine(0, 0, tw, 0)           # topo
-            p.drawLine(tw, 0, tw, h - 1)      # direita
-            # Linha base sob aba inativa
-            p.drawLine(tw, h - 1, w, h - 1)
-            p.drawLine(w - 1, h - 1, w - 1, h - 1)
-            # Texto aba ativa
-            p.setPen(QPen(gold))
-            p.setFont(QFont("Segoe UI", 10, QFont.Bold))
-            p.drawText(QRect(0, 0, tw, h), Qt.AlignCenter, self._tabs[0])
-            # Texto aba inativa (hover = mais claro)
-            color_inactive = QColor("#a09b8c") if self._hover == 1 else text3
-            p.setPen(QPen(color_inactive))
-            p.setFont(QFont("Segoe UI", 9, QFont.Bold))
-            p.drawText(QRect(tw, 0, tw, h), Qt.AlignCenter, self._tabs[1])
-        else:
-            # Aba IMAGEM ativa
-            p.fillRect(QRect(0, 4, tw, h - 4), card)
-            p.fillRect(QRect(tw, 0, tw, h), panel)
-            # Linha base sob aba inativa
-            p.drawLine(0, h - 1, tw, h - 1)
-            p.drawLine(0, h - 1, 0, h - 1)
-            # Bordas da aba ativa
-            p.drawLine(tw, h - 1, tw, 0)      # esquerda
-            p.drawLine(tw, 0, w - 1, 0)       # topo
-            p.drawLine(w - 1, 0, w - 1, h - 1) # direita
-            # Texto aba inativa
-            color_inactive = QColor("#a09b8c") if self._hover == 0 else text3
-            p.setPen(QPen(color_inactive))
-            p.setFont(QFont("Segoe UI", 9, QFont.Bold))
-            p.drawText(QRect(0, 0, tw, h), Qt.AlignCenter, self._tabs[0])
-            # Texto aba ativa
-            p.setPen(QPen(cyan))
-            p.setFont(QFont("Segoe UI", 10, QFont.Bold))
-            p.drawText(QRect(tw, 0, tw, h), Qt.AlignCenter, self._tabs[1])
-
-    def mousePressEvent(self, event):
-        tw = self.width() // 2
-        idx = 0 if event.position().x() < tw else 1
-        if idx != self._active:
-            self._active = idx
-            self.tab_clicked.emit(idx)
-            self.update()
-
-    def mouseMoveEvent(self, event):
-        tw = self.width() // 2
-        new_hover = 0 if event.position().x() < tw else 1
-        if new_hover != self._hover:
-            self._hover = new_hover
-            self.update()
-
-    def leaveEvent(self, event):
-        self._hover = -1
-        self.update()
 
 
 class GeneratorPanel(QWidget):
@@ -117,38 +28,22 @@ class GeneratorPanel(QWidget):
         self.project = project
         self._ref_images = []
         self.setMinimumWidth(250)
-        self.setStyleSheet(f"background: {C['panel']};")
 
         self._build_ui()
     def _build_ui(self):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        outer.setContentsMargins(14, 14, 14, 14)
+        outer.setSpacing(10)
 
-        # Tab bar custom (bordas douradas estilo Excel)
-        self._tab_bar = _GoldTabBar(self)
+        self._tab_bar = GlassTabBar(["GERAR CLIP", "GERAR IMAGEM"], self)
         self._tab_bar.tab_clicked.connect(self._switch_tab)
         outer.addWidget(self._tab_bar)
 
-        # Body com bordas douradas (esquerda, direita, inferior)
-        self._body_wrapper = QFrame()
-        self._body_wrapper.setStyleSheet(
-            f"QFrame {{ background: {C['panel']}; "
-            f"border-left: 2px solid {C['gold']}; "
-            f"border-right: 2px solid {C['gold']}; "
-            f"border-bottom: 2px solid {C['gold']}; "
-            f"border-top: none; }}")
-        bw_layout = QVBoxLayout(self._body_wrapper)
-        bw_layout.setContentsMargins(2, 0, 2, 2)
-        bw_layout.setSpacing(0)
-
-        # Stack para as 2 abas
         self._tab_stack = QStackedWidget()
-        self._tab_stack.setStyleSheet(f"background: {C['panel']}; border: none;")
+        self._tab_stack.setStyleSheet("background: transparent; border: none;")
         self._tab_stack.addWidget(self._build_clip_tab())   # 0
         self._tab_stack.addWidget(self._build_image_tab())  # 1
-        bw_layout.addWidget(self._tab_stack)
-        outer.addWidget(self._body_wrapper)
+        outer.addWidget(self._tab_stack)
 
         # Token frames (hidden, aparecem inline no scroll quando necessario)
         self._token_frame = None
@@ -157,8 +52,7 @@ class GeneratorPanel(QWidget):
 
     def _switch_tab(self, idx):
         self._tab_stack.setCurrentIndex(idx)
-        self._tab_bar._active = idx
-        self._tab_bar.update()
+        self._tab_bar.set_active(idx)
 
     def _show_token_prompt(self, auto_generate=False):
         """Mostra campo inline no scroll para inserir HF token. auto_generate=True faz retry apos salvar."""
@@ -171,23 +65,23 @@ class GeneratorPanel(QWidget):
 
         self._auto_retry_generation = auto_generate
         self._token_frame = QFrame()
-        self._token_frame.setStyleSheet(f"background: {C['card']}; border: 1px solid {C['gold']}; border-radius: 6px;")
+        self._token_frame.setStyleSheet(f"background: {C['glass']}; border: 1px solid {C['primary']}; border-radius: 10px;")
         tf_l = QVBoxLayout(self._token_frame)
         tf_l.setContentsMargins(10, 8, 10, 8)
         lbl = QLabel("TOKEN HUGGINGFACE")
-        lbl.setStyleSheet(f"color: {C['gold']}; font-size: 10pt; font-weight: bold;")
+        lbl.setStyleSheet(f"color: {C['primary']}; font-size: 10pt; font-weight: bold;")
         tf_l.addWidget(lbl)
         sub = QLabel("Crie em: huggingface.co/settings/tokens")
         sub.setStyleSheet(f"color: {C['text3']}; font-size: 8pt;")
         tf_l.addWidget(sub)
         self._token_entry = QLineEdit()
         self._token_entry.setPlaceholderText("hf_...")
-        self._token_entry.setStyleSheet(f"background: {C['input']}; color: {C['text']}; border: 1px solid {C['gold']}; border-radius: 4px; padding: 4px; font-family: Consolas; font-size: 10pt;")
+        self._token_entry.setStyleSheet(f"background: {C['input']}; color: {C['text']}; border: 1px solid {C['primary']}; border-radius: 8px; padding: 4px; font-family: Consolas; font-size: 10pt;")
         self._token_entry.returnPressed.connect(self._save_hf_token)
         tf_l.addWidget(self._token_entry)
         btns = QHBoxLayout()
         btn_save = QPushButton("SALVAR")
-        btn_save.setStyleSheet(f"background: {C['gold']}; color: #0a0a0f; font-weight: bold; border-radius: 3px; padding: 4px 12px;")
+        btn_save.setStyleSheet(f"background: {C['primary']}; color: {C['text']}; font-weight: bold; border-radius: 6px; padding: 4px 12px;")
         btn_save.clicked.connect(self._save_hf_token)
         btns.addWidget(btn_save)
         btn_x = QPushButton("X")
@@ -237,23 +131,23 @@ class GeneratorPanel(QWidget):
 
         self._fs_on_saved = on_saved
         self._fs_token_frame = QFrame()
-        self._fs_token_frame.setStyleSheet(f"background: {C['card']}; border: 1px solid {C['gold']}; border-radius: 6px;")
+        self._fs_token_frame.setStyleSheet(f"background: {C['glass']}; border: 1px solid {C['primary']}; border-radius: 10px;")
         fl = QVBoxLayout(self._fs_token_frame)
         fl.setContentsMargins(10, 8, 10, 8)
         lbl = QLabel("FREESOUND API KEY")
-        lbl.setStyleSheet(f"color: {C['gold']}; font-size: 10pt; font-weight: bold;")
+        lbl.setStyleSheet(f"color: {C['primary']}; font-size: 10pt; font-weight: bold;")
         fl.addWidget(lbl)
         sub = QLabel("Crie em: freesound.org/apiv2/apply")
         sub.setStyleSheet(f"color: {C['text3']}; font-size: 8pt;")
         fl.addWidget(sub)
         self._fs_entry = QLineEdit()
         self._fs_entry.setPlaceholderText("sua_api_key_aqui")
-        self._fs_entry.setStyleSheet(f"background: {C['input']}; color: {C['text']}; border: 1px solid {C['gold']}; border-radius: 4px; padding: 4px; font-family: Consolas; font-size: 10pt;")
+        self._fs_entry.setStyleSheet(f"background: {C['input']}; color: {C['text']}; border: 1px solid {C['primary']}; border-radius: 8px; padding: 4px; font-family: Consolas; font-size: 10pt;")
         self._fs_entry.returnPressed.connect(self._save_fs_key)
         fl.addWidget(self._fs_entry)
         btns = QHBoxLayout()
         btn_save = QPushButton("SALVAR")
-        btn_save.setStyleSheet(f"background: {C['gold']}; color: #0a0a0f; font-weight: bold; border-radius: 3px; padding: 4px 12px;")
+        btn_save.setStyleSheet(f"background: {C['primary']}; color: {C['text']}; font-weight: bold; border-radius: 6px; padding: 4px 12px;")
         btn_save.clicked.connect(self._save_fs_key)
         btns.addWidget(btn_save)
         btn_x = QPushButton("X")
@@ -303,62 +197,93 @@ class GeneratorPanel(QWidget):
         self._clip_scroll_layout = L  # ref para inserir token inline
 
         # MODO
-        L.addWidget(self._section_label("MODO"))
-        mode_frame = QFrame()
-        mode_frame.setStyleSheet(f"background: {C['card']}; border: 1px solid {C['border']}; border-radius: 5px;")
-        mode_layout = QHBoxLayout(mode_frame)
-        mode_layout.setContentsMargins(10, 8, 10, 8)
+        L.addWidget(SectionLabel("MODO"))
+        mode_layout = QHBoxLayout()
+        mode_layout.setContentsMargins(4, 0, 4, 4)
+        mode_layout.setSpacing(16)
         self._mode_group = QButtonGroup(self)
         self._rb_text = QRadioButton("Texto")
         self._rb_image = QRadioButton("Img+Texto")
         self._rb_motion = QRadioButton("Motion")
         self._rb_text.setChecked(True)
 
-        radio_gold_qss = (
-            f"QRadioButton {{ color: {C['text']}; font-family: 'Segoe UI'; font-size: 11pt; spacing: 6px; }}"
-            f"QRadioButton::indicator {{ width: 14px; height: 14px; border-radius: 7px; border: 2px solid {C['gold']}; }}"
-            f"QRadioButton::indicator:checked {{ background: {C['gold']}; border: 2px solid {C['gold']}; }}"
-            f"QRadioButton::indicator:hover {{ border: 2px solid #ffd700; }}")
-        radio_green_qss = (
-            f"QRadioButton {{ color: {C['text']}; font-family: 'Segoe UI'; font-size: 11pt; spacing: 6px; }}"
-            f"QRadioButton::indicator {{ width: 14px; height: 14px; border-radius: 7px; border: 2px solid #44cc88; }}"
-            f"QRadioButton::indicator:checked {{ background: #44cc88; border: 2px solid #44cc88; }}"
-            f"QRadioButton::indicator:hover {{ border: 2px solid #66ffaa; }}")
+        radio_qss = (
+            f"QRadioButton {{ color: {C['text']}; font-family: 'Segoe UI'; font-size: 10pt; spacing: 6px; background: transparent; }}"
+            f"QRadioButton::indicator {{ width: 13px; height: 13px; border-radius: 7px; border: 2px solid {C['primary']}; background: transparent; }}"
+            f"QRadioButton::indicator:checked {{ background: {C['primary']}; border: 2px solid {C['primary']}; }}"
+            f"QRadioButton::indicator:hover {{ border: 2px solid {C['secondary']}; }}")
+        radio_motion_qss = (
+            f"QRadioButton {{ color: {C['text']}; font-family: 'Segoe UI'; font-size: 10pt; spacing: 6px; background: transparent; }}"
+            f"QRadioButton::indicator {{ width: 13px; height: 13px; border-radius: 7px; border: 2px solid {C['track_sfx']}; background: transparent; }}"
+            f"QRadioButton::indicator:checked {{ background: {C['track_sfx']}; border: 2px solid {C['track_sfx']}; }}"
+            f"QRadioButton::indicator:hover {{ border: 2px solid {C['accent']}; }}")
 
-        self._rb_text.setStyleSheet(radio_gold_qss)
-        self._rb_image.setStyleSheet(radio_gold_qss)
-        self._rb_motion.setStyleSheet(radio_green_qss)
+        self._rb_text.setStyleSheet(radio_qss)
+        self._rb_image.setStyleSheet(radio_qss)
+        self._rb_motion.setStyleSheet(radio_motion_qss)
 
         for rb in (self._rb_text, self._rb_image, self._rb_motion):
             self._mode_group.addButton(rb)
             mode_layout.addWidget(rb)
+        mode_layout.addStretch()
         self._mode_group.buttonClicked.connect(self._on_mode_changed)
-        L.addWidget(mode_frame)
+        L.addLayout(mode_layout)
 
-        # REF IMAGES (thumbnails) - visivel apenas em modo Img+Texto
+        # REF IMAGES - visivel apenas em modo Img+Texto
         self._ref_frame = QFrame()
-        self._ref_frame.setStyleSheet(f"background: {C['card']}; border: 1px solid {C['cyan']}; border-radius: 6px;")
+        self._ref_frame.setStyleSheet(
+            f"QFrame {{ background: {C['glass']}; border: 1px solid {C['accent']}; border-radius: 12px; }}"
+        )
         ref_layout = QVBoxLayout(self._ref_frame)
-        ref_layout.setContentsMargins(8, 6, 8, 6)
-        ref_layout.setSpacing(4)
-        ref_btn_row = QHBoxLayout()
-        btn_add_ref = QPushButton("+ Imagem")
-        btn_add_ref.setFixedHeight(28)
-        btn_add_ref.setStyleSheet(f"background: {C['card']}; color: {C['cyan']}; font-weight: bold; font-size: 10pt; border: 1px solid {C['cyan']}; border-radius: 4px; padding: 0 10px;")
+        ref_layout.setContentsMargins(10, 8, 10, 10)
+        ref_layout.setSpacing(6)
+
+        # Header: titulo + botoes
+        ref_header = QHBoxLayout()
+        ref_title = QLabel("IMAGENS DE REFERÊNCIA")
+        ref_title.setStyleSheet(f"color: {C['accent']}; font-size: 8pt; font-weight: bold; border: none; background: transparent;")
+        ref_header.addWidget(ref_title)
+        ref_header.addStretch()
+        btn_add_ref = QPushButton("+ Adicionar")
+        btn_add_ref.setFixedHeight(24)
+        btn_add_ref.setStyleSheet(
+            f"QPushButton {{ background: {C['primary']}; color: {C['dark_text']}; font-weight: bold; font-size: 8pt; "
+            f"border: none; border-radius: 6px; padding: 0 10px; }}"
+            f"QPushButton:hover {{ background: {C['secondary']}; }}")
         btn_add_ref.clicked.connect(self._add_ref_image)
-        ref_btn_row.addWidget(btn_add_ref)
+        ref_header.addWidget(btn_add_ref)
         btn_clear_ref = QPushButton("Limpar")
-        btn_clear_ref.setFixedHeight(28)
-        btn_clear_ref.setStyleSheet(f"background: {C['card']}; color: {C['text3']}; font-size: 9pt; border: 1px solid {C['border']}; border-radius: 4px; padding: 0 8px;")
+        btn_clear_ref.setFixedHeight(24)
+        btn_clear_ref.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {C['text3']}; font-size: 8pt; "
+            f"border: 1px solid {C['border']}; border-radius: 6px; padding: 0 8px; }}"
+            f"QPushButton:hover {{ color: {C['danger']}; border-color: {C['danger']}; }}")
         btn_clear_ref.clicked.connect(self._clear_ref_images)
-        ref_btn_row.addWidget(btn_clear_ref)
-        ref_btn_row.addStretch()
-        ref_layout.addLayout(ref_btn_row)
+        ref_header.addWidget(btn_clear_ref)
+        ref_layout.addLayout(ref_header)
+
+        # Area de thumbs com scroll horizontal
+        self._ref_scroll = QScrollArea()
+        self._ref_scroll.setFixedHeight(86)
+        self._ref_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self._ref_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._ref_scroll.setWidgetResizable(False)
+        self._ref_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._ref_scroll.setStyleSheet(
+            f"QScrollArea {{ background: transparent; border: 1px dashed {C['border']}; border-radius: 8px; }}"
+            f"QScrollBar:horizontal {{ height: 4px; background: {C['card']}; border-radius: 2px; margin: 0; }}"
+            f"QScrollBar::handle:horizontal {{ background: {C['primary']}; border-radius: 2px; }}"
+            f"QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}")
         self._ref_thumbs_widget = QWidget()
+        self._ref_thumbs_widget.setStyleSheet("background: transparent;")
+        self._ref_thumbs_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self._ref_thumbs_layout = QHBoxLayout(self._ref_thumbs_widget)
-        self._ref_thumbs_layout.setContentsMargins(0, 0, 0, 0)
-        self._ref_thumbs_layout.setSpacing(3)
-        ref_layout.addWidget(self._ref_thumbs_widget)
+        self._ref_thumbs_layout.setContentsMargins(6, 4, 6, 4)
+        self._ref_thumbs_layout.setSpacing(6)
+        self._ref_thumbs_layout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self._ref_scroll.setWidget(self._ref_thumbs_widget)
+        ref_layout.addWidget(self._ref_scroll)
+
         self._ref_frame.hide()
         L.addWidget(self._ref_frame)
 
@@ -369,10 +294,10 @@ class GeneratorPanel(QWidget):
         self._prompt.setPlaceholderText("Descreva a cena...")
         self._prompt.setToolTip("Descreva o que voce quer ver no video.\nEx: 'Um guerreiro caminhando por uma floresta sombria'")
         self._prompt.setStyleSheet(
-            f"QTextEdit {{ background: {C['input']}; color: {C['cyan']}; border: 2px solid {C['gold']}; "
-            f"border-radius: 8px; font-family: Consolas; font-size: 11pt; font-weight: bold; }}"
-            f"QTextEdit:hover {{ border: 3px solid #ffd700; }}"
-            f"QTextEdit:focus {{ border: 3px solid #ffd700; }}")
+            f"QTextEdit {{ background: {C['input']}; color: {C['accent']}; border: 1px solid {C['glass_border']}; "
+            f"border-radius: 10px; font-family: Consolas; font-size: 11pt; font-weight: bold; }}"
+            f"QTextEdit:hover {{ border: 1px solid {C['primary']}; }}"
+            f"QTextEdit:focus {{ border: 2px solid {C['primary']}; }}")
         L.addWidget(self._prompt)
 
         # Continuidade
@@ -391,10 +316,10 @@ class GeneratorPanel(QWidget):
         self._negative.setFixedHeight(40)
         self._negative.setPlainText("blurry, low quality, distorted, watermark, static")
         self._negative.setStyleSheet(
-            f"QTextEdit {{ background: {C['input']}; color: {C['text3']}; border: 2px solid {C['border']}; "
-            f"border-radius: 8px; font-family: Consolas; font-size: 10pt; }}"
-            f"QTextEdit:hover {{ border: 3px solid {C['gold']}; }}"
-            f"QTextEdit:focus {{ border: 3px solid {C['gold']}; }}")
+            f"QTextEdit {{ background: {C['input']}; color: {C['text3']}; border: 1px solid {C['glass_border']}; "
+            f"border-radius: 10px; font-family: Consolas; font-size: 10pt; }}"
+            f"QTextEdit:hover {{ border: 1px solid {C['primary']}; }}"
+            f"QTextEdit:focus {{ border: 1px solid {C['primary']}; }}")
         L.addWidget(self._negative)
 
         # PARAMETROS
@@ -424,22 +349,23 @@ class GeneratorPanel(QWidget):
         L.addWidget(self._motion_frame)
 
         # PARAMETROS
-        L.addWidget(self._section_label("PARAMETROS"))
-        params_frame = QFrame()
-        params_frame.setStyleSheet(f"background: {C['card']}; border: 1px solid {C['border']}; border-radius: 5px;")
-        params_layout = QVBoxLayout(params_frame)
-        params_layout.setContentsMargins(8, 8, 8, 8)
-        params_layout.setSpacing(4)
+        L.addWidget(SectionLabel("PARAMETROS"))
+        params_layout = QVBoxLayout()
+        params_layout.setContentsMargins(4, 0, 4, 0)
+        params_layout.setSpacing(6)
         r1 = QHBoxLayout()
         self._dur = self._param_entry(r1, "Duracao", "5", 45, tooltip="Duracao do video em segundos")
         self._steps = self._param_entry(r1, "Steps", "30", 45, tooltip="Passos de inferencia.\nMais steps = mais qualidade, mais lento")
+        r1.addStretch()
         params_layout.addLayout(r1)
         r2 = QHBoxLayout()
         self._cfg = self._param_entry(r2, "CFG", "5.0", 55, tooltip="Classifier-Free Guidance.\nBaixo (1-3): criativo\nMedio (4-7): equilibrado\nAlto (8+): segue o prompt")
+        r2.addStretch()
         params_layout.addLayout(r2)
         r3 = QHBoxLayout()
         self._seed = self._param_entry(r3, "Seed", "", 65, tooltip="Semente para reproducibilidade.\nMesma seed + mesmo prompt = mesmo resultado")
         self._seed.setPlaceholderText("random")
+        r3.addStretch()
         params_layout.addLayout(r3)
         r4 = QHBoxLayout()
         lbl = QLabel("Resolucao")
@@ -450,18 +376,13 @@ class GeneratorPanel(QWidget):
         self._resolution = QComboBox()
         self._resolution.addItems(["480p (832x480)", "720p (1280x720)", "1080p (1920x1080)", "4K (3840x2160)"])
         self._resolution.setCurrentIndex(0)
-        self._resolution.setStyleSheet(f"background: {C['card']}; color: {C['text']}; border: 1px solid {C['border']}; border-radius: 3px; padding: 2px 6px;")
         r4.addWidget(self._resolution)
         r4.addStretch()
         params_layout.addLayout(r4)
-        L.addWidget(params_frame)
+        L.addLayout(params_layout)
 
         # BOTAO GERAR
-        self._gen_btn = QPushButton("GERAR CLIP")
-        self._gen_btn.setFixedHeight(44)
-        self._gen_btn.setStyleSheet(
-            f"background: {C['gold']}; color: #0a0a0f; font-size: 14pt; font-weight: bold; "
-            f"border: 2px solid #ffd700; border-radius: 6px;")
+        self._gen_btn = GlassButton("GERAR CLIP", accent=True, height=44)
         self._gen_btn.clicked.connect(self._on_generate)
         L.addWidget(self._gen_btn)
 
@@ -498,7 +419,7 @@ class GeneratorPanel(QWidget):
         L.setSpacing(6)
         self._img_scroll_layout = L  # ref para inserir token inline
 
-        L.addWidget(self._section_label("GERAR IMAGEM"))
+        L.addWidget(SectionLabel("GERAR IMAGEM"))
         L.addWidget(self._sub_label("Gera imagem estatica via HF API / FLUX / Local"))
 
         # Prompt
@@ -507,8 +428,8 @@ class GeneratorPanel(QWidget):
         self._img_prompt.setFixedHeight(70)
         self._img_prompt.setPlaceholderText("Descreva a imagem...")
         self._img_prompt.setStyleSheet(
-            f"background: {C['input']}; color: {C['cyan']}; border: 2px solid {C['gold']}; "
-            f"border-radius: 8px; font-family: Consolas; font-size: 11pt; font-weight: bold;")
+            f"background: {C['input']}; color: {C['accent']}; border: 1px solid {C['glass_border']}; "
+            f"border-radius: 10px; font-family: Consolas; font-size: 11pt; font-weight: bold;")
         L.addWidget(self._img_prompt)
 
         # Negative
@@ -547,11 +468,7 @@ class GeneratorPanel(QWidget):
         L.addLayout(r_dur)
 
         # Generate button
-        self._img_gen_btn = QPushButton("GERAR IMAGEM")
-        self._img_gen_btn.setFixedHeight(40)
-        self._img_gen_btn.setStyleSheet(
-            f"background: {C['cyan']}; color: #0a0a0f; font-size: 13pt; font-weight: bold; "
-            f"border: 2px solid {C['cyan']}; border-radius: 6px;")
+        self._img_gen_btn = GlassButton("GERAR IMAGEM", accent=True, height=40)
         self._img_gen_btn.clicked.connect(self._on_generate_image)
         L.addWidget(self._img_gen_btn)
 
@@ -617,39 +534,52 @@ class GeneratorPanel(QWidget):
             self._refresh_ref_thumbs()
 
     def _refresh_ref_thumbs(self):
-        """Reconstroi thumbnails com botao X individual."""
+        """Reconstroi thumbnails flutuantes com visual glass."""
         while self._ref_thumbs_layout.count():
             child = self._ref_thumbs_layout.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
 
         if not self._ref_images:
-            lbl = QLabel("Nenhuma imagem")
-            lbl.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
-            self._ref_thumbs_layout.addWidget(lbl)
+            placeholder = QLabel("Clique em + Adicionar ou arraste imagens aqui")
+            placeholder.setAlignment(Qt.AlignCenter)
+            placeholder.setStyleSheet(f"color: {C['text3']}; font-size: 8pt; background: transparent; border: none;")
+            # Largura do scroll area para o placeholder preencher
+            sw = max(200, self._ref_scroll.viewport().width())
+            self._ref_thumbs_widget.setFixedSize(sw, 78)
+            self._ref_thumbs_layout.addWidget(placeholder)
             return
 
-        for p in self._ref_images:
-            item_frame = QFrame()
-            item_frame.setFixedSize(48, 48)
-            item_frame.setStyleSheet(f"background: {C['card']}; border: 1px solid {C['cyan']}; border-radius: 4px;")
-            # Thumbnail
-            thumb_lbl = QLabel(item_frame)
-            pix = QPixmap(p).scaled(44, 44, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            thumb_lbl.setPixmap(pix)
-            thumb_lbl.move(2, 2)
-            # Botao X
-            btn_x = QPushButton("x", item_frame)
-            btn_x.setFixedSize(14, 14)
-            btn_x.setStyleSheet("background: #ff4444; color: #ffffff; font-size: 7pt; border-radius: 7px; font-weight: bold;")
-            btn_x.move(34, 0)
-            btn_x.clicked.connect(lambda ck=False, path=p: self._remove_ref_image(path))
-            self._ref_thumbs_layout.addWidget(item_frame)
+        CARD = 72
+        GAP = 6
+        PAD = 12
+        total_w = PAD + len(self._ref_images) * (CARD + GAP)
+        self._ref_thumbs_widget.setFixedSize(total_w, 78)
 
-        # Contador
-        count_lbl = QLabel(f" {len(self._ref_images)}")
-        count_lbl.setStyleSheet(f"color: {C['cyan']}; font-size: 9pt; font-weight: bold;")
-        self._ref_thumbs_layout.addWidget(count_lbl)
+        for p in self._ref_images:
+            card = QFrame()
+            card.setFixedSize(CARD, CARD)
+            card.setStyleSheet(
+                f"QFrame {{ background: {C['card']}; border: 1px solid {C['primary']}; border-radius: 8px; }}"
+                f"QFrame:hover {{ border: 1px solid {C['accent']}; }}")
+
+            thumb = QLabel(card)
+            thumb.setFixedSize(CARD, CARD)
+            pix = QPixmap(p).scaled(CARD, CARD, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+            if pix.width() > CARD or pix.height() > CARD:
+                ox = (pix.width() - CARD) // 2
+                oy = (pix.height() - CARD) // 2
+                pix = pix.copy(ox, oy, CARD, CARD)
+            thumb.setPixmap(pix)
+            thumb.move(0, 0)
+
+            btn_x = QPushButton("X", card)
+            btn_x.setObjectName("closeBtn")
+            btn_x.setFixedSize(18, 18)
+            btn_x.move(CARD - 20, 2)
+            btn_x.clicked.connect(lambda ck=False, path=p: self._remove_ref_image(path))
+
+            self._ref_thumbs_layout.addWidget(card)
 
     # ============================================================
     # GENERATE IMAGE
@@ -756,7 +686,7 @@ class GeneratorPanel(QWidget):
                         self._img_progress_timer.stop()
                         self._img_progress.setValue(0)
                         self._img_status.setText(f"Erro: {err}")
-                        self._img_status.setStyleSheet(f"color: #ff4444; font-size: 9pt;")
+                        self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
                         self._img_gen_btn.setEnabled(True)
                         # Se 401/403, mostrar token prompt
                         if "401" in err or "403" in err or "token" in err.lower():
@@ -769,7 +699,7 @@ class GeneratorPanel(QWidget):
                     self._img_progress_timer.stop()
                     self._img_progress.setValue(0)
                     self._img_status.setText(f"Erro: {err_msg}")
-                    self._img_status.setStyleSheet(f"color: #ff4444; font-size: 9pt;")
+                    self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
                     self._img_gen_btn.setEnabled(True)
                     # Se erro de autenticacao, mostrar prompt de token com auto-retry
                     if "401" in str(e) or "token" in str(e).lower() or "unauthorized" in str(e).lower():
@@ -813,10 +743,10 @@ class GeneratorPanel(QWidget):
         entry = QLineEdit(default)
         entry.setFixedWidth(width)
         entry.setStyleSheet(
-            f"QLineEdit {{ background: {C['input']}; color: {C['cyan']}; border: 2px solid {C['border']}; "
+            f"QLineEdit {{ background: {C['input']}; color: {C['accent']}; border: 1px solid {C['glass_border']}; "
             f"border-radius: 8px; font-family: Consolas; font-size: 11pt; font-weight: bold; padding: 2px 4px; }}"
-            f"QLineEdit:hover {{ border: 3px solid {C['gold']}; }}"
-            f"QLineEdit:focus {{ border: 3px solid {C['gold']}; }}")
+            f"QLineEdit:hover {{ border: 1px solid {C['primary']}; }}"
+            f"QLineEdit:focus {{ border: 2px solid {C['primary']}; }}")
         layout.addWidget(entry)
         return entry
 
@@ -871,7 +801,7 @@ class GeneratorPanel(QWidget):
 
         self._gen_btn.setEnabled(False)
         self._status.setText("Gerando...")
-        self._status.setStyleSheet(f"color: {C['gold']}; font-size: 10pt; border: none;")
+        self._status.setStyleSheet(f"color: {C['primary']}; font-size: 10pt; border: none;")
         self._progress.setValue(15)
 
         # Limpar campos

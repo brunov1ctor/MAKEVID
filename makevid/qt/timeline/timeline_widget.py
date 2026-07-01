@@ -21,7 +21,7 @@ class TimelineWidget(QWidget):
 
     LBL_W = 62
     RULER_H = 28
-    TRACK_GAP = 2
+    TRACK_GAP = 6
 
     def __init__(self, project, parent=None):
         super().__init__(parent)
@@ -32,6 +32,7 @@ class TimelineWidget(QWidget):
         self.scroll_x = 0
         self._split_mode = False
         self._audio_split_mode = None
+        self._selected_clip_id = None
 
         self._build_ui()
         self.setFocusPolicy(Qt.StrongFocus)  # receber teclas
@@ -52,7 +53,9 @@ class TimelineWidget(QWidget):
         self._view.setDragMode(QGraphicsView.NoDrag)
         self._view.setTransformationAnchor(QGraphicsView.NoAnchor)
         self._view.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
-        self._view.setStyleSheet(f"background: {C['bg']}; border: none;")
+        self._view.setStyleSheet(
+            f"background: {C['dark']}; border: none; "
+            f"border-bottom-left-radius: 20px; border-bottom-right-radius: 20px;")
         self._view.setAcceptDrops(True)
         self._view.dragEnterEvent = self._on_drag_enter
         self._view.dragMoveEvent = self._on_drag_move
@@ -79,15 +82,18 @@ class TimelineWidget(QWidget):
 
     def _build_toolbar(self) -> QWidget:
         tb = QWidget()
-        tb.setFixedHeight(28)
-        tb.setStyleSheet(f"background: {C['card']}; border: none;")
+        tb.setFixedHeight(32)
+        tb.setStyleSheet(
+            f"background: {C['glass']}; border: none; "
+            f"border-top-left-radius: 20px; border-top-right-radius: 20px; "
+            f"border-bottom: 1px solid {C['glass_border']};")
         h = QHBoxLayout(tb)
-        h.setContentsMargins(8, 0, 8, 0)
-        h.setSpacing(4)
+        h.setContentsMargins(12, 0, 12, 0)
+        h.setSpacing(6)
 
         # Title
         lbl = QLabel("TIMELINE")
-        lbl.setStyleSheet(f"color: {C['gold']}; font-weight: bold; font-size: 10pt;")
+        lbl.setStyleSheet(f"color: {C['primary']}; font-weight: bold; font-size: 9pt; letter-spacing: 1px;")
         lbl.setToolTip("Timeline principal")
         h.addWidget(lbl)
 

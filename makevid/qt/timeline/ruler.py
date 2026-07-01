@@ -31,23 +31,12 @@ class RulerItem(QGraphicsItem):
         h = self._ruler_h
         pps = self._zoom
 
-        # Fundo com gradiente de 3 faixas
-        third = h // 3
-        painter.fillRect(QRectF(lbl_w, 0, w - lbl_w, third), QColor("#181c32"))
-        painter.fillRect(QRectF(lbl_w, third, w - lbl_w, third), QColor("#141830"))
-        painter.fillRect(QRectF(lbl_w, third * 2, w - lbl_w, h - third * 2), QColor("#10142a"))
+        # Fundo uniforme discreto
+        painter.fillRect(QRectF(lbl_w, 0, w - lbl_w, h), QColor("#0d1020"))
 
-        # Borda inferior dourada forte
-        painter.setPen(QPen(QColor(C["gold"]), 2))
+        # Linha inferior sutil (não mais borda dourada grossa)
+        painter.setPen(QPen(QColor(C["glass_border"]), 1))
         painter.drawLine(lbl_w, h - 1, w, h - 1)
-
-        # Borda superior sutil
-        painter.setPen(QPen(QColor("#2a3050"), 1))
-        painter.drawLine(lbl_w, 0, w, 0)
-
-        # Borda inferior secundária
-        painter.setPen(QPen(QColor("#3a2a10"), 1))
-        painter.drawLine(lbl_w, h - 3, w, h - 3)
 
         # Step adaptativo
         if pps >= 80:
@@ -69,44 +58,34 @@ class RulerItem(QGraphicsItem):
         while t <= self._total_dur + step:
             x = lbl_w + int(t * pps)
             if lbl_w <= x <= w:
-                # Marca principal grossa
-                painter.setPen(QPen(QColor(C["gold"]), 2))
-                painter.drawLine(x, h - 16, x, h - 2)
-
-                # Marca superior fina
-                painter.setPen(QPen(QColor("#4a4a6a"), 1))
-                painter.drawLine(x, 2, x, 6)
+                # Marca principal
+                painter.setPen(QPen(QColor(C["primary"]), 1))
+                painter.drawLine(x, h - 12, x, h - 1)
 
                 m, s = int(t) // 60, t % 60
                 txt = f"{m:02d}:{int(s):02d}" if step >= 10 else f"{m:02d}:{s:04.1f}"
 
-                # Hover highlight
                 is_hovered = abs(x - hover_x) < 25
                 if is_hovered:
-                    # Background highlight
                     tw = len(txt) * 7 + 6
                     painter.setPen(Qt.NoPen)
-                    painter.setBrush(QBrush(QColor("#2a2040")))
-                    painter.drawRect(QRectF(x - 1, 2, tw, 15))
-                    # Texto branco bold
-                    painter.setPen(QPen(QColor("#ffffff")))
-                    painter.setFont(QFont("Consolas", 10, QFont.Bold))
-                else:
-                    painter.setPen(QPen(QColor("#9999bb")))
+                    painter.setBrush(QBrush(QColor(C["glass_hover"])))
+                    painter.drawRoundedRect(QRectF(x - 1, 2, tw, 14), 3, 3)
+                    painter.setPen(QPen(QColor(C["text"])))
                     painter.setFont(QFont("Consolas", 9, QFont.Bold))
+                else:
+                    painter.setPen(QPen(QColor(C["text3"])))
+                    painter.setFont(QFont("Consolas", 8))
 
-                painter.drawText(QPointF(x + 3, 14), txt)
+                painter.drawText(QPointF(x + 3, 13), txt)
 
                 # Sub-marcas
                 for si in range(1, subdivs):
                     sx = lbl_w + int((t + sub_step * si) * pps)
                     if lbl_w <= sx <= w:
-                        if si == subdivs // 2:
-                            painter.setPen(QPen(QColor("#5a5a7a"), 1))
-                            painter.drawLine(sx, h - 10, sx, h - 2)
-                        else:
-                            painter.setPen(QPen(QColor("#3a3a5a"), 1))
-                            painter.drawLine(sx, h - 6, sx, h - 2)
+                        alpha = 80 if si == subdivs // 2 else 45
+                        painter.setPen(QPen(QColor(C["glass_border"]), 1))
+                        painter.drawLine(sx, h - (7 if si == subdivs // 2 else 4), sx, h - 1)
 
             t += step
 
