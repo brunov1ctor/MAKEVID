@@ -339,7 +339,16 @@ class GeneratorPanel:
 
     # --- Generation ---
 
+    def _ensure_project(self):
+        """Garante que existe um projeto ativo, criando um automaticamente se necessario."""
+        if self.app.project is None:
+            from makevid.core.project import Project
+            from makevid.config import PROJECTS_DIR
+            self.app.project = Project.create("meu_projeto")
+            self.app.project.save(PROJECTS_DIR)
+
     def _generate(self):
+        self._ensure_project()
         prompt = self.prompt_box.get("0.0", "end").strip()
         duration = float(self.dur_var.get())
 
@@ -617,6 +626,7 @@ class GeneratorPanel:
         prompt = self._img_prompt_box.get("0.0", "end").strip()
         if not prompt:
             return
+        self._ensure_project()
 
         self._img_gen_btn.configure(state="disabled")
         self._img_status.configure(text="Gerando imagem...", text_color=C["gold"])
@@ -656,21 +666,31 @@ class GeneratorPanel:
                             display_img, w, h = pp._fit_image(img)
                             pp._preview_img_ref = ctk.CTkImage(light_image=display_img, dark_image=display_img, size=(w, h))
                             pp.preview_label.configure(image=pp._preview_img_ref, text="", compound="center")
-                            pp.clip_info.configure(text=f"Imagem gerada | {img.size[0]}x{img.size[1]} | {engine}")
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            import logging
+                            logging.getLogger("gen").error(f"[IMG preview] {e}")
                         # Salvar + timeline
-                        self._save_and_add_to_timeline(img, prompt, duration)
+                        try:
+                            self._save_and_add_to_timeline(img, prompt, duration)
+                        except Exception as e:
+                            import logging
+                            logging.getLogger("gen").error(f"[IMG save] {e}")
+                            self._img_status.configure(text=f"Erro ao salvar: {str(e)[:50]}", text_color="#ff4444")
+                            self._img_gen_btn.configure(state="normal")
+                            self.app.after(1500, lambda: self._img_progress.set(0))
+                            return
                         self._img_status.configure(text=f"Pronto! {duration:.0f}s na timeline", text_color=C["cyan"])
                         self._img_gen_btn.configure(state="normal")
                         self._img_prompt_box.delete("0.0", "end")
                         self.app.after(1500, lambda: self._img_progress.set(0))
-                        # Habilitar play no preview
+                        # Manter imagem no preview e habilitar play
                         clips = sorted(self.app.project.clips, key=lambda c: c.position)
                         if clips:
                             last_clip = clips[-1]
                             self.app.timeline.selected_clip_id = last_clip.id
-                            self.app.preview_panel.show_clip(last_clip, len(clips))
+                            self.app.preview_panel._show_play_button(
+                                lambda c=last_clip: self.app.preview_panel.player.play(start_clip=c))
+                            self.app.preview_panel.properties.show(last_clip, len(clips))
                     self.app.after(0, on_done)
                 else:
                     self.app.after(0, lambda: [
@@ -681,6 +701,8 @@ class GeneratorPanel:
                     ])
             except Exception as e:
                 err = str(e)
+                import logging
+                logging.getLogger("gen").error(f"[IMG gen] {err}")
                 def on_error():
                     if self._img_progress_job:
                         try:
@@ -692,7 +714,8 @@ class GeneratorPanel:
                         self._img_progress.set(0)
                     except Exception:
                         pass
-                    self._show_token_prompt(auto_generate=True)
+                    if "401" in err or "token" in err.lower() or "unauthorized" in err.lower():
+                        self._show_token_prompt(auto_generate=True)
                     try:
                         self._img_status.configure(text=f"Erro: {err[:50]}", text_color="#ff4444")
                         self._img_gen_btn.configure(state="normal")
