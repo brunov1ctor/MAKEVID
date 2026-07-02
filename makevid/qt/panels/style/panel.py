@@ -141,3 +141,12 @@ class StylePanel(StoryboardMixin, CharactersMixin, VoiceConfigMixin, AmbienceMix
         weight = "font-weight: bold;" if bold else ""
         lbl.setStyleSheet(f"color: {color}; font-size: 9pt; {weight} border: none; background: none;")
         return lbl
+
+    def _on_project_changed(self, proj):
+        self.project = proj
+        self._build_storyboard_grid()
+        self._rebuild_char_cards()
+        if hasattr(self, '_amb_world_fields'):
+            for key, entry in self._amb_world_fields.items():
+                entry.setText(str(getattr(proj.world, key, "") or ""))
+            self._amb_refresh()

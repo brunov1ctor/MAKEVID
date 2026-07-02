@@ -448,7 +448,8 @@ class VideoBrowserPanel(QWidget):
             if child.widget():
                 child.widget().deleteLater()
 
-        videos = sorted(OUTPUTS_DIR.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+        proj_dir = OUTPUTS_DIR / self.project.id
+        videos = sorted(proj_dir.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True) if proj_dir.exists() else []
         if not videos:
             L.addWidget(QLabel("Nenhum video encontrado."))
             return
@@ -495,14 +496,18 @@ class VideoBrowserPanel(QWidget):
 
     def _remove_unused(self):
         used = {str(Path(c.video_path).resolve()) for c in self.project.clips if c.video_path}
-        current_output = OUTPUTS_DIR / self.project.id
-        if current_output.exists():
-            for f in current_output.rglob("*.mp4"):
+        proj_dir = OUTPUTS_DIR / self.project.id
+        if proj_dir.exists():
+            for f in proj_dir.rglob("*.mp4"):
                 if str(f.resolve()) not in used:
                     try:
                         f.unlink()
                     except Exception:
                         pass
+        self.refresh()
+
+    def _on_project_changed(self, proj):
+        self.project = proj
         self.refresh()
 
 
@@ -571,9 +576,10 @@ class AudioBrowserPanel(QWidget):
         from PySide6.QtWidgets import QApplication
         QApplication.processEvents()
 
+        proj_audio = AUDIO_DIR / self.project.id
         audios = sorted(
-            [f for ext in ("*.wav", "*.mp3", "*.ogg", "*.flac") for f in AUDIO_DIR.rglob(ext)],
-            key=lambda p: p.stat().st_mtime, reverse=True)
+            [f for ext in ("*.wav", "*.mp3", "*.ogg", "*.flac") for f in proj_audio.rglob(ext)],
+            key=lambda p: p.stat().st_mtime, reverse=True) if proj_audio.exists() else []
 
         if not audios:
             L.addWidget(QLabel("Nenhum audio."))
@@ -625,13 +631,17 @@ class AudioBrowserPanel(QWidget):
 
     def _remove_unused(self):
         used = {str(Path(item.file_path).resolve()) for item in self.project.track_items if item.file_path}
-        audio_dir = AUDIO_DIR / self.project.id
-        if audio_dir.exists():
+        proj_audio = AUDIO_DIR / self.project.id
+        if proj_audio.exists():
             for ext in ("*.wav", "*.mp3", "*.ogg", "*.flac"):
-                for f in audio_dir.rglob(ext):
+                for f in proj_audio.rglob(ext):
                     if str(f.resolve()) not in used:
                         try:
                             f.unlink()
                         except Exception:
                             pass
+        self.refresh()
+
+    def _on_project_changed(self, proj):
+        self.project = proj
         self.refresh()

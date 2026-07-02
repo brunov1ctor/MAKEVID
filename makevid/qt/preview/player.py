@@ -287,7 +287,13 @@ class TimelinePlayerQt(QObject):
             return
         try:
             import sounddevice as sd
+        except ImportError:
+            print("[AUDIO] sounddevice nao instalado — sem som")
+            return
+
+        try:
             import numpy as np
+            import soundfile as sf
 
             all_audio_items = []
             for track_name in ("voice", "sfx", "music", "audio"):
@@ -302,70 +308,88 @@ class TimelinePlayerQt(QObject):
                 return
 
             mix = np.zeros((total_samples, 2), dtype=np.float32)
+            loaded = 0
 
             for item in all_audio_items:
-                if not item.file_path or not Path(item.file_path).exists():
+                if not item.file_path:
+                    continue
+                p = Path(item.file_path)
+                if not p.exists():
+                    print(f"[AUDIO] arquivo nao encontrado: {p}")
                     continue
                 track_vol = self._project.track_volumes.get(item.track, 1.0)
                 try:
-                    import soundfile as sf
-                    data, item_sr = sf.read(item.file_path, dtype="float32")
-                    if len(data.shape) == 1:
+                    data, item_sr = sf.read(str(p), dtype="float32")
+                    if data.ndim == 1:
                         raw = np.column_stack([data, data])
+                    elif data.shape[1] >= 2:
+                        raw = data[:, :2]
                     else:
-                        raw = data if data.shape[1] == 2 else np.column_stack([data[:, 0], data[:, 0]])
+                        raw = np.column_stack([data[:, 0], data[:, 0]])
                     if item_sr != sr:
                         new_len = int(len(raw) * sr / item_sr)
+                        xs = np.linspace(0, len(raw) - 1, new_len)
                         raw = np.column_stack([
-                            np.interp(np.linspace(0, len(raw)-1, new_len), np.arange(len(raw)), raw[:, 0]),
-                            np.interp(np.linspace(0, len(raw)-1, new_len), np.arange(len(raw)), raw[:, 1]),
+                            np.interp(xs, np.arange(len(raw)), raw[:, 0]),
+                            np.interp(xs, np.arange(len(raw)), raw[:, 1]),
                         ])
-                    item_vol = int(item.params.get("volume", 100)) / 100.0
-                    raw *= track_vol * item_vol
-                    # Fade in
-                    fade_in_pct = int(item.params.get("fade_in", 0)) / 100.0
-                    if fade_in_pct > 0:
-                        n = int(len(raw) * fade_in_pct)
+                    item_vol = float(item.params.get("volume", 100)) / 100.0
+                    raw = raw * (track_vol * item_vol)
+                    pan = float(item.params.get("pan", 0)) / 100.0
+                    if pan != 0:
+                        raw[:, 0] *= max(0.0, 1.0 - pan)
+                        raw[:, 1] *= max(0.0, 1.0 + pan)
+                    fade_in = float(item.params.get("fade_in", 0)) / 100.0
+                    if fade_in > 0:
+                        n = int(len(raw) * fade_in)
                         if n > 0:
                             raw[:n] *= np.linspace(0, 1, n).reshape(-1, 1)
-                    # Fade out
-                    fade_out_pct = int(item.params.get("fade_out", 0)) / 100.0
-                    if fade_out_pct > 0:
-                        n = int(len(raw) * fade_out_pct)
+                    fade_out = float(item.params.get("fade_out", 0)) / 100.0
+                    if fade_out > 0:
+                        n = int(len(raw) * fade_out)
                         if n > 0:
                             raw[-n:] *= np.linspace(1, 0, n).reshape(-1, 1)
-                    # Pan
-                    pan = int(item.params.get("pan", 0)) / 100.0
-                    if pan != 0:
-                        raw[:, 0] *= max(0, 1.0 - pan)
-                        raw[:, 1] *= max(0, 1.0 + pan)
-                    # Volume Keyframes
                     if item.volume_keyframes and len(item.volume_keyframes) >= 2:
                         from makevid.core.audio_utils import apply_volume_keyframes
                         raw = apply_volume_keyframes(raw, sr, item.volume_keyframes, item.duration)
-                except Exception:
+                except Exception as e:
+                    print(f"[AUDIO] erro ao ler {p.name}: {e}")
                     continue
 
-                start_sample = int(item.start_time * sr)
-                max_samples = int(item.duration * sr)
-                if len(raw) > max_samples:
-                    raw = raw[:max_samples]
-                end_sample = min(start_sample + len(raw), total_samples)
-                audio_len = end_sample - start_sample
-                if audio_len > 0:
-                    mix[start_sample:end_sample] += raw[:audio_len]
+                start_s = int(item.start_time * sr)
+                max_s = int(item.duration * sr)
+                if len(raw) > max_s:
+                    raw = raw[:max_s]
+                end_s = min(start_s + len(raw), total_samples)
+                n = end_s - start_s
+                if n > 0:
+                    mix[start_s:end_s] += raw[:n]
+                    loaded += 1
+
+            if loaded == 0:
+                return
 
             mix = np.clip(mix, -1.0, 1.0)
+            start_s = int(self._start_offset * sr)
+            remaining = mix[start_s:]
+            if len(remaining) == 0:
+                return
 
-            start_sample = int(self._start_offset * sr)
-            remaining = mix[start_sample:]
+            # Verificar dispositivo de saida disponivel
+            try:
+                sd.query_devices(kind='output')
+            except Exception as e:
+                print(f"[AUDIO] nenhum dispositivo de saida: {e}")
+                return
 
-            if len(remaining) > 0:
-                play_sr = int(sr * self._speed)
-                sd.stop()
-                sd.play(np.ascontiguousarray(remaining.astype(np.float32)), samplerate=play_sr)
+            play_sr = int(sr / max(self._speed, 0.1))
+            sd.stop()
+            sd.play(np.ascontiguousarray(remaining), samplerate=play_sr)
+            print(f"[AUDIO] tocando {loaded} item(s), offset={self._start_offset:.1f}s, sr={play_sr}")
+
         except Exception as e:
-            log.warning(f"Audio playback failed: {e}")
+            print(f"[AUDIO] _start_audio erro: {e}")
+            import traceback; traceback.print_exc()
 
     def _stop_audio(self):
         try:

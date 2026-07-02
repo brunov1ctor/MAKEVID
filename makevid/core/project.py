@@ -193,6 +193,7 @@ class TrackItem:
 class Project:
     id: str = ""
     name: str = ""
+    created_at: float = field(default_factory=time.time)
     world: WorldBible = field(default_factory=WorldBible)
     characters: List[Character] = field(default_factory=list)
     clips: List[Clip] = field(default_factory=list)
@@ -261,6 +262,7 @@ class Project:
         proj = cls(
             id=data["id"],
             name=data["name"],
+            created_at=data.get("created_at", 0.0),
             world=WorldBible(**data.get("world", {})),
             characters=[Character(**c) for c in data.get("characters", [])],
             clips=[Clip(**c) for c in data.get("clips", [])],

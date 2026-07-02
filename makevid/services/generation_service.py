@@ -318,19 +318,15 @@ class GenerationService:
         return None
 
     def _get_ambience_ref(self, prompt: str, engine: str = "") -> Optional[List[str]]:
-        """Busca automaticamente imagens de ambientacao para o prompt.
-        
-        Se engine suporta multi-ref (VACE), retorna ate 4 imagens dinamicamente.
-        Senao, retorna a melhor 1.
-        """
         try:
             from makevid.core.ambience_matcher import find_best_match, find_dynamic_references
+            pid = self._active_project_id or ""
             if "VACE" in engine:
-                refs = find_dynamic_references(prompt, max_refs=4, min_score=0.20)
+                refs = find_dynamic_references(prompt, max_refs=4, min_score=0.20, project_id=pid)
                 if refs:
                     return refs
             else:
-                match = find_best_match(prompt)
+                match = find_best_match(prompt, project_id=pid)
                 if match:
                     return [match]
         except Exception as _e:

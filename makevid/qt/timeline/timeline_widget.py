@@ -235,8 +235,17 @@ class TimelineWidget(QWidget):
         return self._loop_cb.isChecked()
 
     def redraw(self):
+        if not self.project:
+            self._scene.rebuild_empty()
+            self._update_time_label()
+            return
         self._scene.rebuild(self.project, self.zoom, self.playhead_pos)
         self._update_time_label()
+
+    def _on_project_changed(self, proj):
+        self.project = proj
+        self.playhead_pos = 0.0
+        self.redraw()
 
     def set_playhead(self, time_pos: float):
         self.playhead_pos = max(0, time_pos)
@@ -297,6 +306,9 @@ class TimelineWidget(QWidget):
         self.export_config_requested.emit()
 
     def _update_time_label(self):
+        if not self.project:
+            self._time_label.setText("00:00.0 / 00:00.0")
+            return
         total = self.project.total_duration()
         pm, ps = int(self.playhead_pos) // 60, self.playhead_pos % 60
         tm, ts = int(total) // 60, total % 60

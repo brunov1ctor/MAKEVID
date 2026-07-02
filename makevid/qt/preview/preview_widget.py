@@ -2,7 +2,7 @@
 
 import numpy as np
 from pathlib import Path
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QProgressBar
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QProgressBar, QPushButton
 from PySide6.QtCore import Qt, QTimer, QPointF
 from PySide6.QtGui import (
     QImage, QPixmap, QFont, QCursor, QPainter,
@@ -123,6 +123,9 @@ class PreviewWidget(QWidget):
         # Player
         self.player = TimelinePlayerQt(self)
         self.player.set_project(self.project)
+
+        # Projects panel — inserido dinamicamente ao abrir
+        self._projects_panel = None
 
         # Play button overlay (texto no display)
         self._show_play_button()
@@ -351,12 +354,7 @@ class PreviewWidget(QWidget):
     # BROWSER (abre dentro do preview substituindo o display)
     # ============================================================
 
-    def show_video_browser(self):
-        """Abre browser de videos no lugar do display."""
-        import time as _time
-        from makevid.config import OUTPUTS_DIR
-        from PySide6.QtWidgets import QScrollArea, QFrame, QPushButton, QLineEdit, QFileDialog
-        import shutil
+    def _hide_display(self):
         if self.player.is_playing:
             self.player.stop()
         self._display.hide()
@@ -364,11 +362,17 @@ class PreviewWidget(QWidget):
         self._info.hide()
         if hasattr(self, '_browser') and self._browser:
             self._browser.deleteLater()
+            self._browser = None
+
+    def _show_browser(self, title, accent, files, build_card_fn, import_fn, clean_fn):
+        """Base para show_video_browser e show_audio_browser."""
+        from PySide6.QtWidgets import QScrollArea, QFrame
+        self._hide_display()
 
         self._browser = QFrame(self)
         self._browser.setObjectName("browserFrame")
         self._browser.setStyleSheet(
-            f"QFrame#browserFrame {{ background: {C['panel']}; border: 1px solid {C['gold']}; border-radius: 4px; }}")
+            f"QFrame#browserFrame {{ background: {C['panel']}; border: 1px solid {accent}; border-radius: 4px; }}")
         bl = QVBoxLayout(self._browser)
         bl.setContentsMargins(1, 1, 1, 1)
         bl.setSpacing(0)
@@ -380,20 +384,23 @@ class PreviewWidget(QWidget):
         hl = HL(hdr)
         hl.setContentsMargins(12, 0, 8, 0)
         hl.setSpacing(6)
-        lbl = QLabel("MEUS VIDEOS")
-        lbl.setStyleSheet(f"color: {C['gold']}; font-size: 11pt; font-weight: bold; border: none;")
+        lbl = QLabel(f"{title}  #{len(files)}")
+        lbl.setStyleSheet(f"color: {accent}; font-size: 11pt; font-weight: bold; border: none;")
         hl.addWidget(lbl)
         hl.addStretch()
         btn_imp = QPushButton("+ Importar")
         btn_imp.setFixedHeight(22)
-        btn_imp.setMinimumWidth(86)
-        btn_imp.setStyleSheet(f"background: {C['card']}; color: {C['gold']}; font-size: 8pt; font-weight: bold; border: 1px solid {C['gold']}; border-radius: 3px; padding: 0 8px;")
-        btn_imp.clicked.connect(self._browser_import_video)
+        btn_imp.setStyleSheet(
+            f"background: {C['card']}; color: {accent}; font-size: 8pt; font-weight: bold; "
+            f"border: 1px solid {accent}; border-radius: 3px; padding: 0 8px;")
+        btn_imp.clicked.connect(import_fn)
         hl.addWidget(btn_imp)
         btn_clean = QPushButton("Limpar Inutilizados")
         btn_clean.setFixedHeight(22)
-        btn_clean.setStyleSheet(f"background: #2a0808; color: #ff4444; font-size: 8pt; font-weight: bold; border: 1px solid #ff4444; border-radius: 3px; padding: 0 8px;")
-        btn_clean.clicked.connect(self._browser_clean_videos)
+        btn_clean.setStyleSheet(
+            "background: #2a0808; color: #ff4444; font-size: 8pt; font-weight: bold; "
+            "border: 1px solid #ff4444; border-radius: 3px; padding: 0 8px;")
+        btn_clean.clicked.connect(clean_fn)
         hl.addWidget(btn_clean)
         btn_x = QPushButton("\u2715")
         btn_x.setFixedSize(28, 22)
@@ -413,94 +420,77 @@ class PreviewWidget(QWidget):
         scroll.setWidget(sc)
         bl.addWidget(scroll)
 
-        videos = sorted(OUTPUTS_DIR.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
-        lbl.setText(f"MEUS VIDEOS  #{len(videos)}")
-        if not videos:
-            empty = QLabel("Nenhum video encontrado.")
+        if not files:
+            empty = QLabel("Nenhum arquivo encontrado.")
             empty.setStyleSheet(f"color: {C['text3']}; font-size: 10pt; padding: 12px;")
             self._browser_layout.addWidget(empty)
         else:
-            for vpath in videos:
-                self._build_browser_video_card(vpath)
+            for f in files:
+                build_card_fn(f)
         self._browser_layout.addStretch()
         self.layout().insertWidget(0, self._browser, stretch=1)
         self._browser.show()
+
+    def show_video_browser(self):
+        from makevid.config import OUTPUTS_DIR
+        proj_dir = OUTPUTS_DIR / self.project.id
+        files = sorted(proj_dir.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True) if proj_dir.exists() else []
+        self._show_browser(
+            title="MEUS VIDEOS", accent=C['gold'], files=files,
+            build_card_fn=self._build_browser_video_card,
+            import_fn=self._browser_import_video,
+            clean_fn=self._browser_clean_videos,
+        )
 
     def show_audio_browser(self):
-        """Abre browser de audios no lugar do display."""
-        import time as _time
         from makevid.config import AUDIO_DIR
-        from PySide6.QtWidgets import QScrollArea, QFrame, QPushButton
-        from PySide6.QtWidgets import QHBoxLayout as HL
+        proj_audio = AUDIO_DIR / self.project.id
+        files = sorted(
+            [f for ext in ("*.wav", "*.mp3", "*.ogg", "*.flac") for f in proj_audio.rglob(ext)],
+            key=lambda p: p.stat().st_mtime, reverse=True) if proj_audio.exists() else []
+        self._show_browser(
+            title="MEUS AUDIOS", accent=C['cyan'], files=files,
+            build_card_fn=self._build_browser_audio_card,
+            import_fn=self._browser_import_audio,
+            clean_fn=self._browser_clean_audios,
+        )
 
+    def show_projects_panel(self):
+        """Mostra painel de projetos no lugar do display."""
         if self.player.is_playing:
             self.player.stop()
+
+        if self._projects_panel is not None:
+            self._projects_panel.hide()
+            self._projects_panel.setParent(None)
+            self._projects_panel.deleteLater()
+            self._projects_panel = None
+
+        from makevid.qt.panels.projects_panel import ProjectsPanel
+        self._projects_panel = ProjectsPanel(self.project, parent=self)
+        self._projects_panel.closed.connect(self._close_projects_panel)
+        self._projects_panel.project_opened.connect(self.window()._on_project_opened)
+
+        # Montar tudo antes de qualquer repaint
+        self.setUpdatesEnabled(False)
+        self.layout().addWidget(self._projects_panel, stretch=1)
         self._display.hide()
         self._progress_container.hide()
         self._info.hide()
-        if hasattr(self, '_browser') and self._browser:
-            self._browser.deleteLater()
+        self._projects_panel.show()
+        self.setUpdatesEnabled(True)
 
-        self._browser = QFrame(self)
-        self._browser.setObjectName("browserFrame")
-        self._browser.setStyleSheet(
-            f"QFrame#browserFrame {{ background: {C['panel']}; border: 1px solid {C['cyan']}; border-radius: 4px; }}")
-        bl = QVBoxLayout(self._browser)
-        bl.setContentsMargins(1, 1, 1, 1)
-        bl.setSpacing(0)
+    def _close_projects_panel(self):
+        if self._projects_panel is not None:
+            self._projects_panel.deleteLater()
+            self._projects_panel = None
+        self._display.show()
+        self._info.show()
+        self._show_play_button()
 
-        hdr = QFrame()
-        hdr.setFixedHeight(36)
-        hdr.setStyleSheet(f"background: {C['card']}; border: none;")
-        hl = HL(hdr)
-        hl.setContentsMargins(12, 0, 8, 0)
-        hl.setSpacing(6)
-        lbl = QLabel("MEUS AUDIOS")
-        lbl.setStyleSheet(f"color: {C['cyan']}; font-size: 11pt; font-weight: bold; border: none;")
-        hl.addWidget(lbl)
-        hl.addStretch()
-        btn_imp = QPushButton("+ Importar")
-        btn_imp.setFixedHeight(22)
-        btn_imp.setMinimumWidth(86)
-        btn_imp.setStyleSheet(f"background: {C['card']}; color: {C['cyan']}; font-size: 8pt; font-weight: bold; border: 1px solid {C['cyan']}; border-radius: 3px; padding: 0 8px;")
-        btn_imp.clicked.connect(self._browser_import_audio)
-        hl.addWidget(btn_imp)
-        btn_clean = QPushButton("Limpar Inutilizados")
-        btn_clean.setFixedHeight(22)
-        btn_clean.setStyleSheet(f"background: #2a0808; color: #ff4444; font-size: 8pt; font-weight: bold; border: 1px solid #ff4444; border-radius: 3px; padding: 0 8px;")
-        btn_clean.clicked.connect(self._browser_clean_audios)
-        hl.addWidget(btn_clean)
-        btn_x = QPushButton("\u2715")
-        btn_x.setFixedSize(28, 22)
-        btn_x.setObjectName("closeBtn")
-        btn_x.clicked.connect(self._close_browser)
-        hl.addWidget(btn_x)
-        bl.addWidget(hdr)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(f"QScrollArea {{ background: {C['panel']}; border: none; }}")
-        sc = QWidget()
-        sc.setStyleSheet(f"background: {C['panel']};")
-        self._browser_layout = QVBoxLayout(sc)
-        self._browser_layout.setContentsMargins(8, 8, 8, 8)
-        self._browser_layout.setSpacing(6)
-        scroll.setWidget(sc)
-        bl.addWidget(scroll)
-
-        audios = sorted([f for ext in ("*.wav", "*.mp3", "*.ogg", "*.flac") for f in AUDIO_DIR.rglob(ext)],
-                        key=lambda p: p.stat().st_mtime, reverse=True)
-        lbl.setText(f"MEUS AUDIOS  #{len(audios)}")
-        if not audios:
-            empty = QLabel("Nenhum audio.")
-            empty.setStyleSheet(f"color: {C['text3']}; font-size: 10pt; padding: 12px;")
-            self._browser_layout.addWidget(empty)
-        else:
-            for ap in audios:
-                self._build_browser_audio_card(ap)
-        self._browser_layout.addStretch()
-        self.layout().insertWidget(0, self._browser, stretch=1)
-        self._browser.show()
+    def _on_project_changed(self, proj):
+        self.project = proj
+        self.player.set_project(proj)
 
     def _build_browser_video_card(self, vpath):
         import time as _time
@@ -913,17 +903,16 @@ class PreviewWidget(QWidget):
     def _browser_clean_audios(self):
         from makevid.config import AUDIO_DIR
         from PySide6.QtCore import QUrl
-        # Parar todos os players ativos nos cards de audio
         if hasattr(self, '_browser') and self._browser:
             from PySide6.QtMultimedia import QMediaPlayer
             for pl in self._browser.findChildren(QMediaPlayer):
                 pl.stop()
                 pl.setSource(QUrl())
         used = {str(Path(i.file_path).resolve()) for i in self.project.track_items if i.file_path}
-        audio_dir = AUDIO_DIR / self.project.id
-        if audio_dir.exists():
+        proj_audio = AUDIO_DIR / self.project.id
+        if proj_audio.exists():
             for ext in ("*.wav", "*.mp3", "*.ogg", "*.flac"):
-                for f in audio_dir.rglob(ext):
+                for f in proj_audio.rglob(ext):
                     if str(f.resolve()) not in used:
                         f.unlink(missing_ok=True)
         self._close_browser()

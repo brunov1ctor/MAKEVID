@@ -871,3 +871,6 @@ class GeneratorPanel(QWidget):
         self._prompt.setPlainText(clip.prompt)
         self._dur.setText(str(clip.duration))
         self._seed.setText(str(clip.seed) if clip.seed else "")
+
+    def _on_project_changed(self, proj):
+        self.project = proj

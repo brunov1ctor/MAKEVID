@@ -104,6 +104,36 @@ class _EngineBadge(QWidget):
         p.end()
 
 
+class _ProjectBadge(QWidget):
+    """Badge destacado mostrando o projeto ativo."""
+
+    def __init__(self, text="", parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self._text = text
+        self.setFixedHeight(30)
+        self.setMinimumWidth(100)
+
+    def set_text(self, text):
+        self._text = text
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+
+        from PySide6.QtGui import QFontMetrics, QPen
+        font = QFont("Segoe UI", 11, QFont.Bold)
+        p.setFont(font)
+        fm = QFontMetrics(font)
+        tw = fm.horizontalAdvance(self._text) + 20
+        self.setFixedWidth(max(tw, 80))
+
+        p.setPen(QColor(C["primary"]))
+        p.drawText(0, 0, self.width(), self.height(), Qt.AlignCenter, self._text)
+        p.end()
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  MakeVidWindow
 # ══════════════════════════════════════════════════════════════════════════════
@@ -159,36 +189,12 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self._left_stack.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Ignored)
         self._left_stack.setStyleSheet("background: transparent;")
 
-        self.generator    = GeneratorPanel(self.project)
-        self.mixer        = MixerPanel()
-        self.fx_editor    = FxPanel()
-        self.track_editor = TrackEditorPanel()
-        self.export_panel = ExportPanel(self.project)
-        self.recorder     = RecorderPanel()
-        self.tts_panel    = TTSPanel()
-        self.video_browser = VideoBrowserPanel(self.project)
-        self.track_menu   = TrackMenuPanel()
-        self.inpaint_panel = InpaintPanel()
-
-        self._left_stack.addWidget(self.generator)
-        self._left_stack.addWidget(self.mixer)
-        self._left_stack.addWidget(self.fx_editor)
-        self._left_stack.addWidget(self.track_editor)
-        self._left_stack.addWidget(self.export_panel)
-        self._left_stack.addWidget(self.recorder)
-        self._left_stack.addWidget(self.tts_panel)
-        self._left_stack.addWidget(self.video_browser)
-        self._left_stack.addWidget(self.track_menu)
-        self._left_stack.addWidget(self.inpaint_panel)
-        self._left_stack.setCurrentWidget(self.generator)
-
         # ── Preview + Timeline ────────────────────────────────────────────────
         self.timeline = TimelineWidget(self.project)
         self.timeline.setMinimumHeight(100)
         self.preview  = PreviewWidget(self.project, self.timeline)
 
-        self.audio_browser = AudioBrowserPanel(self.project, self.timeline)
-        self._left_stack.addWidget(self.audio_browser)
+        self._build_panels()
 
         # ── GlassPanel wrappers ───────────────────────────────────────────────
         left_shell = GlassPanel(radius=20, shadow=True, shadow_radius=30, shadow_dy=8)
@@ -225,6 +231,37 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         # ── Style panel (oculto) ──────────────────────────────────────────────
         self.style_panel = StylePanel(self.project)
         self.style_panel.hide()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PANELS
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _build_panels(self):
+        """Cria (ou recria) todos os paineis do left_stack."""
+        while self._left_stack.count():
+            w = self._left_stack.widget(0)
+            self._left_stack.removeWidget(w)
+            w.deleteLater()
+
+        self.generator     = GeneratorPanel(self.project)
+        self.mixer         = MixerPanel()
+        self.fx_editor     = FxPanel()
+        self.track_editor  = TrackEditorPanel()
+        self.export_panel  = ExportPanel(self.project)
+        self.recorder      = RecorderPanel()
+        self.tts_panel     = TTSPanel()
+        self.video_browser = VideoBrowserPanel(self.project)
+        self.track_menu    = TrackMenuPanel()
+        self.inpaint_panel = InpaintPanel()
+        self.audio_browser = AudioBrowserPanel(self.project, self.timeline)
+
+        for panel in (
+            self.generator, self.mixer, self.fx_editor, self.track_editor,
+            self.export_panel, self.recorder, self.tts_panel, self.video_browser,
+            self.track_menu, self.inpaint_panel, self.audio_browser,
+        ):
+            self._left_stack.addWidget(panel)
+        self._left_stack.setCurrentWidget(self.generator)
 
     # ══════════════════════════════════════════════════════════════════════════
     # TOPBAR
@@ -270,7 +307,8 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         btn_arq, _ = _menu_btn("Arquivo", "📁")
         m_arq = QMenu(btn_arq)
         m_arq.setStyleSheet(mqss)
-        m_arq.addAction("Novo Projeto", self._new_project)
+        m_arq.addAction("Projetos", self._show_projects_panel)
+        m_arq.addAction("Limpar Projeto", self._clear_project)
         m_arq.addSeparator()
         m_arq.addAction("Meus Videos", self._show_video_browser)
         m_arq.addAction("Meus Audios", self._show_audio_browser)
@@ -292,8 +330,8 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         btn_eng.setMenu(self._engine_menu)
         h.addWidget(btn_eng)
 
-        # Projeto
-        btn_est, _ = _menu_btn("Projeto", "🎥")
+        # Tema
+        btn_est, _ = _menu_btn("Tema", "🎨")
         m_est = QMenu(btn_est)
         m_est.setStyleSheet(mqss)
         m_est.addAction("Storyboard",   lambda: self._show_style_tab(0))
@@ -324,6 +362,16 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         # GlowDot de status
         self._status_dot = GlowDot(color=C["track_sfx"])
         h.addWidget(self._status_dot)
+
+        # Project badge
+        self._project_badge = _ProjectBadge(self.project.name or self.project.id)
+        h.addWidget(self._project_badge)
+
+        # Divisor
+        div2 = QWidget()
+        div2.setFixedSize(1, 22)
+        div2.setStyleSheet(f"background: {C['glass_border']};")
+        h.addWidget(div2)
 
         # Engine badge
         self._engine_badge = _EngineBadge(self._engine)
@@ -359,6 +407,15 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.track_menu.action_add_fx.connect(self._add_fx_to_timeline)
         self.inpaint_panel.closed.connect(self._show_generator)
         self.inpaint_panel.inpaint_requested.connect(self._do_inpaint)
+
+        # Propaga troca de projeto para todos os paineis
+        self.project_changed.connect(self.generator._on_project_changed)
+        self.project_changed.connect(self.export_panel._on_project_changed)
+        self.project_changed.connect(self.video_browser._on_project_changed)
+        self.project_changed.connect(self.audio_browser._on_project_changed)
+        self.project_changed.connect(self.timeline._on_project_changed)
+        self.project_changed.connect(self.preview._on_project_changed)
+        self.project_changed.connect(self.style_panel._on_project_changed)
 
         self.timeline._scene._interaction.item_clicked        = self._on_item_clicked
         self.timeline._scene._interaction.clip_clicked        = self._on_clip_clicked
@@ -454,6 +511,10 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self._v_splitter.insertWidget(0, self._h_splitter)
         self._h_splitter.show()
 
+    def _update_project_badge(self):
+        name = getattr(self.project, 'name', None) or getattr(self.project, 'id', '?')
+        self._project_badge.set_text(name)
+
     def _set_engine(self, engine):
         self._engine = engine
         self._engine_badge.set_text(engine)
@@ -535,46 +596,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         if style_visible:
             self._show_style_tab(style_tab)
 
-        # Rebuild left stack
-        while self._left_stack.count():
-            w = self._left_stack.widget(0)
-            self._left_stack.removeWidget(w)
-            w.deleteLater()
-
-        from makevid.qt.panels.generator_panel   import GeneratorPanel
-        from makevid.qt.panels.mixer_panel        import MixerPanel
-        from makevid.qt.panels.fx_panel           import FxPanel
-        from makevid.qt.panels.track_editor_panel import TrackEditorPanel
-        from makevid.qt.panels.export_panel       import ExportPanel
-        from makevid.qt.panels.recorder_panel     import RecorderPanel, TTSPanel
-        from makevid.qt.panels.browser_panel      import VideoBrowserPanel, AudioBrowserPanel
-        from makevid.qt.panels.track_menu_panel   import TrackMenuPanel
-        from makevid.qt.panels.inpaint_panel      import InpaintPanel
-
-        self.generator     = GeneratorPanel(self.project)
-        self.mixer         = MixerPanel()
-        self.fx_editor     = FxPanel()
-        self.track_editor  = TrackEditorPanel()
-        self.export_panel  = ExportPanel(self.project)
-        self.recorder      = RecorderPanel()
-        self.tts_panel     = TTSPanel()
-        self.video_browser = VideoBrowserPanel(self.project)
-        self.track_menu    = TrackMenuPanel()
-        self.inpaint_panel = InpaintPanel()
-        self.audio_browser = AudioBrowserPanel(self.project, self.timeline)
-
-        self._left_stack.addWidget(self.generator)
-        self._left_stack.addWidget(self.mixer)
-        self._left_stack.addWidget(self.fx_editor)
-        self._left_stack.addWidget(self.track_editor)
-        self._left_stack.addWidget(self.export_panel)
-        self._left_stack.addWidget(self.recorder)
-        self._left_stack.addWidget(self.tts_panel)
-        self._left_stack.addWidget(self.video_browser)
-        self._left_stack.addWidget(self.track_menu)
-        self._left_stack.addWidget(self.inpaint_panel)
-        self._left_stack.addWidget(self.audio_browser)
-        self._left_stack.setCurrentWidget(self.generator)
+        self._build_panels()
 
         # Rebuild preview — troca dentro do GlassPanel, não o shell
         from makevid.qt.preview.preview_widget import PreviewWidget

@@ -110,6 +110,26 @@ class TimelineScene(QGraphicsScene):
         if self._playhead_item:
             self._playhead_item.set_position(pos, zoom, self.tl.LBL_W)
 
+    def rebuild_empty(self):
+        """Desenha apenas o esqueleto de tracks sem projeto."""
+        self.clear()
+        self._playhead_item = None
+        global TRACK_CONFIG
+        TRACK_CONFIG = _track_config()
+
+        lbl_w = self.tl.LBL_W
+        ruler_h = self.tl.RULER_H
+        view_h = self.tl._view.viewport().height() or 300
+        view_w = self.tl._view.viewport().width() or 900
+
+        self.setSceneRect(0, 0, view_w, view_h)
+        self.setBackgroundBrush(QColor(C["dark"]))
+        self._calc_track_positions(view_h, ruler_h)
+        self._draw_all_track_bgs(lbl_w, view_w, view_h)
+        self._ruler_item = RulerItem(lbl_w, view_w, ruler_h, self.tl.zoom, 30)
+        self.addItem(self._ruler_item)
+        self._draw_labels(view_h, None)
+
     # ============================================================
     # TRACK POSITIONS
     # ============================================================
@@ -218,7 +238,7 @@ class TimelineScene(QGraphicsScene):
             # Sub-label ou volume %
             track_key = {"VIDEO": None, "FX": None, "VOICE": "voice",
                          "SFX": "sfx", "MUSIC": "music", "AUDIO": "audio"}.get(label)
-            if track_key and hasattr(project, 'track_volumes'):
+            if track_key and project and hasattr(project, 'track_volumes'):
                 vol = project.track_volumes.get(track_key, 1.0)
                 sub_txt = QGraphicsTextItem(f"{int(vol * 100)}%")
                 sub_txt.setFont(QFont("Consolas", 6, QFont.Bold))

@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from PySide6.QtWidgets import QFileDialog, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QWidget
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 
 from makevid.qt.theme import C
 from makevid.config import PROJECTS_DIR, AUDIO_DIR
@@ -13,6 +13,9 @@ from makevid.core.project import Project
 
 class ActionsMixin:
     """Metodos de acao do MakeVidWindow."""
+
+    # Sinal emitido sempre que o projeto ativo muda
+    project_changed = Signal(object)
 
     # ============================================================
     # GENERATION
@@ -25,6 +28,12 @@ class ActionsMixin:
         if params.get("action") == "image_done":
             self.timeline.redraw()
             return
+
+        # Garantir projeto ativo — cria automaticamente se nao existir
+        if self.project is None:
+            self.project = Project.create("Novo Projeto")
+            self.project.save(PROJECTS_DIR)
+            self._on_project_opened(self.project)
 
         if self._engine == "HuggingFace API" and not os.environ.get("HF_TOKEN", ""):
             from makevid.core.hf_api import _get_token
@@ -117,30 +126,6 @@ class ActionsMixin:
     # ============================================================
     # AUDIO
     # ============================================================
-
-    def _import_audio(self):
-        import shutil
-        paths, _ = QFileDialog.getOpenFileNames(self, "Importar Audio", "", "Audio (*.wav *.mp3 *.ogg *.flac)")
-        if not paths:
-            return
-        for p in paths:
-            src = Path(p)
-            dest_dir = AUDIO_DIR / self.project.id
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            dest = dest_dir / src.name
-            if not dest.exists():
-                shutil.copy2(str(src), str(dest))
-            dur = 5.0
-            try:
-                from makevid.core.audio_utils import get_audio_duration
-                dur = get_audio_duration(str(dest)) or 5.0
-            except Exception:
-                pass
-            existing = self.project.get_track_items("audio")
-            start = max((i.start_time + i.duration for i in existing), default=self.timeline.playhead_pos)
-            self.project.add_track_item(name=src.stem[:20], track="audio", start_time=start, duration=dur, file_path=str(dest))
-        self.project.save(PROJECTS_DIR)
-        self.timeline.redraw()
 
     def _import_audio_to_track(self, track_name):
         import shutil
@@ -357,7 +342,7 @@ class ActionsMixin:
                 cap.release()
                 if ret:
                     self.inpaint_panel.set_frame(frame[:, :, ::-1])
-                    self._left_stack.setCurrentIndex(9)
+                    self._left_stack.setCurrentWidget(self.inpaint_panel)
                     return
             current += clip.duration
         self.generator._status.setText("Nenhum frame no playhead")
@@ -498,13 +483,22 @@ class ActionsMixin:
     # PROJECT
     # ============================================================
 
-    def _new_project(self):
-        import time as _time
-        name = f"projeto_{str(int(_time.time()))[-4:]}"
-        self.project = Project.create(name)
+    def _clear_project(self):
+        """Remove todos os clips e track items da timeline do projeto atual."""
+        self.project.clips.clear()
+        self.project.track_items.clear()
         self.project.save(PROJECTS_DIR)
-        self.timeline.project = self.project
         self.timeline.redraw()
+
+    def _show_projects_panel(self):
+        self.preview.show_projects_panel()
+
+    def _on_project_opened(self, proj):
+        self.project = proj
+        self.project_changed.emit(proj)
+        self.timeline.redraw()
+        if hasattr(self, '_project_badge'):
+            self._update_project_badge()
 
     def _load_project(self) -> Project:
         files = sorted(PROJECTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)

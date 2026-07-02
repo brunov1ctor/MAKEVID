@@ -16,21 +16,22 @@ _clip_processor = None
 _image_embeddings_cache = {}
 
 
-def get_ambience_images() -> List[Path]:
-    """Retorna todas as imagens na pasta de ambientacao."""
+def get_ambience_images(project_id: str = "") -> List[Path]:
+    """Retorna todas as imagens na pasta de ambientacao do projeto."""
     from makevid.config import AMBIENCE_REFS_DIR
     exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
-    if not AMBIENCE_REFS_DIR.exists():
+    folder = AMBIENCE_REFS_DIR / project_id if project_id else AMBIENCE_REFS_DIR
+    if not folder.exists():
         return []
-    return sorted(f for f in AMBIENCE_REFS_DIR.iterdir() if f.suffix.lower() in exts)
+    return sorted(f for f in folder.iterdir() if f.suffix.lower() in exts)
 
 
-def find_best_match(prompt: str, top_k: int = 1) -> Optional[str]:
+def find_best_match(prompt: str, top_k: int = 1, project_id: str = "") -> Optional[str]:
     """Encontra a imagem de ambientacao que mais combina com o prompt.
     
     Retorna path da melhor imagem, ou None se nao houver imagens.
     """
-    images = get_ambience_images()
+    images = get_ambience_images(project_id)
     if not images:
         return None
 
@@ -54,23 +55,9 @@ def find_best_match(prompt: str, top_k: int = 1) -> Optional[str]:
     return str(images[0])
 
 
-def find_dynamic_references(prompt: str, max_refs: int = 4, min_score: float = 0.20) -> List[str]:
-    """Multi-referencia dinamica: retorna N imagens com score acima do threshold.
-    
-    O numero de imagens retornadas varia conforme quantas passam do threshold:
-    - Se 5 imagens tem score > min_score, retorna as top max_refs
-    - Se apenas 1 passa, retorna so 1
-    - Se nenhuma passa, retorna a melhor mesmo assim (pelo menos 1)
-    
-    Args:
-        prompt: texto descritivo da cena
-        max_refs: maximo de imagens a retornar (1-4)
-        min_score: score minimo para considerar uma imagem relevante
-    
-    Returns:
-        Lista de paths (strings) ordenada por relevancia
-    """
-    images = get_ambience_images()
+def find_dynamic_references(prompt: str, max_refs: int = 4, min_score: float = 0.20, project_id: str = "") -> List[str]:
+    """Multi-referencia dinamica: retorna N imagens com score acima do threshold."""
+    images = get_ambience_images(project_id)
     if not images:
         return []
 

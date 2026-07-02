@@ -1,7 +1,7 @@
-# MAKEVID
+# MAKEVID — Qt UI
 
-# UI
-customtkinter>=5.2.0
+# Qt
+PySide6>=6.6.0
 
 # Deep Learning
 torch>=2.4.0
@@ -12,25 +12,21 @@ accelerate>=0.34.0
 safetensors>=0.4.5
 peft>=0.13.0
 
-# Image
+# Image / Video
 pillow>=10.4.0
 opencv-python>=4.10.0
-imageio>=2.34.0
+
+# Audio
+sounddevice>=0.4.6
+soundfile>=0.12.0
+scipy>=1.11.0
+edge-tts>=7.0.0
 
 # Utils
-psutil>=6.0.0
 numpy>=1.26.0
 requests>=2.32.0
 huggingface-hub>=0.25.0
-sounddevice>=0.4.6
-scipy>=1.11.0
-edge-tts>=7.0.0
-miniaudio>=1.59
-tksheet>=7.0.0
+psutil>=6.0.0
 
-# Qt UI (nova interface)
-PySide6>=6.6.0
-
-# Build (para gerar .exe)
+# Build
 pyinstaller>=6.0.0
-tkinterdnd2

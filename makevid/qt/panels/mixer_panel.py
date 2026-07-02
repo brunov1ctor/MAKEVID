@@ -30,7 +30,6 @@ class MixerPanel(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
 
         # Header
-        # Header
         hdr_l = QHBoxLayout()
         hdr_l.setContentsMargins(10, 6, 10, 4)
         lbl = QLabel("MIXER")

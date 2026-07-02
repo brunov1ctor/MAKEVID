@@ -311,6 +311,11 @@ class ExportPanel(QWidget):
         finally:
             self._export_btn.setEnabled(True)
 
+    def _on_project_changed(self, proj):
+        self.project = proj
+        self._name_entry.setText(proj.name or "meu_video")
+        self._update_estimate()
+
     def _mix_audio(self, project, total_dur, safe_name):
         """Mixa audio de todas as tracks habilitadas."""
         import numpy as np

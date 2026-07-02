@@ -256,9 +256,10 @@ class AmbienceMixin:
 
     def _amb_get_images(self):
         exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+        proj_amb = AMBIENCE_REFS_DIR / self.project.id
         imgs = []
-        if AMBIENCE_REFS_DIR.exists():
-            for f in sorted(AMBIENCE_REFS_DIR.iterdir()):
+        if proj_amb.exists():
+            for f in sorted(proj_amb.iterdir()):
                 if f.suffix.lower() in exts:
                     imgs.append(f)
         return imgs
@@ -282,9 +283,11 @@ class AmbienceMixin:
             "Imagens (*.png *.jpg *.jpeg *.webp *.bmp)")
         if not paths:
             return
+        proj_amb = AMBIENCE_REFS_DIR / self.project.id
+        proj_amb.mkdir(parents=True, exist_ok=True)
         for p in paths:
             src = Path(p)
-            dst = AMBIENCE_REFS_DIR / src.name
+            dst = proj_amb / src.name
             if not dst.exists():
                 shutil.copy2(src, dst)
         self._amb_refresh()
@@ -294,9 +297,11 @@ class AmbienceMixin:
         if not folder:
             return
         exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+        proj_amb = AMBIENCE_REFS_DIR / self.project.id
+        proj_amb.mkdir(parents=True, exist_ok=True)
         for f in Path(folder).iterdir():
             if f.suffix.lower() in exts:
-                dst = AMBIENCE_REFS_DIR / f.name
+                dst = proj_amb / f.name
                 if not dst.exists():
                     shutil.copy2(f, dst)
         self._amb_refresh()
@@ -310,8 +315,9 @@ class AmbienceMixin:
 
     def _amb_clear_all(self):
         exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
-        if AMBIENCE_REFS_DIR.exists():
-            for f in AMBIENCE_REFS_DIR.iterdir():
+        proj_amb = AMBIENCE_REFS_DIR / self.project.id
+        if proj_amb.exists():
+            for f in proj_amb.iterdir():
                 if f.suffix.lower() in exts:
                     try:
                         f.unlink()
@@ -320,8 +326,9 @@ class AmbienceMixin:
         self._amb_refresh()
 
     def _amb_open_folder(self):
-        AMBIENCE_REFS_DIR.mkdir(parents=True, exist_ok=True)
-        subprocess.Popen(f'explorer "{AMBIENCE_REFS_DIR}"')
+        proj_amb = AMBIENCE_REFS_DIR / self.project.id
+        proj_amb.mkdir(parents=True, exist_ok=True)
+        subprocess.Popen(f'explorer "{proj_amb}"')
 
 
     def _save_ambience(self):

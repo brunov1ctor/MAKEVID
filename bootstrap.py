@@ -27,8 +27,8 @@ PACKAGES = [
     "huggingface-hub>=0.25.0",
     "edge-tts>=7.0.0",
     "sounddevice>=0.4.6",
-    "scipy>=1.11.0",
     "soundfile>=0.12.0",
+    "scipy>=1.11.0",
     "psutil>=6.0.0",
 ]
 
