@@ -92,8 +92,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
 
         self.project_changed.connect(self.generator._on_project_changed)
         self.project_changed.connect(self.export_panel._on_project_changed)
-        self.project_changed.connect(self.video_browser._on_project_changed)
-        self.project_changed.connect(self.audio_browser._on_project_changed)
+        self.project_changed.connect(self._sync_browsers_if_visible)
         self.project_changed.connect(self.timeline._on_project_changed)
         self.project_changed.connect(self.preview._on_project_changed)
         self.project_changed.connect(self._sync_style_panel_if_visible)
@@ -105,8 +104,25 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.timeline.export_requested.connect(self._do_export_direct)
         self.timeline.export_config_requested.connect(self._show_export)
         self.timeline.keyPressEvent = self._timeline_key_handler
-        self._h_splitter.splitterMoved.connect(lambda *_: None)
-        self._v_splitter.splitterMoved.connect(lambda *_: None)
+        self._h_splitter.splitterMoved.connect(lambda *_: (
+            self._preview_halo.track(self._preview_shell)
+            if self._preview_halo else None
+        ))
+        self._v_splitter.splitterMoved.connect(lambda *_: (
+            self._preview_halo.track(self._preview_shell)
+            if self._preview_halo else None
+        ))
+
+    def _sync_browsers_if_visible(self, proj):
+        if self.video_browser.isVisible():
+            self.video_browser._on_project_changed(proj)
+        else:
+            self.video_browser.project = proj
+
+        if self.audio_browser.isVisible():
+            self.audio_browser._on_project_changed(proj)
+        else:
+            self.audio_browser.project = proj
 
     def _sync_style_panel_if_visible(self, proj):
         if self.style_panel.isVisible():

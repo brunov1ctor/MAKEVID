@@ -1,23 +1,92 @@
-"""PreviewGlowPanel — GlassPanel com light spill pintado no próprio paintEvent."""
+"""PreviewGlowPanel + PreviewHalo — light spill que vaza para fora do preview."""
 
-from PySide6.QtCore import Qt, QRectF
-from PySide6.QtGui import QPainter, QRadialGradient, QColor, QPainterPath, QLinearGradient, QBrush, QPen
+from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import Qt, QRectF, QTimer
+from PySide6.QtGui import QPainter, QRadialGradient, QColor, QPainterPath, QBrush
 
 from makevid.qt.widgets import GlassPanel
-from makevid.qt.theme import C
 
 
 class PreviewGlowPanel(GlassPanel):
-    """GlassPanel com glow de light spill pintado antes do vidro, clipado ao path arredondado."""
+    """GlassPanel padrão — sem glow interno. O halo fica num widget separado atrás."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._has_media = False
+        self._halo: "PreviewHalo | None" = None
 
     def set_has_media(self, value: bool):
         if value != self._has_media:
             self._has_media = value
-            self.update()
+            if self._halo:
+                self._halo.set_has_media(value)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._halo:
+            self._halo.track(self)
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        if self._halo:
+            self._halo.track(self)
+
+
+class PreviewHalo(QWidget):
+    """
+    Widget irmão do preview_shell, posicionado atrás via lower().
+    Pinta gradientes radiais grandes que simulam light spill para o ambiente.
+    """
+
+    _SPREAD = 0.55   # quanto o halo extravasa além das bordas (fração do tamanho)
+
+    def __init__(self, parent: QWidget):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_NoSystemBackground)
+        self.setAutoFillBackground(False)
+        self._has_media = False
+        # animação suave de intensidade
+        self._alpha_t = 0.0          # 0.0 = idle, 1.0 = com mídia
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)
+        self._timer.timeout.connect(self._tick)
+        self._timer.start()
+
+    # ── API ───────────────────────────────────────────────────────────────────
+
+    def set_has_media(self, value: bool):
+        self._has_media = value
+
+    def track(self, target: QWidget):
+        """Reposiciona e redimensiona para cobrir target + spread."""
+        if not target.parent():
+            return
+        pos  = target.pos()
+        tw, th = target.width(), target.height()
+        sx = int(tw * self._SPREAD)
+        sy = int(th * self._SPREAD)
+        self.setGeometry(
+            pos.x() - sx,
+            pos.y() - sy,
+            tw + sx * 2,
+            th + sy * 2,
+        )
+        self.lower()
+        self.update()
+
+    # ── animação ──────────────────────────────────────────────────────────────
+
+    def _tick(self):
+        target = 1.0 if self._has_media else 0.0
+        step   = 0.025
+        if abs(self._alpha_t - target) < step:
+            self._alpha_t = target
+        else:
+            self._alpha_t += step if target > self._alpha_t else -step
+        self.update()
+
+    # ── paint ─────────────────────────────────────────────────────────────────
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -25,68 +94,30 @@ class PreviewGlowPanel(GlassPanel):
 
         w, h = self.width(), self.height()
         cx, cy = w / 2, h / 2
-        alpha_scale = 1.8 if self._has_media else 1.0
+        t = self._alpha_t
 
-        # Path arredondado — definido primeiro para usar no clip e no glass
-        r = QRectF(1, 1, w - 2, h - 2)
-        path = QPainterPath()
-        path.addRoundedRect(r, self._radius, self._radius)
+        # escala de alpha: idle=0.6, com mídia=1.0
+        scale = 0.6 + 0.4 * t
 
-        # ── Glow clipado ao path arredondado ──────────────────────────────
-        p.setClipPath(path)
-        p.setCompositionMode(QPainter.CompositionMode_Screen)
+        def _grad(fx, fy, radius_frac, r, g, b, base_alpha):
+            gx, gy = cx + fx * w * 0.25, cy + fy * h * 0.25
+            rad = radius_frac * max(w, h)
+            gr = QRadialGradient(gx, gy, rad)
+            a = int(base_alpha * scale)
+            gr.setColorAt(0.0, QColor(r, g, b, a))
+            gr.setColorAt(0.55, QColor(r, g, b, int(a * 0.3)))
+            gr.setColorAt(1.0, QColor(0, 0, 0, 0))
+            p.fillRect(self.rect(), gr)
 
-        g1 = QRadialGradient(cx, cy * 0.3, w * 0.7)
-        g1.setColorAt(0.0, QColor(90, 228, 255, int(18 * alpha_scale)))
-        g1.setColorAt(1.0, QColor(0, 0, 0, 0))
-        p.fillRect(self.rect(), g1)
-
-        g2 = QRadialGradient(cx, cy * 1.6, w * 0.75)
-        g2.setColorAt(0.0, QColor(108, 99, 255, int(22 * alpha_scale)))
-        g2.setColorAt(1.0, QColor(0, 0, 0, 0))
-        p.fillRect(self.rect(), g2)
-
-        g3 = QRadialGradient(cx, cy, w * 0.85)
-        g3.setColorAt(0.0, QColor(96, 165, 250, int(14 * alpha_scale)))
-        g3.setColorAt(1.0, QColor(0, 0, 0, 0))
-        p.fillRect(self.rect(), g3)
-
-        p.setCompositionMode(QPainter.CompositionMode_SourceOver)
-        p.setClipping(False)
-
-        # ── Glass ─────────────────────────────────────────────────────────
-        grad = QLinearGradient(0, 0, 0, h)
-        base = QColor(self._tint)
-        top_c = QColor(base)
-        top_c.setRed(min(255, base.red() + 14))
-        top_c.setGreen(min(255, base.green() + 12))
-        top_c.setBlue(min(255, base.blue() + 18))
-        top_c.setAlpha(245)
-        base.setAlpha(230)
-        grad.setColorAt(0.0, top_c)
-        grad.setColorAt(1.0, base)
-        p.fillPath(path, QBrush(grad))
-
-        inner_grad = QLinearGradient(0, 0, 0, self._radius * 2)
-        inner_grad.setColorAt(0.0, QColor(0, 0, 0, 28))
-        inner_grad.setColorAt(1.0, QColor(0, 0, 0, 0))
-        inner_path = QPainterPath()
-        inner_path.addRoundedRect(QRectF(1, 1, w - 2, self._radius * 2), self._radius, self._radius)
-        p.fillPath(inner_path, QBrush(inner_grad))
-
-        ref_rect = QRectF(self._radius * 0.4, 1, w - self._radius * 0.8, min(self._radius * 1.2, 20))
-        ref_path = QPainterPath()
-        ref_path.addRoundedRect(ref_rect, self._radius * 0.3, self._radius * 0.3)
-        ref_grad = QLinearGradient(0, 0, 0, ref_rect.height())
-        ref_grad.setColorAt(0.0, QColor(255, 255, 255, 22))
-        ref_grad.setColorAt(0.5, QColor(255, 255, 255, 8))
-        ref_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
-        p.setPen(Qt.NoPen)
-        p.fillPath(ref_path, QBrush(ref_grad))
-
-        border_color = QColor(C["glass_border"])
-        border_color.setAlpha(self._border_opacity)
-        p.setPen(QPen(border_color, 1.0))
-        p.drawPath(path)
+        # ciano — topo-centro
+        _grad( 0.0, -0.35, 0.72,  90, 228, 255, 28)
+        # roxo — base-centro
+        _grad( 0.0,  0.35, 0.78, 108,  99, 255, 32)
+        # azul — centro
+        _grad( 0.0,  0.0,  0.90,  96, 165, 250, 20)
+        # ciano extra lateral esquerda (sutil)
+        _grad(-0.5,  0.0,  0.55,  90, 228, 255, 14)
+        # roxo extra lateral direita (sutil)
+        _grad( 0.5,  0.0,  0.55, 108,  99, 255, 14)
 
         p.end()

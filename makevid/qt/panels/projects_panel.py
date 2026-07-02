@@ -331,7 +331,8 @@ class ProjectsPanel(QWidget):
                 )
 
     def _new_project(self):
-        proj = Project.create("Novo Projeto")
+        name = f"Projeto_{int(time.time())}"
+        proj = Project.create(name)
         proj.save(PROJECTS_DIR)
         self._new_card_id = proj.id
         self._active_id = proj.id

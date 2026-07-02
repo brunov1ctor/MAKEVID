@@ -455,7 +455,7 @@ class VideoBrowserPanel(QWidget):
             return
 
         for vpath in videos:
-            card = VideoCard(vpath)
+            card = VideoCard(vpath, parent=self._content)
             card.add_requested.connect(self._add_to_timeline)
             card.delete_requested.connect(lambda c=card: self._delete(c))
             L.addWidget(card)
@@ -570,11 +570,7 @@ class AudioBrowserPanel(QWidget):
             w = child.widget()
             if w:
                 w.hide()
-                w.setParent(None)
                 w.deleteLater()
-
-        from PySide6.QtWidgets import QApplication
-        QApplication.processEvents()
 
         proj_audio = AUDIO_DIR / self.project.id
         audios = sorted(
@@ -586,7 +582,7 @@ class AudioBrowserPanel(QWidget):
             return
 
         for apath in audios:
-            card = AudioCard(apath)
+            card = AudioCard(apath, parent=self._content)
             card.add_requested.connect(self._add_to_timeline)
             card.delete_requested.connect(lambda c=card: self._delete(c))
             L.addWidget(card)

@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer
 
 from makevid.qt.widgets import GlassPanel
-from makevid.qt.preview.glow_layer import PreviewGlowPanel
+from makevid.qt.preview.glow_layer import PreviewGlowPanel, PreviewHalo
 from makevid.qt.timeline.timeline_widget import TimelineWidget
 from makevid.qt.preview.preview_widget import PreviewWidget
 from makevid.qt.panels.generator_panel import GeneratorPanel
@@ -67,6 +67,8 @@ def build_layout(window, main_layout):
     window._preview_layout.addWidget(window.preview)
     window._preview_shell = preview_shell
     window.preview._glow_layer = preview_shell
+    # halo criado depois de montar o splitter para ter parent correto
+    window._preview_halo = None  # instanciado em _install_halo abaixo
 
     timeline_shell = GlassPanel(radius=20, shadow=True, shadow_radius=28, shadow_dy=6)
     window._timeline_layout = QVBoxLayout(timeline_shell)
@@ -85,7 +87,14 @@ def build_layout(window, main_layout):
 
     main_layout.addWidget(window._v_splitter)
 
-    QTimer.singleShot(0, lambda: None)  # glow é pintado no PreviewGlowPanel
+    # instala o halo após o layout estar montado (precisa do parent correto)
+    def _install_halo():
+        halo = PreviewHalo(window._h_splitter)
+        halo.track(preview_shell)
+        preview_shell._halo = halo
+        window._preview_halo = halo
+
+    QTimer.singleShot(0, _install_halo)
 
     # ── Style panel (oculto, fora dos splitters) ──────────────────────────────
     window.style_panel = StylePanel(project, parent=window)
