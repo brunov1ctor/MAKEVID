@@ -472,6 +472,16 @@ class GeneratorPanel(QWidget):
         self._img_gen_btn.clicked.connect(self._on_generate_image)
         L.addWidget(self._img_gen_btn)
 
+        self._img_cancel_btn = QPushButton("Cancelar")
+        self._img_cancel_btn.setFixedHeight(30)
+        self._img_cancel_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {C['danger']}; font-weight: bold; "
+            f"font-size: 9pt; border: 1px solid {C['danger']}; border-radius: 6px; }}"
+            f"QPushButton:hover {{ background: {C['danger']}; color: {C['dark']}; }}")
+        self._img_cancel_btn.clicked.connect(self._cancel_image_generation)
+        self._img_cancel_btn.hide()
+        L.addWidget(self._img_cancel_btn)
+
         # Status
         self._img_status = QLabel("")
         self._img_status.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
@@ -592,7 +602,9 @@ class GeneratorPanel(QWidget):
             self._img_status.setText("Digite um prompt")
             return
 
+        self._img_cancelled = False
         self._img_gen_btn.setEnabled(False)
+        self._img_cancel_btn.show()
         self._img_status.setText("Gerando imagem...")
         self._img_status.setStyleSheet(f"color: {C['gold']}; font-size: 9pt;")
 
@@ -668,6 +680,8 @@ class GeneratorPanel(QWidget):
 
                     from PySide6.QtCore import QTimer
                     def _on_img_done():
+                        if self._img_cancelled:
+                            return
                         import time as _t
                         elapsed = _t.time() - self._img_start_time
                         self._img_progress_timer.stop()
@@ -675,6 +689,7 @@ class GeneratorPanel(QWidget):
                         self._img_status.setText(f"\u2714 Pronto! {w}x{h} | {elapsed:.1f}s | clip {duration}s")
                         self._img_status.setStyleSheet(f"color: {C['cyan']}; font-size: 9pt;")
                         self._img_gen_btn.setEnabled(True)
+                        self._img_cancel_btn.hide()
                         self._img_prompt.clear()
                         self.generation_requested.emit({"action": "image_done"})
                         QTimer.singleShot(3000, lambda: [self._img_progress.setValue(0), self._img_status.setText("")])
@@ -685,12 +700,16 @@ class GeneratorPanel(QWidget):
                     def _on_img_fail():
                         self._img_progress_timer.stop()
                         self._img_progress.setValue(0)
-                        self._img_status.setText(f"Erro: {err}")
-                        self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
+                        self._img_cancel_btn.hide()
+                        if self._img_cancelled:
+                            self._img_status.setText("Cancelado")
+                            self._img_status.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
+                        else:
+                            self._img_status.setText(f"Erro: {err}")
+                            self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
+                            if "401" in err or "403" in err or "token" in err.lower():
+                                self._show_token_prompt(auto_generate=True)
                         self._img_gen_btn.setEnabled(True)
-                        # Se 401/403, mostrar token prompt
-                        if "401" in err or "403" in err or "token" in err.lower():
-                            self._show_token_prompt(auto_generate=True)
                     QTimer.singleShot(0, _on_img_fail)
             except Exception as e:
                 from PySide6.QtCore import QTimer
@@ -698,12 +717,16 @@ class GeneratorPanel(QWidget):
                 def _on_img_error():
                     self._img_progress_timer.stop()
                     self._img_progress.setValue(0)
-                    self._img_status.setText(f"Erro: {err_msg}")
-                    self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
+                    self._img_cancel_btn.hide()
+                    if self._img_cancelled:
+                        self._img_status.setText("Cancelado")
+                        self._img_status.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
+                    else:
+                        self._img_status.setText(f"Erro: {err_msg}")
+                        self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
+                        if "401" in str(e) or "token" in str(e).lower() or "unauthorized" in str(e).lower():
+                            self._show_token_prompt(auto_generate=True)
                     self._img_gen_btn.setEnabled(True)
-                    # Se erro de autenticacao, mostrar prompt de token com auto-retry
-                    if "401" in str(e) or "token" in str(e).lower() or "unauthorized" in str(e).lower():
-                        self._show_token_prompt(auto_generate=True)
                 QTimer.singleShot(0, _on_img_error)
 
         threading.Thread(target=run, daemon=True).start()
@@ -859,6 +882,16 @@ class GeneratorPanel(QWidget):
         self._progress.setValue(0)
         self._status.setText(f"Pronto! {clip.duration:.1f}s")
         self._status.setStyleSheet(f"color: {C['cyan']}; font-size: 10pt; border: none;")
+
+    def _cancel_image_generation(self):
+        self._img_cancelled = True
+        self._img_cancel_btn.hide()
+        self._img_gen_btn.setEnabled(True)
+        if hasattr(self, '_img_progress_timer'):
+            self._img_progress_timer.stop()
+        self._img_progress.setValue(0)
+        self._img_status.setText("Cancelado")
+        self._img_status.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
 
     def on_error(self, error):
         self._gen_btn.setEnabled(True)

@@ -105,7 +105,7 @@ class _ProjectCard(QWidget):
         cw_l.addStretch()
         btn_confirm = QPushButton("Sim, deletar")
         btn_confirm.setFixedHeight(22)
-        btn_confirm.setStyleSheet(_btn_style(C["danger"], bg=C["danger"], hover_bg="#ff6666"))
+        btn_confirm.setStyleSheet(_btn_style(C["dark"], bg=C["danger"], hover_bg="#ff6666"))
         btn_confirm.clicked.connect(lambda: self.delete_requested.emit(self._id))
         cw_l.addWidget(btn_confirm)
         btn_cancel = QPushButton("Cancelar")
@@ -274,17 +274,14 @@ class ProjectsPanel(QWidget):
         self.setUpdatesEnabled(False)
         L = self._list_layout
 
-        # Remove widgets de forma síncrona (sem deleteLater) para evitar flash
         while L.count():
             item = L.takeAt(0)
             w = item.widget()
             if w:
                 w.hide()
-                w.setParent(None)
                 w.deleteLater()
 
         files = sorted(PROJECTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-
         n = len(files)
         self._count_lbl.setText(f"  {n} projeto{'s' if n != 1 else ''}")
 
@@ -301,9 +298,12 @@ class ProjectsPanel(QWidget):
                 proj = Project.load(f)
             except Exception:
                 continue
-            is_active = proj.id == self._active_id
-            editing   = proj.id == self._new_card_id
-            card = _ProjectCard(proj, is_active=is_active, editing=editing, parent=self._content)
+            card = _ProjectCard(
+                proj,
+                is_active=(proj.id == self._active_id),
+                editing=(proj.id == self._new_card_id),
+                parent=self._content,
+            )
             card.open_requested.connect(self._open_project)
             card.delete_requested.connect(self._delete_project)
             card.renamed.connect(self._on_renamed)
@@ -314,25 +314,36 @@ class ProjectsPanel(QWidget):
         self.setUpdatesEnabled(True)
 
     def set_active(self, project_id: str):
+        """Atualiza projeto ativo e redesenha a lista."""
         self._active_id = project_id
-        self.refresh()
+        # Atualiza apenas os estilos dos cards existentes sem refresh completo
+        L = self._list_layout
+        for i in range(L.count()):
+            w = L.itemAt(i).widget()
+            if isinstance(w, _ProjectCard):
+                is_active = w._id == project_id
+                w._active = is_active
+                w.setStyleSheet(
+                    f"QWidget#projCard {{ background: {C['glass']}; border: 1px solid "
+                    f"{'rgba(108,99,255,0.5)' if is_active else C['glass_border']}; border-radius: 10px; }}"
+                    f"QWidget#projCard:hover {{ background: {C['glass_hover']}; border-color: {C['primary']}; }}"
+                    f"QWidget#projCard QLabel {{ background: transparent; border: none; }}"
+                )
 
     def _new_project(self):
-        from PySide6.QtCore import QTimer
         proj = Project.create("Novo Projeto")
         proj.save(PROJECTS_DIR)
         self._new_card_id = proj.id
         self._active_id = proj.id
         self.refresh()
-        QTimer.singleShot(0, lambda: self.project_opened.emit(proj))
+        self.project_opened.emit(proj)
 
     def _open_project(self, project_id: str):
-        from PySide6.QtCore import QTimer
         try:
             proj = Project.load(PROJECTS_DIR / f"{project_id}.json")
             self._active_id = project_id
             self.refresh()
-            QTimer.singleShot(0, lambda: self.project_opened.emit(proj))
+            self.project_opened.emit(proj)
         except Exception as e:
             print(f"[ProjectsPanel] open error: {e}")
 
@@ -342,21 +353,20 @@ class ProjectsPanel(QWidget):
             if d.exists():
                 shutil.rmtree(str(d), ignore_errors=True)
 
-        files = sorted(PROJECTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-
         if project_id == self._active_id:
+            files = sorted(PROJECTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
             if files:
                 try:
                     next_proj = Project.load(files[0])
                     self._active_id = next_proj.id
+                    self.refresh()
                     self.project_opened.emit(next_proj)
+                    return
                 except Exception:
-                    self._active_id = None
-            else:
-                self._active_id = None
+                    pass
+            self._active_id = None
 
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(0, self.refresh)
+        self.refresh()
 
     def _on_renamed(self, project_id: str, new_name: str):
         if project_id == self._active_id:

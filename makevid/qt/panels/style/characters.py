@@ -109,7 +109,7 @@ class CharactersMixin:
     def _rebuild_char_cards(self):
         old = self._char_list_scroll.widget()
         if old:
-            old.setParent(None)
+            old.hide()
             old.deleteLater()
 
         container = QWidget()

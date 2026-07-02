@@ -1,142 +1,18 @@
-"""MAKEVID Qt - Janela principal."""
+"""MAKEVID Qt — Janela principal."""
 
 import sys
-from pathlib import Path
 
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QSplitter, QWidget, QVBoxLayout,
-    QHBoxLayout, QLabel, QStackedWidget, QMenu, QSizePolicy
-)
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QLinearGradient, QBrush, QFont
 
 from makevid.qt.theme import STYLESHEET, C
-from makevid.qt.widgets import GlassPanel, GlassButton, TopbarButton, GlowDot
-from makevid.qt.timeline.timeline_widget import TimelineWidget
-from makevid.qt.preview.preview_widget import PreviewWidget
-from makevid.qt.panels.generator_panel import GeneratorPanel
-from makevid.qt.panels.mixer_panel import MixerPanel
-from makevid.qt.panels.fx_panel import FxPanel
-from makevid.qt.panels.track_editor_panel import TrackEditorPanel
-from makevid.qt.panels.export_panel import ExportPanel
-from makevid.qt.panels.style import StylePanel
-from makevid.qt.panels.recorder_panel import RecorderPanel, TTSPanel
-from makevid.qt.panels.browser_panel import VideoBrowserPanel, AudioBrowserPanel
-from makevid.qt.panels.track_menu_panel import TrackMenuPanel
-from makevid.qt.panels.inpaint_panel import InpaintPanel
-from makevid.services.generation_service import GenerationService
-from makevid.config import PROJECTS_DIR
+from makevid.qt.topbar import build_topbar
+from makevid.qt.layout import build_layout
+from makevid.qt.project_controller import ProjectController, load_last_project
 from makevid.qt.actions import ActionsMixin
-from makevid.qt.preview.glow_layer import PreviewGlowPanel
+from makevid.qt.app_state import AppState
+from makevid.services.generation_service import GenerationService
 
-
-# ── Logo widget pintado via QPainter ──────────────────────────────────────────
-
-class _LogoWidget(QWidget):
-    """MAKE·VID em dourado/ciano com gradiente."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(130, 40)
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-
-        # "MAKE" — gradiente dourado
-        grad = QLinearGradient(0, 0, 65, 0)
-        grad.setColorAt(0.0, QColor(C["secondary"]))
-        grad.setColorAt(1.0, QColor(C["primary"]))
-        p.setPen(QColor(C["primary"]))
-        p.setFont(QFont("Segoe UI", 15, QFont.Bold))
-        p.drawText(0, 30, "MAKE")
-
-        # "VID" — ciano
-        p.setPen(QColor(C["accent"]))
-        p.setFont(QFont("Segoe UI", 15, QFont.Bold))
-        p.drawText(68, 30, "VID")
-        p.end()
-
-
-# ── Engine badge ───────────────────────────────────────────────────────────────
-
-class _EngineBadge(QWidget):
-    """Badge pequeno mostrando engine ativa."""
-
-    def __init__(self, text="", parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self._text = text
-        self.setFixedHeight(22)
-        self.setMinimumWidth(80)
-
-    def set_text(self, text):
-        self._text = text
-        self.update()
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-
-        from PySide6.QtGui import QFontMetrics, QPen
-        font = QFont("Consolas", 8)
-        p.setFont(font)
-        fm = QFontMetrics(font)
-        tw = fm.horizontalAdvance(self._text) + 16
-        self.setFixedWidth(max(tw, 80))
-
-        path = QPainterPath()
-        path.addRoundedRect(0, 0, self.width(), self.height(), 8, 8)
-
-        bg = QColor(C["glass"])
-        bg.setAlpha(180)
-        p.fillPath(path, bg)
-
-        from PySide6.QtGui import QPen
-        bc = QColor(C["glass_border"])
-        bc.setAlpha(80)
-        p.setPen(QPen(bc, 1))
-        p.drawPath(path)
-
-        p.setPen(QColor(C["text3"]))
-        p.drawText(0, 0, self.width(), self.height(), Qt.AlignCenter, self._text)
-        p.end()
-
-
-class _ProjectBadge(QWidget):
-    """Badge destacado mostrando o projeto ativo."""
-
-    def __init__(self, text="", parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self._text = text
-        self.setFixedHeight(30)
-        self.setMinimumWidth(100)
-
-    def set_text(self, text):
-        self._text = text
-        self.update()
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-
-        from PySide6.QtGui import QFontMetrics, QPen
-        font = QFont("Segoe UI", 11, QFont.Bold)
-        p.setFont(font)
-        fm = QFontMetrics(font)
-        tw = fm.horizontalAdvance(self._text) + 20
-        self.setFixedWidth(max(tw, 80))
-
-        p.setPen(QColor(C["primary"]))
-        p.drawText(0, 0, self.width(), self.height(), Qt.AlignCenter, self._text)
-        p.end()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  MakeVidWindow
-# ══════════════════════════════════════════════════════════════════════════════
 
 class MakeVidWindow(ActionsMixin, QMainWindow):
     def __init__(self):
@@ -145,17 +21,33 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.setMinimumSize(1200, 700)
         self.resize(1450, 850)
 
-        self.project = self._load_project()
+        self.project      = load_last_project()
         self._gen_service = GenerationService()
-        self._engine = "Local (CPU)"
+        self.state        = AppState(engine="Local (CPU)")
+        self.state.project = self.project
+        self._ctrl        = ProjectController(self)
 
         self._build_ui()
         self._connect_signals()
         self._setup_shortcuts()
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # UI BUILD
-    # ══════════════════════════════════════════════════════════════════════════
+    @property
+    def _engine(self):
+        return self.state.engine
+
+    @_engine.setter
+    def _engine(self, v):
+        self.state.engine = v
+
+    @property
+    def _selected_clip(self):
+        return self.state.selected_clip
+
+    @_selected_clip.setter
+    def _selected_clip(self, v):
+        self.state.selected_clip = v
+
+    # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
         central = QWidget()
@@ -166,222 +58,12 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         main_layout.setContentsMargins(14, 14, 14, 14)
         main_layout.setSpacing(12)
 
-        # ── Topbar ────────────────────────────────────────────────────────────
-        self._topbar = self._build_topbar()
+        self._topbar = build_topbar(self)
         main_layout.addWidget(self._topbar)
 
-        # ── Workspace (splitters) ─────────────────────────────────────────────
-        self._v_splitter = QSplitter(Qt.Vertical)
-        self._v_splitter.setHandleWidth(10)
-        self._v_splitter.setChildrenCollapsible(False)
-        self._v_splitter.setStyleSheet("QSplitter::handle { background: transparent; }")
-        main_layout.addWidget(self._v_splitter)
+        build_layout(self, main_layout)
 
-        self._h_splitter = QSplitter(Qt.Horizontal)
-        self._h_splitter.setHandleWidth(10)
-        self._h_splitter.setChildrenCollapsible(False)
-        self._h_splitter.setStyleSheet("QSplitter::handle { background: transparent; }")
-
-        # ── Left stack ────────────────────────────────────────────────────────
-        self._left_stack = QStackedWidget()
-        self._left_stack.setMinimumWidth(260)
-        self._left_stack.setMinimumHeight(0)
-        self._left_stack.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Ignored)
-        self._left_stack.setStyleSheet("background: transparent;")
-
-        # ── Preview + Timeline ────────────────────────────────────────────────
-        self.timeline = TimelineWidget(self.project)
-        self.timeline.setMinimumHeight(100)
-        self.preview  = PreviewWidget(self.project, self.timeline)
-
-        self._build_panels()
-
-        # ── GlassPanel wrappers ───────────────────────────────────────────────
-        left_shell = GlassPanel(radius=20, shadow=True, shadow_radius=30, shadow_dy=8)
-        self._left_layout = QVBoxLayout(left_shell)
-        self._left_layout.setContentsMargins(0, 0, 0, 0)
-        self._left_layout.setSpacing(0)
-        self._left_layout.addWidget(self._left_stack)
-
-        preview_shell = PreviewGlowPanel(radius=20, shadow=True, shadow_radius=36, shadow_dy=10)
-        self._preview_layout = QVBoxLayout(preview_shell)
-        self._preview_layout.setContentsMargins(0, 0, 0, 0)
-        self._preview_layout.addWidget(self.preview)
-        self._preview_shell = preview_shell
-        self.preview._glow_layer = preview_shell
-
-        timeline_shell = GlassPanel(radius=20, shadow=True, shadow_radius=28, shadow_dy=6)
-        self._timeline_layout = QVBoxLayout(timeline_shell)
-        self._timeline_layout.setContentsMargins(0, 0, 0, 0)
-        self._timeline_layout.addWidget(self.timeline)
-
-        # ── Montar splitters ──────────────────────────────────────────────────
-        self._h_splitter.addWidget(left_shell)
-        self._h_splitter.addWidget(preview_shell)
-
-        self._v_splitter.addWidget(self._h_splitter)
-        self._v_splitter.addWidget(timeline_shell)
-
-        self._v_splitter.setSizes([560, 260])
-        self._h_splitter.setSizes([300, 900])
-
-        # Posicionar glow após layout estar montado
-        QTimer.singleShot(0, self._update_glow_position)
-
-        # ── Style panel (oculto) ──────────────────────────────────────────────
-        self.style_panel = StylePanel(self.project)
-        self.style_panel.hide()
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # PANELS
-    # ══════════════════════════════════════════════════════════════════════════
-
-    def _build_panels(self):
-        """Cria (ou recria) todos os paineis do left_stack."""
-        while self._left_stack.count():
-            w = self._left_stack.widget(0)
-            self._left_stack.removeWidget(w)
-            w.deleteLater()
-
-        self.generator     = GeneratorPanel(self.project)
-        self.mixer         = MixerPanel()
-        self.fx_editor     = FxPanel()
-        self.track_editor  = TrackEditorPanel()
-        self.export_panel  = ExportPanel(self.project)
-        self.recorder      = RecorderPanel()
-        self.tts_panel     = TTSPanel()
-        self.video_browser = VideoBrowserPanel(self.project)
-        self.track_menu    = TrackMenuPanel()
-        self.inpaint_panel = InpaintPanel()
-        self.audio_browser = AudioBrowserPanel(self.project, self.timeline)
-
-        for panel in (
-            self.generator, self.mixer, self.fx_editor, self.track_editor,
-            self.export_panel, self.recorder, self.tts_panel, self.video_browser,
-            self.track_menu, self.inpaint_panel, self.audio_browser,
-        ):
-            self._left_stack.addWidget(panel)
-        self._left_stack.setCurrentWidget(self.generator)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # TOPBAR
-    # ══════════════════════════════════════════════════════════════════════════
-
-    def _build_topbar(self) -> GlassPanel:
-        tb = GlassPanel(radius=22, shadow=True, shadow_radius=24, shadow_dy=6)
-        tb.setFixedHeight(58)
-
-        h = QHBoxLayout(tb)
-        h.setContentsMargins(18, 8, 18, 8)
-        h.setSpacing(6)
-
-        # Logo
-        logo = _LogoWidget()
-        h.addWidget(logo)
-
-        # Divisor
-        div = QWidget()
-        div.setFixedSize(1, 22)
-        div.setStyleSheet(f"background: {C['glass_border']};")
-        h.addWidget(div)
-        h.addSpacing(4)
-
-        # Menu QSS compartilhado (apenas para QMenu — não para botões)
-        mqss = (
-            f"QMenu {{ background: {C['card']}; color: {C['text']}; "
-            f"border: 1px solid {C['glass_border']}; border-radius: 12px; padding: 6px 4px; }}"
-            f"QMenu::item {{ padding: 7px 22px; border-radius: 8px; margin: 1px 4px; }}"
-            f"QMenu::item:selected {{ background: {C['glass_hover']}; color: {C['primary']}; }}"
-            f"QMenu::item:pressed {{ background: {C['primary']}; color: {C['dark_text']}; }}"
-            f"QMenu::separator {{ height: 1px; background: {C['border']}; margin: 4px 10px; }}"
-            f"QMenu::indicator:checked {{ width: 8px; height: 8px; border-radius: 4px; "
-            f"background: {C['primary']}; margin-left: 6px; }}"
-        )
-
-        def _menu_btn(label, icon):
-            btn = TopbarButton(f"{icon}  {label}")
-            btn.setFixedHeight(38)
-            return btn, mqss
-
-        # Arquivo
-        btn_arq, _ = _menu_btn("Arquivo", "📁")
-        m_arq = QMenu(btn_arq)
-        m_arq.setStyleSheet(mqss)
-        m_arq.addAction("Projetos", self._show_projects_panel)
-        m_arq.addAction("Limpar Projeto", self._clear_project)
-        m_arq.addSeparator()
-        m_arq.addAction("Meus Videos", self._show_video_browser)
-        m_arq.addAction("Meus Audios", self._show_audio_browser)
-        btn_arq.setMenu(m_arq)
-        h.addWidget(btn_arq)
-
-        # Engine
-        btn_eng, _ = _menu_btn("Engine", "⚙")
-        self._engine_menu = QMenu(btn_eng)
-        self._engine_menu.setStyleSheet(mqss)
-        for eng in ["Local (GPU)", "Local (CPU)", "Wan 2.2 TI2V", None,
-                    "VACE (Referencia)", "V2V (Refinar)", None, "HuggingFace API"]:
-            if eng is None:
-                self._engine_menu.addSeparator()
-            else:
-                a = self._engine_menu.addAction(eng, lambda e=eng: self._set_engine(e))
-                a.setCheckable(True)
-                a.setChecked(eng == self._engine)
-        btn_eng.setMenu(self._engine_menu)
-        h.addWidget(btn_eng)
-
-        # Tema
-        btn_est, _ = _menu_btn("Tema", "🎨")
-        m_est = QMenu(btn_est)
-        m_est.setStyleSheet(mqss)
-        m_est.addAction("Storyboard",   lambda: self._show_style_tab(0))
-        m_est.addAction("Personagens",  lambda: self._show_style_tab(1))
-        m_est.addAction("Ambientacao",  lambda: self._show_style_tab(2))
-        btn_est.setMenu(m_est)
-        h.addWidget(btn_est)
-
-        # Audio IA
-        btn_aia, _ = _menu_btn("Audio IA", "♫")
-        m_aia = QMenu(btn_aia)
-        m_aia.setStyleSheet(mqss)
-        m_aia.addAction("Gerar Audio da Cena",          self._generate_scene_audio)
-        m_aia.addAction("Gerar Audio de Todas as Cenas", self._generate_all_audio)
-        btn_aia.setMenu(m_aia)
-        h.addWidget(btn_aia)
-
-        # Logs
-        btn_log, _ = _menu_btn("Logs", "📋")
-        m_log = QMenu(btn_log)
-        m_log.setStyleSheet(mqss)
-        m_log.addAction("Ver Logs", self._open_logs)
-        btn_log.setMenu(m_log)
-        h.addWidget(btn_log)
-
-        h.addStretch()
-
-        # GlowDot de status
-        self._status_dot = GlowDot(color=C["track_sfx"])
-        h.addWidget(self._status_dot)
-
-        # Project badge
-        self._project_badge = _ProjectBadge(self.project.name or self.project.id)
-        h.addWidget(self._project_badge)
-
-        # Divisor
-        div2 = QWidget()
-        div2.setFixedSize(1, 22)
-        div2.setStyleSheet(f"background: {C['glass_border']};")
-        h.addWidget(div2)
-
-        # Engine badge
-        self._engine_badge = _EngineBadge(self._engine)
-        h.addWidget(self._engine_badge)
-
-        return tb
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # SIGNALS
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Signals ───────────────────────────────────────────────────────────────
 
     def _connect_signals(self):
         self.generator.generation_requested.connect(self._on_generation_requested)
@@ -408,14 +90,13 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.inpaint_panel.closed.connect(self._show_generator)
         self.inpaint_panel.inpaint_requested.connect(self._do_inpaint)
 
-        # Propaga troca de projeto para todos os paineis
         self.project_changed.connect(self.generator._on_project_changed)
         self.project_changed.connect(self.export_panel._on_project_changed)
         self.project_changed.connect(self.video_browser._on_project_changed)
         self.project_changed.connect(self.audio_browser._on_project_changed)
         self.project_changed.connect(self.timeline._on_project_changed)
         self.project_changed.connect(self.preview._on_project_changed)
-        self.project_changed.connect(self.style_panel._on_project_changed)
+        self.project_changed.connect(self._sync_style_panel_if_visible)
 
         self.timeline._scene._interaction.item_clicked        = self._on_item_clicked
         self.timeline._scene._interaction.clip_clicked        = self._on_clip_clicked
@@ -424,19 +105,21 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.timeline.export_requested.connect(self._do_export_direct)
         self.timeline.export_config_requested.connect(self._show_export)
         self.timeline.keyPressEvent = self._timeline_key_handler
-        self._h_splitter.splitterMoved.connect(lambda *_: self._update_glow_position())
-        self._v_splitter.splitterMoved.connect(lambda *_: self._update_glow_position())
+        self._h_splitter.splitterMoved.connect(lambda *_: None)
+        self._v_splitter.splitterMoved.connect(lambda *_: None)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # PANEL SWITCHING
-    # ══════════════════════════════════════════════════════════════════════════
+    def _sync_style_panel_if_visible(self, proj):
+        if self.style_panel.isVisible():
+            self.style_panel._on_project_changed(proj)
+
+    # ── Panel switching ───────────────────────────────────────────────────────
 
     def _show_generator(self):
         self._left_stack.setCurrentWidget(self.generator)
 
     def _return_to_prev(self):
         self.timeline.redraw()
-        prev = getattr(self, '_prev_panel', self.generator)
+        prev = getattr(self, "_prev_panel", self.generator)
         self._left_stack.setCurrentWidget(prev)
         if prev is self.audio_browser:
             self.audio_browser.refresh()
@@ -477,8 +160,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.preview.show_audio_browser()
 
     def _refresh_preview_audio_browser(self):
-        """Reabre o browser de audio do preview se estiver visivel."""
-        if hasattr(self.preview, '_browser') and self.preview._browser:
+        if hasattr(self.preview, "_browser") and self.preview._browser:
             self.preview.show_audio_browser()
 
     def _on_item_clicked(self, track_item):
@@ -512,7 +194,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self._h_splitter.show()
 
     def _update_project_badge(self):
-        name = getattr(self.project, 'name', None) or getattr(self.project, 'id', '?')
+        name = getattr(self.project, "name", None) or getattr(self.project, "id", "?")
         self._project_badge.set_text(name)
 
     def _set_engine(self, engine):
@@ -522,21 +204,13 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
             if not action.isSeparator():
                 action.setChecked(action.text() == engine)
 
-    def _update_glow_position(self):
-        pass  # glow é pintado diretamente no PreviewGlowPanel, sem reposicionamento
+    def _show_projects_panel(self):
+        self.preview.show_projects_panel()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # KEYBOARD
-    # ══════════════════════════════════════════════════════════════════════════
-
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key_F5:
-            self._hot_reload()
-        else:
-            super().keyPressEvent(event)
+    # ── Keyboard ──────────────────────────────────────────────────────────────
 
     def _setup_shortcuts(self):
         from PySide6.QtGui import QShortcut, QKeySequence
@@ -544,10 +218,17 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         sc.setContext(Qt.ApplicationShortcut)
         sc.activated.connect(self._safe_hot_reload)
 
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_F5:
+            self._safe_hot_reload()
+        else:
+            super().keyPressEvent(event)
+
     def _safe_hot_reload(self):
         print("[F5] Hot reload iniciado...")
         try:
-            self._hot_reload()
+            from makevid.qt.hot_reload import hot_reload
+            hot_reload(self)
             print("[F5] Hot reload OK")
         except Exception as e:
             print(f"[F5] Hot reload ERRO: {e}")
@@ -556,80 +237,10 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
             self._engine_badge.set_text(f"{self._engine} | ERRO")
             QTimer.singleShot(3000, lambda: self._engine_badge.set_text(self._engine))
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # HOT RELOAD  — troca conteúdo dentro dos GlassPanel, não o shell
-    # ══════════════════════════════════════════════════════════════════════════
-
-    def _hot_reload(self):
-        import importlib, sys
-
-        style_visible = self.style_panel.isVisible()
-        style_tab     = self.style_panel._style_stack.currentIndex() if style_visible else 0
-
-        # Recarregar módulos de UI
-        reload_prefixes = [
-            "makevid.qt.panels.style.",
-            "makevid.qt.panels.",
-            "makevid.qt.preview.",
-            "makevid.qt.timeline.",
-        ]
-        reload_mods = [
-            m for m in list(sys.modules.keys())
-            if any(m.startswith(p) for p in reload_prefixes)
-        ]
-        reload_mods.sort(key=lambda x: -x.count("."))
-        for m in reload_mods:
-            if m in sys.modules:
-                try:
-                    importlib.reload(sys.modules[m])
-                except Exception as e:
-                    print(f"Reload error {m}: {e}")
-
-        # Rebuild style panel
-        self.style_panel.hide()
-        self.style_panel.setParent(None)
-        self.style_panel.deleteLater()
-        from makevid.qt.panels.style.panel import StylePanel as _SP
-        self.style_panel = _SP(self.project)
-        self.style_panel.closed.connect(self._hide_style_panel)
-        self.style_panel.hide()
-        if style_visible:
-            self._show_style_tab(style_tab)
-
-        self._build_panels()
-
-        # Rebuild preview — troca dentro do GlassPanel, não o shell
-        from makevid.qt.preview.preview_widget import PreviewWidget
-        old_preview  = self.preview
-        self.preview = PreviewWidget(self.project, self.timeline)
-        self._preview_layout.replaceWidget(old_preview, self.preview)
-        old_preview.deleteLater()
-        self.preview._glow_layer = self._preview_shell
-        QTimer.singleShot(0, self._update_glow_position)
-
-        # Rebuild timeline — troca dentro do GlassPanel, não o shell
-        from makevid.qt.timeline.timeline_widget import TimelineWidget
-        old_timeline  = self.timeline
-        self.timeline = TimelineWidget(self.project)
-        self.timeline.setMinimumHeight(100)
-        self._timeline_layout.replaceWidget(old_timeline, self.timeline)
-        old_timeline.deleteLater()
-
-        # Atualizar referência no preview
-        self.preview.timeline = self.timeline
-
-        self._connect_signals()
-
-        self._engine_badge.set_text(f"{self._engine} | F5 OK")
-        QTimer.singleShot(2000, lambda: self._engine_badge.set_text(self._engine))
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # TIMELINE KEY HANDLER
-    # ══════════════════════════════════════════════════════════════════════════
-
     def _timeline_key_handler(self, event):
+        from PySide6.QtWidgets import QWidget
         if event.key() == Qt.Key_F5:
-            self._hot_reload()
+            self._safe_hot_reload()
         elif event.key() == Qt.Key_Space:
             if self.preview.player.is_playing:
                 self.preview._pause()
@@ -642,15 +253,21 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         else:
             QWidget.keyPressEvent(self.timeline, event)
 
+    # ── Project ───────────────────────────────────────────────────────────────
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  Entry point
-# ══════════════════════════════════════════════════════════════════════════════
+    def _on_project_opened(self, proj):
+        self._ctrl.open(proj)
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
 
 def run():
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLESHEET + "\n#AppRoot { background: " + C["bg"] + "; }")
     app.setEffectEnabled(Qt.UI_AnimateTooltip, False)
+    app.setEffectEnabled(Qt.UI_AnimateMenu, False)
+    app.setEffectEnabled(Qt.UI_FadeMenu, False)
+    app.setEffectEnabled(Qt.UI_AnimateCombo, False)
     window = MakeVidWindow()
     window.show()
     sys.exit(app.exec())

@@ -185,7 +185,7 @@ class AmbienceMixin:
     def _amb_render_grid(self, images):
         old = self._amb_grid_scroll.widget()
         if old:
-            old.setParent(None)
+            old.hide()
             old.deleteLater()
 
         container = QWidget()

@@ -1,5 +1,0 @@
-"""Panel Estilo - Re-export para compatibilidade."""
-
-from makevid.ui.style.panel import StylePanel
-
-__all__ = ["StylePanel"]
