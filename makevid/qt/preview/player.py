@@ -37,6 +37,7 @@ class TimelinePlayerQt(QObject):
         self._clip_starts = []
 
         self._project = None
+        self._master_volume = 1.0
 
     @property
     def is_playing(self):
@@ -104,7 +105,7 @@ class TimelinePlayerQt(QObject):
             return
 
         self._clips = clips
-        self._total_dur = self._project.total_duration()
+        self._total_dur = float(self._project.total_duration() or 0.0)
         self._speed = speed
 
         self._clip_starts = []
@@ -113,7 +114,7 @@ class TimelinePlayerQt(QObject):
             self._clip_starts.append(t)
             t += c.duration
 
-        self._start_offset = max(0, min(time_pos, self._total_dur))
+        self._start_offset = max(0.0, min(float(time_pos), self._total_dur))
         self._start_time = _time.time()
         self._playing = True
         self._paused = False
@@ -151,7 +152,8 @@ class TimelinePlayerQt(QObject):
 
     def seek_to_time(self, target_time):
         """Seek para tempo específico."""
-        target_time = max(0, min(target_time, self._total_dur))
+        total = float(self._total_dur or 0.0)
+        target_time = max(0.0, min(float(target_time), total))
         self._start_offset = target_time
         self._start_time = _time.time()
         self.time_updated.emit(target_time)
@@ -181,7 +183,7 @@ class TimelinePlayerQt(QObject):
             return
 
         # Recalcular duração total (pode mudar se items foram removidos)
-        self._total_dur = self._project.total_duration()
+        self._total_dur = float(self._project.total_duration() or 0.0)
 
         current_time = self._get_current_time()
 
@@ -370,6 +372,7 @@ class TimelinePlayerQt(QObject):
                 return
 
             mix = np.clip(mix, -1.0, 1.0)
+            mix = mix * max(0.0, float(getattr(self, '_master_volume', 1.0)))
             start_s = int(self._start_offset * sr)
             remaining = mix[start_s:]
             if len(remaining) == 0:
@@ -384,8 +387,23 @@ class TimelinePlayerQt(QObject):
 
             play_sr = int(sr / max(self._speed, 0.1))
             sd.stop()
-            sd.play(np.ascontiguousarray(remaining), samplerate=play_sr)
-            print(f"[AUDIO] tocando {loaded} item(s), offset={self._start_offset:.1f}s, sr={play_sr}")
+
+            # Garantir dispositivo de saida compativel com stereo (2ch)
+            out_device = None
+            try:
+                dev_info = sd.query_devices(kind='output')
+                if int(dev_info.get('max_output_channels', 2)) < 2:
+                    raise ValueError("dispositivo padrao sem stereo")
+                out_device = None  # padrao ok
+            except Exception:
+                # Fallback: primeiro dispositivo MME com >= 2 canais de saida
+                for i, d in enumerate(sd.query_devices()):
+                    if d['max_output_channels'] >= 2 and 'MME' in d['name']:
+                        out_device = i
+                        break
+
+            sd.play(np.ascontiguousarray(remaining), samplerate=play_sr, device=out_device)
+            print(f"[AUDIO] tocando {loaded} item(s), offset={self._start_offset:.1f}s, sr={play_sr}, device={out_device}")
 
         except Exception as e:
             print(f"[AUDIO] _start_audio erro: {e}")

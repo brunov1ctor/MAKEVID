@@ -1,8 +1,8 @@
 """Topbar — menus e botões superiores."""
 
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QMenu
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QLinearGradient, QFont, QFontMetrics, QPen
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel
+from PySide6.QtCore import Qt, QPoint, Signal
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QLinearGradient, QFont, QFontMetrics, QPen, QCursor
 
 from makevid.qt.theme import C
 from makevid.qt.widgets import GlassPanel, TopbarButton, GlowDot
@@ -27,6 +27,122 @@ class _LogoWidget(QWidget):
         p.setFont(QFont("Segoe UI", 15, QFont.Bold))
         p.drawText(68, 30, "VID")
         p.end()
+
+class _DropMenu(QWidget):
+    """
+    Dropdown 100% Qt — sem janela nativa, sem flash.
+    Filho do centralWidget da QMainWindow.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("DropMenu")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet(
+            f"QWidget#DropMenu {{ background: {C['card']}; "
+            f"border: 1px solid {C['glass_border']}; border-radius: 12px; }}"
+        )
+        self.hide()
+
+        self._vbox = QVBoxLayout(self)
+        self._vbox.setContentsMargins(6, 6, 6, 6)
+        self._vbox.setSpacing(1)
+        self._items = []
+
+    def add_action(self, label, callback, checkable=False, checked=False):
+        item = _DropItem(label, callback, checkable=checkable, checked=checked)
+        item.triggered.connect(self.hide)
+        self._vbox.addWidget(item)
+        self._items.append(item)
+        return item
+
+    def add_separator(self):
+        sep = QWidget()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet(f"background: {C['border']}; border: none;")
+        self._vbox.addWidget(sep)
+
+    def popup(self, anchor_widget):
+        """Posiciona e exibe abaixo do widget âncora."""
+        parent = self.parent()
+        if parent is None:
+            return
+        self.adjustSize()
+        # Converte canto inferior-esquerdo do botão para coordenadas do parent
+        gpos = anchor_widget.mapToGlobal(QPoint(0, anchor_widget.height() + 2))
+        lpos = parent.mapFromGlobal(gpos)
+        x = max(0, min(lpos.x(), parent.width() - self.width() - 4))
+        y = lpos.y()
+        self.move(x, y)
+        self.raise_()
+        self.show()
+
+    def paintEvent(self, event):
+        # Deixa o QSS cuidar do fundo; apenas garante o raise
+        super().paintEvent(event)
+
+
+class _DropItem(QWidget):
+    triggered = Signal()
+
+    def __init__(self, label, callback, checkable=False, checked=False, parent=None):
+        super().__init__(parent)
+        self._callback = callback
+        self._checkable = checkable
+        self._checked = checked
+        self._hover = False
+        self.setAttribute(Qt.WA_StyledBackground, False)
+        self.setCursor(QCursor(Qt.PointingHandCursor))
+        self.setFixedHeight(32)
+        self.setMinimumWidth(160)
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(12, 0, 12, 0)
+        row.setSpacing(6)
+
+        if checkable:
+            self._dot = QLabel()
+            self._dot.setFixedSize(8, 8)
+            self._dot.setStyleSheet(
+                f"background: {C['primary']}; border-radius: 4px;"
+                if checked else "background: transparent;"
+            )
+            row.addWidget(self._dot)
+
+        self._lbl = QLabel(label)
+        self._lbl.setStyleSheet(f"color: {C['text']}; font-size: 10pt; background: transparent;")
+        row.addWidget(self._lbl)
+        row.addStretch()
+
+    def set_checked(self, val):
+        self._checked = val
+        if self._checkable:
+            self._dot.setStyleSheet(
+                f"background: {C['primary']}; border-radius: 4px;"
+                if val else "background: transparent;"
+            )
+
+    def enterEvent(self, e):
+        self._hover = True
+        self.update()
+
+    def leaveEvent(self, e):
+        self._hover = False
+        self.update()
+
+    def mousePressEvent(self, e):
+        if self._callback:
+            self._callback()
+        self.triggered.emit()
+
+    def paintEvent(self, e):
+        if self._hover:
+            p = QPainter(self)
+            p.setRenderHint(QPainter.Antialiasing)
+            path = QPainterPath()
+            path.addRoundedRect(2, 1, self.width() - 4, self.height() - 2, 8, 8)
+            p.fillPath(path, QColor(C["glass_hover"]))
+            p.end()
 
 
 class _EngineBadge(QWidget):
@@ -105,75 +221,80 @@ def build_topbar(window) -> GlassPanel:
     h.addWidget(div)
     h.addSpacing(4)
 
-    mqss = (
-        f"QMenu {{ background: {C['card']}; color: {C['text']}; "
-        f"border: 1px solid {C['glass_border']}; border-radius: 12px; padding: 6px 4px; }}"
-        f"QMenu::item {{ padding: 7px 22px; border-radius: 8px; margin: 1px 4px; }}"
-        f"QMenu::item:selected {{ background: {C['glass_hover']}; color: {C['primary']}; }}"
-        f"QMenu::item:pressed {{ background: {C['primary']}; color: {C['dark_text']}; }}"
-        f"QMenu::separator {{ height: 1px; background: {C['border']}; margin: 4px 10px; }}"
-        f"QMenu::indicator:checked {{ width: 8px; height: 8px; border-radius: 4px; "
-        f"background: {C['primary']}; margin-left: 6px; }}"
-    )
-
     def _menu_btn(label, icon):
         btn = TopbarButton(f"{icon}  {label}")
         btn.setFixedHeight(38)
         return btn
 
+    def _toggle(menu, btn):
+        """Abre/fecha o dropdown; fecha os outros."""
+        all_menus = getattr(window, "_all_drop_menus", [])
+        for m in all_menus:
+            if m is not menu and m.isVisible():
+                m.hide()
+        if menu.isVisible():
+            menu.hide()
+        else:
+            menu.popup(btn)
+
+    window._all_drop_menus = []
+
+    def _make_menu():
+        central = window.centralWidget()
+        m = _DropMenu(parent=central)
+        window._all_drop_menus.append(m)
+        return m
+
     # Arquivo
-    btn_arq = _menu_btn("Arquivo", "📁")
-    m_arq = QMenu(btn_arq)
-    m_arq.setStyleSheet(mqss)
-    m_arq.addAction("Projetos", window._show_projects_panel)
-    m_arq.addAction("Limpar Projeto", window._clear_project)
-    m_arq.addSeparator()
-    m_arq.addAction("Meus Videos", window._show_video_browser)
-    m_arq.addAction("Meus Audios", window._show_audio_browser)
-    btn_arq.setMenu(m_arq)
+    btn_arq = _menu_btn("Arquivo", "\U0001f4c1")
+    m_arq = _make_menu()
+    m_arq.add_action("Projetos",       window._show_projects_panel)
+    m_arq.add_action("Limpar Projeto", window._clear_project)
+    m_arq.add_separator()
+    m_arq.add_action("Meus Videos",    window._show_video_browser)
+    m_arq.add_action("Meus Audios",    window._show_audio_browser)
+    btn_arq.clicked.connect(lambda: _toggle(m_arq, btn_arq))
     h.addWidget(btn_arq)
 
     # Engine
-    btn_eng = _menu_btn("Engine", "⚙")
-    engine_menu = QMenu(btn_eng)
-    engine_menu.setStyleSheet(mqss)
+    btn_eng = _menu_btn("Engine", "\u2699")
+    m_eng = _make_menu()
+    _engine_items = {}
     for eng in ["Local (GPU)", "Local (CPU)", "Wan 2.2 TI2V", None,
                 "VACE (Referencia)", "V2V (Refinar)", None, "HuggingFace API"]:
         if eng is None:
-            engine_menu.addSeparator()
+            m_eng.add_separator()
         else:
-            a = engine_menu.addAction(eng, lambda e=eng: window._set_engine(e))
-            a.setCheckable(True)
-            a.setChecked(eng == window._engine)
-    btn_eng.setMenu(engine_menu)
+            item = m_eng.add_action(eng, lambda e=eng: window._set_engine(e),
+                                    checkable=True, checked=(eng == window._engine))
+            _engine_items[eng] = item
+    btn_eng.clicked.connect(lambda: _toggle(m_eng, btn_eng))
     h.addWidget(btn_eng)
-    window._engine_menu = engine_menu
+    window._engine_menu = m_eng
+    window._engine_items = _engine_items
 
     # Tema
-    btn_est = _menu_btn("Tema", "🎨")
-    m_est = QMenu(btn_est)
-    m_est.setStyleSheet(mqss)
-    m_est.addAction("Storyboard",  lambda: window._show_style_tab(0))
-    m_est.addAction("Personagens", lambda: window._show_style_tab(1))
-    m_est.addAction("Ambientacao", lambda: window._show_style_tab(2))
-    btn_est.setMenu(m_est)
+    btn_est = _menu_btn("Tema", "\U0001f3a8")
+    m_est = _make_menu()
+    m_est.add_action("Storyboard",  lambda: window._show_style_tab(0))
+    m_est.add_action("Personagens", lambda: window._show_style_tab(1))
+    m_est.add_action("Ambientacao", lambda: window._show_style_tab(2))
+    btn_est.clicked.connect(lambda: _toggle(m_est, btn_est))
     h.addWidget(btn_est)
 
     # Audio IA
-    btn_aia = _menu_btn("Audio IA", "♫")
-    m_aia = QMenu(btn_aia)
-    m_aia.setStyleSheet(mqss)
-    m_aia.addAction("Gerar Audio da Cena",           window._generate_scene_audio)
-    m_aia.addAction("Gerar Audio de Todas as Cenas", window._generate_all_audio)
-    btn_aia.setMenu(m_aia)
+    btn_aia = _menu_btn("Audio IA", "\u266b")
+    m_aia = _make_menu()
+    m_aia.add_action("Gerar Audio da Cena",           window._generate_scene_audio)
+    m_aia.add_action("Gerar Audio de Todas as Cenas", window._generate_all_audio)
+    btn_aia.clicked.connect(lambda: _toggle(m_aia, btn_aia))
     h.addWidget(btn_aia)
 
     # Logs
-    btn_log = _menu_btn("Logs", "📋")
-    m_log = QMenu(btn_log)
-    m_log.setStyleSheet(mqss)
-    m_log.addAction("Ver Logs", window._open_logs)
-    btn_log.setMenu(m_log)
+    btn_log = _menu_btn("Logs", "\U0001f4cb")
+    m_log = _make_menu()
+    m_log.add_action("Ver Logs", window._open_logs)
+    btn_log.clicked.connect(lambda: _toggle(m_log, btn_log))
     h.addWidget(btn_log)
 
     h.addStretch()
@@ -181,7 +302,7 @@ def build_topbar(window) -> GlassPanel:
     window._status_dot = GlowDot(color=C["track_sfx"])
     h.addWidget(window._status_dot)
 
-    window._project_badge = _ProjectBadge(window.project.name or window.project.id)
+    window._project_badge = _ProjectBadge(window.project.name)
     h.addWidget(window._project_badge)
 
     div2 = QWidget()

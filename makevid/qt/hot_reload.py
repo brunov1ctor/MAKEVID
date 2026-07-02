@@ -32,7 +32,6 @@ def hot_reload(window):
 
     # Rebuild style panel
     window.style_panel.hide()
-    window.style_panel.setParent(None)
     window.style_panel.deleteLater()
     from makevid.qt.panels.style.panel import StylePanel
     window.style_panel = StylePanel(window.project)

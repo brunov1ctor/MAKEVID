@@ -9,14 +9,32 @@ from makevid.core.project import Project
 class GenerationActionsMixin:
 
     def _on_generation_requested(self, params):
-        if params.get("action") in ("empty_clip", "image_done"):
+        action = params.get("action")
+
+        # Primeira geração: persiste o projeto em disco
+        if not (PROJECTS_DIR / f"{self.project.id}.json").exists():
+            self.project.save(PROJECTS_DIR)
+            self._on_project_opened(self.project)
+
+        if action == "ensure_project":
+            return
+
+        if action == "image_done":
+            # Se projeto ainda sem nome, nomear automaticamente
+            if not self.project.name:
+                import time as _t
+                self.project.name = f"Projeto {_t.strftime('%d/%m %H:%M')}"
+                self.project.save(PROJECTS_DIR)
+            self._on_project_opened(self.project)
             self.timeline.redraw()
             return
 
-        if self.project is None:
-            self.project = Project.create("Novo Projeto")
+        if action == "empty_clip":
+            clip = self.project.add_clip(prompt="", position=len(self.project.clips))
+            clip.duration = params.get("duration", 5.0)
             self.project.save(PROJECTS_DIR)
-            self._on_project_opened(self.project)
+            self.timeline.redraw()
+            return
 
         if self.state.engine == "HuggingFace API" and not os.environ.get("HF_TOKEN", ""):
             from makevid.core.hf_api import _get_token
@@ -36,8 +54,14 @@ class GenerationActionsMixin:
         def on_done(path, dur, seed_used):
             clip.video_path = path; clip.duration = dur
             clip.seed = seed_used; clip.status = "done"
+            if not self.project.name:
+                import time as _t
+                self.project.name = f"Projeto {_t.strftime('%d/%m %H:%M')}"
             self.project.save(PROJECTS_DIR)
-            QTimer.singleShot(0, lambda: [self.timeline.redraw(), self.generator.on_done(clip)])
+            from makevid.qt.timeline.clip_item import ClipGraphicsItem
+            if ClipGraphicsItem._thumb_cache:
+                ClipGraphicsItem._thumb_cache.invalidate(clip.id)
+            QTimer.singleShot(0, lambda: [self._on_project_opened(self.project), self.timeline.redraw(), self.generator.on_done(clip)])
 
         def on_error(err):
             clip.status = "error"
@@ -69,8 +93,14 @@ class GenerationActionsMixin:
         def on_done(path, dur, seed_used):
             clip.video_path = path; clip.duration = dur
             clip.seed = seed_used; clip.status = "done"
+            if not self.project.name:
+                import time as _t
+                self.project.name = f"Projeto {_t.strftime('%d/%m %H:%M')}"
             self.project.save(PROJECTS_DIR)
-            QTimer.singleShot(0, lambda: [self.timeline.redraw(), self.generator.on_done(clip)])
+            from makevid.qt.timeline.clip_item import ClipGraphicsItem
+            if ClipGraphicsItem._thumb_cache:
+                ClipGraphicsItem._thumb_cache.invalidate(clip.id)
+            QTimer.singleShot(0, lambda: [self._on_project_opened(self.project), self.timeline.redraw(), self.generator.on_done(clip)])
 
         def on_error(err):
             clip.status = "error"

@@ -286,10 +286,10 @@ class FxPanel(QWidget):
         self._layout.addWidget(self._tab_bar)
 
         # Content area (scroll com grid)
-        self._content_scroll = QScrollArea()
+        self._content_scroll = QScrollArea(self)
         self._content_scroll.setWidgetResizable(True)
         self._content_scroll.setStyleSheet("border: none;")
-        self._content_widget = QWidget()
+        self._content_widget = QWidget(self._content_scroll)
         self._content_layout = QVBoxLayout(self._content_widget)
         self._content_layout.setContentsMargins(6, 6, 6, 6)
         self._content_layout.setSpacing(4)

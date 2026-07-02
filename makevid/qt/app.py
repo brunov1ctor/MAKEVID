@@ -216,12 +216,17 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
     def _set_engine(self, engine):
         self._engine = engine
         self._engine_badge.set_text(engine)
-        for action in self._engine_menu.actions():
-            if not action.isSeparator():
-                action.setChecked(action.text() == engine)
+        for eng, item in self._engine_items.items():
+            item.set_checked(eng == engine)
 
     def _show_projects_panel(self):
         self.preview.show_projects_panel()
+
+    def mousePressEvent(self, event):
+        for m in getattr(self, "_all_drop_menus", []):
+            if m.isVisible() and not m.geometry().contains(event.pos()):
+                m.hide()
+        super().mousePressEvent(event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

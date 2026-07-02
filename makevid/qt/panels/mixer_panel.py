@@ -53,7 +53,7 @@ class MixerPanel(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet("border: none;")
-        self._content = QWidget()
+        self._content = QWidget(self)
         self._content_layout = QVBoxLayout(self._content)
         self._content_layout.setContentsMargins(10, 6, 10, 10)
         self._content_layout.setSpacing(4)

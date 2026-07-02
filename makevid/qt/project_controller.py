@@ -6,14 +6,12 @@ from makevid.core.project import Project
 
 def load_last_project() -> Project:
     files = sorted(PROJECTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    if files:
+    for f in files:
         try:
-            return Project.load(files[0])
+            return Project.load(f)
         except Exception:
             pass
-    proj = Project.create("meu_projeto")
-    proj.save(PROJECTS_DIR)
-    return proj
+    return Project.create("")  # projeto em memória, sem salvar em disco
 
 
 class ProjectController:
@@ -29,4 +27,5 @@ class ProjectController:
         w.project_changed.emit(proj)
         w.timeline.redraw()
         if hasattr(w, "_project_badge"):
-            w._project_badge.set_text(proj.name or proj.id)
+            label = proj.name or proj.id or "sem nome"
+            w._project_badge.set_text(label)

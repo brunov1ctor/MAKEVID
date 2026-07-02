@@ -90,7 +90,7 @@ class TrackMenuPanel(QWidget):
             w = item.widget()
             if w:
                 w.hide()
-                w.setParent(None)
+                w.deleteLater()
             sub = item.layout()
             if sub:
                 while sub.count():
@@ -98,7 +98,7 @@ class TrackMenuPanel(QWidget):
                     sw = si.widget()
                     if sw:
                         sw.hide()
-                        sw.setParent(None)
+                        sw.deleteLater()
 
         # Aplicar cor de fundo
         cfg = TRACK_CONFIG.get(track_name)
@@ -234,7 +234,7 @@ class TrackMenuPanel(QWidget):
                 btn.setToolTip(tip)
         L.addWidget(tabs_bar)
 
-        self._fx_content_area = QScrollArea()
+        self._fx_content_area = QScrollArea(self)
         self._fx_content_area.setWidgetResizable(True)
         L.addWidget(self._fx_content_area)
 

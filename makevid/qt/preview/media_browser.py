@@ -24,22 +24,17 @@ class MediaBrowserMixin:
     def _hide_display(self):
         if self.player.is_playing:
             self.player.stop()
-        self._display.hide()
-        self._progress_container.hide()
-        self._info.hide()
         if getattr(self, "_browser", None):
-            self._browser.hide()
+            self._stack.removeWidget(self._browser)
             self._browser.deleteLater()
             self._browser = None
 
     def _close_browser(self):
         if getattr(self, "_browser", None):
-            self._browser.hide()
+            self._stack.removeWidget(self._browser)
             self._browser.deleteLater()
             self._browser = None
-        self._display.show()
-        self._progress_container.show()
-        self._info.show()
+        self._stack.setCurrentWidget(self._display_page)
         self._show_play_button()
 
     def _show_browser(self, title, accent, files, build_card_fn, import_fn, clean_fn):
@@ -91,8 +86,8 @@ class MediaBrowserMixin:
             for f in files:
                 build_card_fn(f)
         self._browser_layout.addStretch()
-        self.layout().insertWidget(0, browser, stretch=1)
-        browser.show()
+        self._stack.addWidget(browser)
+        self._stack.setCurrentWidget(browser)
         self._browser = browser
 
     # ── video browser ─────────────────────────────────────────────────────────

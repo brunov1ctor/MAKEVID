@@ -1,7 +1,7 @@
 """Track Item - QGraphicsItem para items de audio/fx nas tracks."""
 
 from pathlib import Path
-from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
+from PySide6.QtWidgets import QGraphicsItem
 from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import (
     QPen, QBrush, QColor, QFont, QPainterPath, QPainter,
@@ -11,49 +11,28 @@ from PySide6.QtGui import (
 from makevid.qt.theme import C
 
 
-class TrackGraphicsItem(QGraphicsRectItem):
-    """Item genérico em qualquer track (audio, voice, sfx, music, fx)."""
+class TrackGraphicsItem(QGraphicsItem):
+    """Item genérico em qualquer track (audio, voice, sfx, music)."""
 
     def __init__(self, track_item, x, y, w, h, color, selected=False):
-        super().__init__(x + 1, y + 2, w - 2, h - 4)
+        super().__init__()
         self.track_item = track_item
         self._color = QColor(color)
         self._x = x
         self._y = y
         self._w = w
         self._h = h
-        self._waveform_path = None
         self._hovered = False
         self._selected = selected
+        self._waveform_data = None
 
-        self.setPen(Qt.NoPen)
-        self.setBrush(Qt.NoBrush)
         self.setAcceptHoverEvents(True)
         self.setZValue(2)
-
-        # Label
-        name = track_item.params.get("block_name", track_item.name)[:20]
-        self._label = QGraphicsTextItem(name, self)
-        self._label.setFont(QFont("Segoe UI", 7, QFont.Bold))
-        self._label.setDefaultTextColor(QColor(255, 255, 255, 200))
-        self._label.setPos(x + 8, y + 1)
-
-        # Trim handles
-        handle_c = QColor(self._color)
-        handle_c.setAlpha(180)
-        self._left_handle = QGraphicsRectItem(x, y + 2, 4, h - 4, self)
-        self._left_handle.setPen(QPen(Qt.NoPen))
-        self._left_handle.setBrush(QBrush(handle_c))
-
-        self._right_handle = QGraphicsRectItem(x + w - 4, y + 2, 4, h - 4, self)
-        self._right_handle.setPen(QPen(Qt.NoPen))
-        self._right_handle.setBrush(QBrush(handle_c))
 
         if track_item.file_path and Path(track_item.file_path).exists():
             self._build_waveform()
 
     def _build_waveform(self):
-        """Carrega dados de waveform para renderizar no paint."""
         try:
             from makevid.core.audio_utils import read_audio_mono
             import numpy as np
@@ -62,8 +41,7 @@ class TrackGraphicsItem(QGraphicsRectItem):
             if len(audio) < 10:
                 return
 
-            w = max(4, self._w - 8)
-
+            w = max(4, self._w - 12)
             if len(audio) < w:
                 self._waveform_data = np.interp(
                     np.linspace(0, len(audio) - 1, w),
@@ -71,7 +49,7 @@ class TrackGraphicsItem(QGraphicsRectItem):
             else:
                 block_size = max(1, len(audio) // w)
                 result = np.zeros(w)
-                for i in range(w):
+                for i in range(int(w)):
                     start = i * block_size
                     end = min(start + block_size, len(audio))
                     block = audio[start:end]
@@ -81,56 +59,75 @@ class TrackGraphicsItem(QGraphicsRectItem):
         except Exception:
             self._waveform_data = None
 
-    def paint(self, painter: QPainter, option, widget=None):
-        x, y, w, h = self._x + 2, self._y + 3, self._w - 4, self._h - 6
-        radius = 6.0
+    def boundingRect(self):
+        return QRectF(self._x, self._y, self._w, self._h)
 
-        # ── Fundo arredondado com gradiente ──────────────────────────────────
+    def paint(self, painter: QPainter, option, widget=None):
+        x = self._x + 2
+        y = self._y + 3
+        w = self._w - 4
+        h = self._h - 6
+        if w < 2 or h < 2:
+            return
+
+        radius = 6.0
+        c = self._color
+
+        # Fundo
         path = QPainterPath()
         path.addRoundedRect(QRectF(x, y, w, h), radius, radius)
 
-        c = QColor(self._color)
-        top = QColor(c.red(), c.green(), c.blue(), 55 if not self._hovered else 80)
-        bot = QColor(c.red(), c.green(), c.blue(), 30 if not self._hovered else 50)
+        top = QColor(c.red(), c.green(), c.blue(), 80 if self._hovered else 55)
+        bot = QColor(c.red(), c.green(), c.blue(), 50 if self._hovered else 30)
         grad = QLinearGradient(x, y, x, y + h)
         grad.setColorAt(0.0, top)
         grad.setColorAt(1.0, bot)
         painter.setPen(Qt.NoPen)
         painter.fillPath(path, QBrush(grad))
 
-        # Borda translúcida
-        border = QColor(self._color)
-        border.setAlpha(140 if self._hovered else 70)
-        painter.setPen(QPen(border, 1.0))
+        # Borda
+        border = QColor(c)
+        border.setAlpha(160 if self._hovered else 80)
+        painter.setPen(QPen(border, 1.2 if self._selected else 0.8))
         painter.drawPath(path)
 
-        # Highlight de seleção
+        # Highlight seleção
         if self._selected:
-            painter.setPen(QPen(QColor(255, 255, 255, 60), 1.5))
+            painter.setPen(QPen(QColor(255, 255, 255, 70), 1.5))
             painter.drawPath(path)
 
         # Highlight topo
         ref = QPainterPath()
         ref.addRoundedRect(QRectF(x + radius, y + 0.5, w - radius * 2, h * 0.25), 3, 3)
         ref_grad = QLinearGradient(0, y, 0, y + h * 0.25)
-        ref_grad.setColorAt(0.0, QColor(255, 255, 255, 18))
+        ref_grad.setColorAt(0.0, QColor(255, 255, 255, 20))
         ref_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
         painter.setPen(Qt.NoPen)
         painter.fillPath(ref, QBrush(ref_grad))
 
-        # ── Waveform ────────────────────────────────────────────────────────────
+        # Trim handles
+        handle_c = QColor(c)
+        handle_c.setAlpha(180)
+        lh = QPainterPath()
+        lh.addRoundedRect(QRectF(x, y, 4, h), radius, 2)
+        painter.fillPath(lh, handle_c)
+        rh = QPainterPath()
+        rh.addRoundedRect(QRectF(x + w - 4, y, 4, h), 2, radius)
+        painter.fillPath(rh, handle_c)
+
+        # Waveform
         wx = x + 6
         mid_y = y + h / 2
-        amp = (h - 10) / 2
+        amp = max(1, (h - 10) / 2)
         ww = w - 12
 
-        if hasattr(self, '_waveform_data') and self._waveform_data is not None and len(self._waveform_data) > 1:
+        if self._waveform_data is not None and len(self._waveform_data) > 1:
             import numpy as np
             data = self._waveform_data
             peak = max(abs(data.max()), abs(data.min()), 0.01)
             data_norm = data / peak
-            wc = QColor(self._color)
-            wc.setAlpha(160 if self._hovered else 100)
+            wc = QColor(c)
+            wc.setAlpha(180 if self._hovered else 110)
             painter.setPen(QPen(wc, 1.0))
             points = min(len(data_norm) - 1, int(ww))
             for i in range(points):
@@ -138,10 +135,16 @@ class TrackGraphicsItem(QGraphicsRectItem):
                 y2 = mid_y - data_norm[i + 1] * amp
                 painter.drawLine(int(wx + i), int(y1), int(wx + i + 1), int(y2))
         else:
-            dc = QColor(self._color)
+            dc = QColor(c)
             dc.setAlpha(60)
             painter.setPen(QPen(dc, 1, Qt.DashLine))
             painter.drawLine(int(wx), int(mid_y), int(wx + ww), int(mid_y))
+
+        # Label
+        painter.setPen(QPen(QColor(255, 255, 255, 200)))
+        painter.setFont(QFont("Segoe UI", 7, QFont.Bold))
+        name = self.track_item.params.get("block_name", self.track_item.name)[:22]
+        painter.drawText(QRectF(x + 6, y, w - 12, h), Qt.AlignVCenter | Qt.AlignLeft, name)
 
     def hoverEnterEvent(self, event):
         self._hovered = True
@@ -149,10 +152,8 @@ class TrackGraphicsItem(QGraphicsRectItem):
         super().hoverEnterEvent(event)
 
     def hoverMoveEvent(self, event):
-        """Cursor de resize nas bordas."""
-        local_x = event.pos().x() - self.rect().x()
-        w = self.rect().width()
-        if local_x <= 6 or (w - local_x) <= 6:
+        local_x = event.pos().x() - self._x
+        if local_x <= 6 or (self._w - local_x) <= 6:
             self.setCursor(Qt.SizeHorCursor)
         else:
             self.setCursor(Qt.ArrowCursor)

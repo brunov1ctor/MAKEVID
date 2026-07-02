@@ -80,8 +80,7 @@ class _ProjectCard(QWidget):
         self._name_edit.returnPressed.connect(self._confirm_rename)
         name_row.addWidget(self._name_edit)
 
-        self._name_edit.setVisible(editing)
-        self._name_lbl.setVisible(not editing)
+        self._name_edit.hide() if not editing else self._name_lbl.hide()
         L.addLayout(name_row)
 
         # ── Stats ─────────────────────────────────────────────────────────────
@@ -255,9 +254,8 @@ class ProjectsPanel(QWidget):
             "QScrollArea { background: transparent; border: none; }"
             "QScrollArea > QWidget > QWidget { background: transparent; }"
         )
-        self._content = QWidget()
+        self._content = QWidget(self)
         self._content.setStyleSheet("background: transparent;")
-        self._content.setAttribute(Qt.WA_TranslucentBackground)
         self._list_layout = QVBoxLayout(self._content)
         self._list_layout.setContentsMargins(0, 8, 0, 8)
         self._list_layout.setSpacing(6)
@@ -271,7 +269,8 @@ class ProjectsPanel(QWidget):
             self.refresh()
 
     def refresh(self):
-        self.setUpdatesEnabled(False)
+        # Esconde o conteúdo durante a reconstrução — elimina flash
+        self._content.hide()
         L = self._list_layout
 
         while L.count():
@@ -290,7 +289,7 @@ class ProjectsPanel(QWidget):
             empty.setStyleSheet(f"color: {C['text3']}; font-size: 9pt; background: transparent; border: none;")
             L.addWidget(empty)
             L.addStretch()
-            self.setUpdatesEnabled(True)
+            self._content.show()
             return
 
         for f in files:
@@ -311,7 +310,7 @@ class ProjectsPanel(QWidget):
 
         self._new_card_id = None
         L.addStretch()
-        self.setUpdatesEnabled(True)
+        self._content.show()
 
     def set_active(self, project_id: str):
         """Atualiza projeto ativo e redesenha a lista."""

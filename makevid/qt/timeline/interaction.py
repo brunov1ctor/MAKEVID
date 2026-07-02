@@ -1,9 +1,6 @@
-"""Interaction Qt - Toda interação de mouse e teclado na timeline.
+"""Interaction - Toda interação de mouse na timeline scene."""
 
-Porta 1:1 do makevid/ui/timeline/interaction.py para Qt.
-"""
-
-from PySide6.QtCore import Qt, QPointF
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QPen, QColor, QFont
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsRectItem, QGraphicsTextItem
 
@@ -13,29 +10,18 @@ from makevid.qt.theme import C
 
 
 class SceneInteraction:
-    """Gerencia toda interação do mouse com a timeline scene.
-
-    Estado:
-        _drag_mode: None | "playhead" | "clip_move" | "clip_trim_left" | "clip_trim_right"
-                    | "item_move" | "item_trim_left" | "item_trim_right"
-        _drag_target: clip ou track_item sendo arrastado
-        _drag_start_x: posição X do mouse no início do drag
-        _drag_orig: valor original (duration, position, start_time)
-        _drag_orig_start: start_time original (para trim_left de items)
-        _drag_group: lista de (item, offset) para mover grupo junto
-    """
+    """Gerencia toda interação do mouse com a timeline scene."""
 
     def __init__(self, scene):
         self.scene = scene
         self.tl = scene.tl
         self._reset_drag()
-        # Callbacks (setados pelo app.py)
-        self.item_clicked = None  # fn(track_item)
-        self.clip_clicked = None  # fn(clip)
-        self.label_clicked = None  # fn(track_name)
-        self.track_empty_clicked = None  # fn(track_name)
-        # Estado de diamonds marcados
+        self.item_clicked = None
+        self.clip_clicked = None
+        self.label_clicked = None
+        self.track_empty_clicked = None
         self._marked_diamonds = set()
+        self._last_diamond_toggle = None
 
     def _reset_drag(self):
         self._drag_mode = None
@@ -45,516 +31,284 @@ class SceneInteraction:
         self._drag_orig_start = 0
         self._drag_group = None
         self._drag_ghost_pos = None
-        self._drag_clip_item = None   # QGraphicsItem do clip sendo arrastado
-        self._last_diamond_toggle = None
+        self._drag_clip_item = None
 
-    # ============================================================
-    # DOUBLE-CLICK
-    # ============================================================
+    # ── Double-click ──────────────────────────────────────────────────────────
 
     def on_double_click(self, pos):
-        """Double-click: FX track=toggle all diamonds, clip=abre no SO."""
         lbl_w = self.tl.LBL_W
         if pos.x() < lbl_w:
             return False
 
-        # FX track: seleciona/deseleciona todos diamonds
         track_positions = self.scene._track_positions
+
+        # FX track: toggle todos os diamonds
         if "fx" in track_positions:
             ty, th = track_positions["fx"]
             if ty <= pos.y() <= ty + th:
                 project = self.tl.project
-                clips = sorted(project.clips, key=lambda c: c.position)
-                all_ids = {f"diamond_{c.position}" for c in clips if c.position > 0}
-                if not all_ids:
-                    return False
-                if self._marked_diamonds:
-                    self._marked_diamonds.clear()
-                else:
-                    self._marked_diamonds = set(all_ids)
-                self.tl.redraw()
-                return True
+                all_ids = {f"diamond_{c.position}" for c in project.clips if c.position > 0}
+                if all_ids:
+                    self._marked_diamonds = set() if self._marked_diamonds else set(all_ids)
+                    self.tl.redraw()
+                    return True
 
-        # Video track: duplo clique abre video no SO
+        # Video track: abrir arquivo
         if "video" in track_positions:
             vy, vh = track_positions["video"]
             if vy <= pos.y() <= vy + vh:
-                from pathlib import Path
-                from makevid.qt.timeline.clip_item import ClipGraphicsItem
-                item = self.scene.itemAt(pos, self.tl._view.transform())
-                while item and item.parentItem():
-                    item = item.parentItem()
-                if item and isinstance(item, ClipGraphicsItem):
-                    clip = item.clip
-                    if clip.video_path and Path(clip.video_path).exists():
+                item = self._item_at(pos)
+                if isinstance(item, ClipGraphicsItem) and item.clip.video_path:
+                    from pathlib import Path
+                    if Path(item.clip.video_path).exists():
                         import os
-                        os.startfile(clip.video_path)
+                        os.startfile(item.clip.video_path)
                         return True
 
         return False
 
-    # ============================================================
-    # STORYBOARD MARKER CLICK
-    # ============================================================
-
-    def on_storyboard_marker_click(self, pos):
-        """Verifica se clicou em storyboard marker e copia prompt."""
-        lbl_w = self.tl.LBL_W
-        ruler_h = self.tl.RULER_H
-        zoom = self.tl.zoom
-        project = self.tl.project
-
-        if pos.y() > ruler_h or pos.x() < lbl_w:
-            return False
-
-        if not getattr(project, '_storyboard_applied', False):
-            return False
-
-        scenes = project.world.scenes
-        if not scenes:
-            return False
-
-        current_time = 0.0
-        for i, scene in enumerate(scenes):
-            dur = float(scene.get("duration", 5))
-            x = lbl_w + int(current_time * zoom)
-            if abs(pos.x() - x) < 12:
-                # Copiar prompt para clipboard e colar no gerador
-                visual = scene.get("visual", "")
-                camera = scene.get("camera", "")
-                prompt = f"{visual}, {camera}" if camera else visual
-                from PySide6.QtWidgets import QApplication
-                clipboard = QApplication.clipboard()
-                clipboard.setText(prompt)
-                # Colar no prompt box do gerador
-                if hasattr(self.tl, 'parent') and callable(self.tl.parent):
-                    app = self.tl.parent()
-                    if hasattr(app, 'generator') and hasattr(app.generator, 'set_prompt'):
-                        app.generator.set_prompt(prompt)
-                return True
-            current_time += dur
-
-        return False
-
-    # ============================================================
-    # CLICK
-    # ============================================================
+    # ── Press ─────────────────────────────────────────────────────────────────
 
     def on_press(self, pos, button):
-        """Chamado pelo scene.mousePressEvent."""
         lbl_w = self.tl.LBL_W
         ruler_h = self.tl.RULER_H
         zoom = self.tl.zoom
 
         self._reset_drag()
 
-        # Limpar seleção anterior ao iniciar novo press
-        self.tl._selected_track_item_id = None
-        self.tl._selected_clip_id = None
-
-        # Right-click = remover item
         if button == Qt.RightButton:
-            self._on_right_click(pos)
-            return True
+            return True  # right-click reservado
 
-        # Split mode: click divide clip ou item
         if getattr(self.tl, '_split_mode', False):
             self._do_split_at(pos)
             return True
 
-        # Audio split mode: click divide track item
         if getattr(self.tl, '_audio_split_mode', None):
             self._do_audio_split_at(pos)
             return True
 
-        # Click em labels laterais
+        # Labels laterais
         if pos.x() < lbl_w:
-            track_positions = self.scene._track_positions
-            for name, (ty, th) in track_positions.items():
+            for name, (ty, th) in self.scene._track_positions.items():
                 if ty <= pos.y() <= ty + th:
-                    if self.label_clicked:
-                        self.label_clicked(name)
-                    elif self.track_empty_clicked:
-                        self.track_empty_clicked(name)
+                    cb = self.label_clicked or self.track_empty_clicked
+                    if cb:
+                        cb(name)
                     return True
             return False
 
-        t = (pos.x() - lbl_w) / zoom
-
-        # Click na ruler = check storyboard markers primeiro, depois move playhead
+        # Ruler → playhead
         if pos.y() < ruler_h:
-            if self.on_storyboard_marker_click(pos):
+            if self._check_storyboard_click(pos):
                 return True
-            self.tl.set_playhead(max(0, t))
+            t = max(0, (pos.x() - lbl_w) / zoom)
+            self.tl.set_playhead(t)
             self._drag_mode = "playhead"
             self._drag_start_x = pos.x()
             return True
 
-        # Track item (audio/fx/voice/sfx/music) — verifica primeiro por tempo
-        # pois itemAt pode retornar um diamond sobreposto ao fx item
-        track_positions = self.scene._track_positions
-        for name, (ty, th) in track_positions.items():
+        # Tracks de audio/fx/voice/sfx/music
+        for name, (ty, th) in self.scene._track_positions.items():
             if name == "video":
                 continue
-            if ty <= pos.y() <= ty + th:
-                t = (pos.x() - lbl_w) / zoom
-                found_item = self._find_item_at_time(t, name)
-                if found_item:
-                    # Calcular local_x para detectar bordas
-                    ix1 = lbl_w + int(found_item.start_time * zoom)
-                    item_w_px = int(found_item.duration * zoom)
-                    local_x = pos.x() - ix1
+            if not (ty <= pos.y() <= ty + th):
+                continue
 
-                    if local_x <= 6:
-                        self._drag_mode = "item_trim_left"
-                        self._drag_target = found_item
-                        self._drag_start_x = pos.x()
-                        self._drag_orig = found_item.duration
-                        self._drag_orig_start = found_item.start_time
-                    elif (item_w_px - local_x) <= 6:
-                        self._drag_mode = "item_trim_right"
-                        self._drag_target = found_item
-                        self._drag_start_x = pos.x()
-                        self._drag_orig = found_item.duration
-                    else:
-                        self._drag_mode = "item_move"
-                        self._drag_target = found_item
-                        self._drag_start_x = pos.x()
-                        self._drag_orig = found_item.start_time
-                        self._drag_group = self._get_item_group(found_item)
-                    return True
-                # Sem item: verificar diamond, senao abrir menu
-                item = self.scene.itemAt(pos, self.tl._view.transform())
-                while item and item.parentItem():
-                    item = item.parentItem()
-                if item and hasattr(item, '_position'):
-                    diamond_id = f"diamond_{item._position}"
-                    was_marked = diamond_id in self._marked_diamonds
-                    if diamond_id in self._marked_diamonds:
-                        self._marked_diamonds.discard(diamond_id)
-                    else:
-                        self._marked_diamonds.add(diamond_id)
-                    self._last_diamond_toggle = (diamond_id, was_marked)
-                    self.tl.redraw()
-                    return True
-                # Area vazia da track: abrir menu
-                if self.track_empty_clicked:
-                    self.track_empty_clicked(name)
-                elif self.label_clicked:
-                    self.label_clicked(name)
+            t = (pos.x() - lbl_w) / zoom
+            found = self._find_item_at_time(t, name)
+            if found:
+                ix1 = lbl_w + int(found.start_time * zoom)
+                iw = int(found.duration * zoom)
+                local_x = pos.x() - ix1
+                if local_x <= 6:
+                    self._drag_mode = "item_trim_left"
+                    self._drag_orig = found.duration
+                    self._drag_orig_start = found.start_time
+                elif (iw - local_x) <= 6:
+                    self._drag_mode = "item_trim_right"
+                    self._drag_orig = found.duration
+                else:
+                    self._drag_mode = "item_move"
+                    self._drag_orig = found.start_time
+                    self._drag_group = self._get_item_group(found)
+                self._drag_target = found
+                self._drag_start_x = pos.x()
                 return True
 
-        # Verificar se clicou em clip de video via itemAt
-        item = self.scene.itemAt(pos, self.tl._view.transform())
-        while item and item.parentItem():
-            item = item.parentItem()
+            # Diamond?
+            item = self._item_at(pos)
+            if item and hasattr(item, '_position'):
+                did = f"diamond_{item._position}"
+                was = did in self._marked_diamonds
+                if was:
+                    self._marked_diamonds.discard(did)
+                else:
+                    self._marked_diamonds.add(did)
+                self._last_diamond_toggle = (did, was)
+                self.tl.redraw()
+                return True
 
-        if item and isinstance(item, ClipGraphicsItem):
+            # Área vazia → menu da track
+            cb = self.track_empty_clicked or self.label_clicked
+            if cb:
+                cb(name)
+            return True
+
+        # Clip de video
+        item = self._item_at(pos)
+        if isinstance(item, ClipGraphicsItem):
             clip = item.clip
-            local_x = pos.x() - item.rect().x()
-            item_w = item.rect().width()
-
+            local_x = pos.x() - item._x
+            iw = item._w
             if local_x <= 10:
                 self._drag_mode = "clip_trim_left"
-                self._drag_target = clip
-                self._drag_start_x = pos.x()
                 self._drag_orig = clip.duration
-            elif (item_w - local_x) <= 10:
+            elif (iw - local_x) <= 10:
                 self._drag_mode = "clip_trim_right"
-                self._drag_target = clip
-                self._drag_start_x = pos.x()
                 self._drag_orig = clip.duration
             else:
                 self._drag_mode = "clip_move"
-                self._drag_target = clip
-                self._drag_start_x = pos.x()
                 self._drag_orig = clip.position
                 self._drag_clip_item = item
                 item._orig_x = item._x
                 item._selected = True
                 item.setZValue(10)
+            self._drag_target = clip
+            self._drag_start_x = pos.x()
             return True
 
-        # Area vazia fora de tracks = mover playhead
-        t = (pos.x() - lbl_w) / zoom
-        self.tl.set_playhead(max(0, t))
+        # Área vazia → playhead
+        t = max(0, (pos.x() - lbl_w) / zoom)
+        self.tl.set_playhead(t)
         self._drag_mode = "playhead"
         self._drag_start_x = pos.x()
         return True
 
-    # ============================================================
-    # DRAG
-    # ============================================================
+    # ── Move ──────────────────────────────────────────────────────────────────
 
     def on_move(self, pos):
-        """Chamado pelo scene.mouseMoveEvent."""
         if not self._drag_mode:
             return False
 
         lbl_w = self.tl.LBL_W
         zoom = self.tl.zoom
         dx = pos.x() - self._drag_start_x
+        dt = dx / zoom
 
         if self._drag_mode == "playhead":
-            t = max(0, (pos.x() - lbl_w) / zoom)
-            self.tl.set_playhead(t)
+            self.tl.set_playhead(max(0, (pos.x() - lbl_w) / zoom))
             return True
 
-        elif self._drag_mode == "clip_move":
-            dx = pos.x() - self._drag_start_x
-            zoom = self.tl.zoom
-
-            # Mover item visualmente atualizando _x (usado pelo paint)
+        if self._drag_mode == "clip_move":
             if self._drag_clip_item:
                 item = self._drag_clip_item
-                new_x = item._orig_x + dx
-                item._x = new_x
-                item.setRect(new_x + 1, item._y + 2, item._w - 2, item._h - 4)
+                item._x = item._orig_x + dx
+                item.setRect(item._x + 1, item._y + 2, item._w - 2, item._h - 4)
                 item.update()
-
-            # Calcular slot destino
-            t = max(0, (pos.x() - self.tl.LBL_W) / zoom)
+            t = max(0, (pos.x() - lbl_w) / zoom)
             clips = sorted(self.tl.project.clips, key=lambda c: c.position)
-            current = 0.0
+            cur = 0.0
             new_pos = len(clips) - 1
             for i, c in enumerate(clips):
-                if t < current + c.duration:
+                if t < cur + c.duration:
                     new_pos = i
                     break
-                current += c.duration
+                cur += c.duration
             self._drag_ghost_pos = max(0, min(len(clips) - 1, new_pos))
             return True
 
-        elif self._drag_mode == "clip_trim_right":
-            dt = dx / zoom
-            clip = self._drag_target
-            new_dur = max(1.0, self._drag_orig + dt)
-            trim_amount = self._drag_orig - new_dur
-            clip.duration = new_dur
-            # Trim preview visual (hachura)
-            if trim_amount > 0:
-                self._show_trim_preview(clip, "right", trim_amount)
-            else:
-                self._remove_trim_preview()
+        if self._drag_mode == "clip_trim_right":
+            self._drag_target.duration = max(1.0, self._drag_orig + dt)
             self.tl.redraw()
             return True
 
-        elif self._drag_mode == "clip_trim_left":
-            dt = dx / zoom
-            clip = self._drag_target
-            trim = max(0, min(self._drag_orig - 1.0, dt))
-            clip.duration = max(1.0, self._drag_orig - trim)
-            # Trim preview visual
-            if trim > 0:
-                self._show_trim_preview(clip, "left", trim)
-            else:
-                self._remove_trim_preview()
+        if self._drag_mode == "clip_trim_left":
+            trim = max(0.0, min(self._drag_orig - 1.0, dt))
+            self._drag_target.duration = max(1.0, self._drag_orig - trim)
             self.tl.redraw()
             return True
 
-        elif self._drag_mode == "item_move":
-            dt = dx / zoom
-            new_start = max(0, self._drag_orig + dt)
-            # Mover grupo inteiro
+        if self._drag_mode == "item_move":
+            new_start = max(0.0, self._drag_orig + dt)
             if self._drag_group:
                 for gi, offset in self._drag_group:
-                    gi.start_time = max(0, round(new_start + offset, 2))
+                    gi.start_time = max(0.0, round(new_start + offset, 2))
             else:
                 self._drag_target.start_time = round(new_start, 2)
-
-            # Drag guide visual
             self.tl.redraw()
             self._update_drag_guide(new_start)
             return True
 
-        elif self._drag_mode == "item_trim_right":
-            dt = dx / zoom
-            ti = self._drag_target
-            max_dur = self._get_wav_duration(ti) or self._drag_orig + 10
-            ti.duration = max(0.5, min(max_dur, self._drag_orig + dt))
+        if self._drag_mode == "item_trim_right":
+            max_dur = self._get_wav_duration(self._drag_target) or self._drag_orig + 60
+            self._drag_target.duration = max(0.5, min(max_dur, self._drag_orig + dt))
             self.tl.redraw()
             return True
 
-        elif self._drag_mode == "item_trim_left":
-            dt = dx / zoom
-            ti = self._drag_target
-            trim = max(0, min(self._drag_orig - 0.5, dt))
-            ti.start_time = round(self._drag_orig_start + trim, 2)
-            ti.duration = max(0.5, self._drag_orig - trim)
+        if self._drag_mode == "item_trim_left":
+            trim = max(0.0, min(self._drag_orig - 0.5, dt))
+            self._drag_target.start_time = round(self._drag_orig_start + trim, 2)
+            self._drag_target.duration = max(0.5, self._drag_orig - trim)
             self.tl.redraw()
             return True
 
         return False
 
-    # ============================================================
-    # RELEASE
-    # ============================================================
+    # ── Release ───────────────────────────────────────────────────────────────
 
     def on_release(self, pos):
-        """Chamado pelo scene.mouseReleaseEvent."""
         if not self._drag_mode:
             return False
 
         dx_total = abs(pos.x() - self._drag_start_x)
+        moved = dx_total >= 3
 
-        # Salvar projeto se houve mudanca real (movimento)
-        if self._drag_mode != "playhead" and dx_total >= 3:
-            from makevid.config import PROJECTS_DIR
-            self.tl.project.save(PROJECTS_DIR)
+        if self._drag_mode == "item_move":
+            if not moved:
+                # clique simples → abrir editor
+                if self.item_clicked and self._drag_target:
+                    self.item_clicked(self._drag_target)
+                self.tl._selected_track_item_id = getattr(self._drag_target, 'id', None)
+            else:
+                self._save()
 
-        # Click sem movimento em item_move = abrir editor (futuro)
-        if self._drag_mode == "item_move" and dx_total < 3:
-            if self.item_clicked and self._drag_target:
-                self.item_clicked(self._drag_target)
-            # Marcar como selecionado para Delete
-            self.tl._selected_track_item_id = self._drag_target.id if self._drag_target else None
+        elif self._drag_mode in ("item_trim_left", "item_trim_right"):
+            if moved:
+                self._save()
 
-        # Click sem movimento em clip = selecionar
-        if self._drag_mode == "clip_move" and dx_total < 3:
-            if self._drag_target:
-                self.tl._selected_clip_id = self._drag_target.id
-            if self.clip_clicked and self._drag_target:
-                self.clip_clicked(self._drag_target)
-
-        # Reordenar clip no release se houve movimento
-        if self._drag_mode == "clip_move" and dx_total >= 3:
-            self.tl._selected_clip_id = None
-            clip = self._drag_target
-            orig_pos = int(self._drag_orig)
-            new_pos = self._drag_ghost_pos if self._drag_ghost_pos is not None else orig_pos
-            project = self.tl.project
-
-            if new_pos != orig_pos:
-                # Inserir clip vazio no slot que ficou vago (entre os dois)
-                gap_pos = orig_pos if new_pos > orig_pos else orig_pos
-                empty = project.add_clip(prompt="", position=gap_pos)
-                empty.status = "empty"
-                empty.duration = clip.duration
-                # Reordenar o clip arrastado para o destino
-                project.move_clip(clip.id, new_pos)
-                from makevid.config import PROJECTS_DIR
-                project.save(PROJECTS_DIR)
+        elif self._drag_mode == "clip_move":
+            if not moved:
+                # clique simples → selecionar clip
+                self.tl._selected_clip_id = getattr(self._drag_target, 'id', None)
+                if self.clip_clicked and self._drag_target:
+                    self.clip_clicked(self._drag_target)
+            else:
+                # reordenar
+                clip = self._drag_target
+                orig_pos = int(self._drag_orig)
+                new_pos = self._drag_ghost_pos if self._drag_ghost_pos is not None else orig_pos
+                if new_pos != orig_pos:
+                    self.tl.project.move_clip(clip.id, new_pos)
+                self._save()
+                self.tl._selected_clip_id = None
 
             if self._drag_clip_item:
-                # Restaurar _x original antes do redraw
                 self._drag_clip_item._x = self._drag_clip_item._orig_x
-                self._drag_clip_item.setPos(0, 0)
                 self._drag_clip_item.setZValue(1)
                 self._drag_clip_item._selected = False
-            self._remove_clip_ghost()
+
+        elif self._drag_mode in ("clip_trim_left", "clip_trim_right"):
+            if moved:
+                self._save()
 
         self._remove_drag_guide()
-        self._remove_trim_preview()
         self._reset_drag()
         self.tl.redraw()
         return True
 
-    # ============================================================
-    # TRIM PREVIEW (hachura vermelha)
-    # ============================================================
-
-    def _show_trim_preview(self, clip, side, amount):
-        """Mostra hachura vermelha na area que sera cortada."""
-        self._remove_trim_preview()
-        scene = self.scene
-        lbl_w = self.tl.LBL_W
-        zoom = self.tl.zoom
-        track_positions = scene._track_positions
-        if "video" not in track_positions:
-            return
-        vy, vh = track_positions["video"]
-
-        # Calcular posicao do clip na timeline
-        project = self.tl.project
-        current = 0.0
-        for c in sorted(project.clips, key=lambda c: c.position):
-            if c.id == clip.id:
-                break
-            current += c.duration
-
-        clip_x1 = lbl_w + int(current * zoom)
-        clip_x2 = clip_x1 + int(clip.duration * zoom)
-        trim_px = int(amount * zoom)
-
-        if trim_px <= 0:
-            return
-
-        if side == "right":
-            tx1 = clip_x2
-            tx2 = clip_x2 + trim_px
-        else:
-            tx1 = clip_x1 - trim_px
-            tx2 = clip_x1
-
-        # Fundo semi-transparente
-        from PySide6.QtGui import QBrush
-        overlay = QGraphicsRectItem(tx1, vy + 2, tx2 - tx1, vh - 4)
-        overlay.setPen(QPen(Qt.NoPen))
-        overlay.setBrush(QBrush(QColor(180, 0, 0, 80)))
-        overlay.setZValue(90)
-        overlay._is_trim_preview = True
-        scene.addItem(overlay)
-
-        # Linhas diagonais (hachura)
-        from PySide6.QtWidgets import QGraphicsLineItem as LI
-        for hx in range(int(tx1), int(tx2), 8):
-            line = LI(hx, vy + 2, hx + 12, vy + vh - 2)
-            line.setPen(QPen(QColor("#ff3333"), 1))
-            line.setZValue(91)
-            line._is_trim_preview = True
-            scene.addItem(line)
-
-        # Linha de corte
-        cut_x = tx1 if side == "right" else tx2
-        cut_line = QGraphicsLineItem(cut_x, vy + 2, cut_x, vy + vh - 2)
-        cut_line.setPen(QPen(QColor("#ff3333"), 2, Qt.DashLine))
-        cut_line.setZValue(92)
-        cut_line._is_trim_preview = True
-        scene.addItem(cut_line)
-
-        # Label com quantidade
-        label = QGraphicsTextItem(f"-{amount:.1f}s")
-        label.setFont(QFont("Consolas", 9, QFont.Bold))
-        label.setDefaultTextColor(QColor("#ff6666"))
-        label.setPos(cut_x + 4 if side == "right" else cut_x - 40, vy + vh // 2 - 8)
-        label.setZValue(93)
-        label._is_trim_preview = True
-        scene.addItem(label)
-
-    def _remove_trim_preview(self):
-        """Remove overlay de trim."""
-        scene = self.scene
-        for item in list(scene.items()):
-            if getattr(item, '_is_trim_preview', False):
-                scene.removeItem(item)
-
-    # ============================================================
-    # RIGHT-CLICK (remove item)
-    # ============================================================
-
-    def _on_right_click(self, pos):
-        """Right-click desabilitado - usar Delete para remover."""
-        pass
-
-    # ============================================================
-    # KEYBOARD
-    # ============================================================
-
-    def on_key(self, key):
-        """Chamado para teclas."""
-        if key == Qt.Key_Space:
-            # Futuro: play/pause
-            pass
-        elif key == Qt.Key_Delete:
-            # Futuro: delete selecionado
-            pass
-
-    # ============================================================
-    # SPLIT MODE
-    # ============================================================
+    # ── Split ─────────────────────────────────────────────────────────────────
 
     def _do_split_at(self, pos):
-        """Split mode: divide clip de video na posicao clicada."""
         lbl_w = self.tl.LBL_W
         zoom = self.tl.zoom
         project = self.tl.project
@@ -564,33 +318,26 @@ class SceneInteraction:
             return
 
         t = (pos.x() - lbl_w) / zoom
-
-        # Encontrar clip na posicao
-        current_time = 0.0
-        clips = sorted(project.clips, key=lambda c: c.position)
-        for clip in clips:
-            end = current_time + clip.duration
-            if current_time <= t <= end:
-                split_point = t - current_time
-                if split_point < 0.5 or split_point > clip.duration - 0.5:
-                    break  # muito perto da borda
-                # Dividir
-                new_clip = project.add_clip(prompt=clip.prompt, position=clip.position + 1)
-                new_clip.duration = round(clip.duration - split_point, 1)
-                new_clip.seed = clip.seed
-                new_clip.status = clip.status
-                new_clip.video_path = clip.video_path
-                clip.duration = round(split_point, 1)
-                from makevid.config import PROJECTS_DIR
-                project.save(PROJECTS_DIR)
+        cur = 0.0
+        for clip in sorted(project.clips, key=lambda c: c.position):
+            end = cur + clip.duration
+            if cur <= t <= end:
+                sp = t - cur
+                if 0.5 <= sp <= clip.duration - 0.5:
+                    new_clip = project.add_clip(prompt=clip.prompt, position=clip.position + 1)
+                    new_clip.duration = round(clip.duration - sp, 1)
+                    new_clip.seed = clip.seed
+                    new_clip.status = clip.status
+                    new_clip.video_path = clip.video_path
+                    clip.duration = round(sp, 1)
+                    self._save()
                 break
-            current_time = end
+            cur = end
 
         self.tl._exit_split_mode()
         self.tl.redraw()
 
     def _do_audio_split_at(self, pos):
-        """Audio split mode: divide track items na posicao clicada."""
         lbl_w = self.tl.LBL_W
         zoom = self.tl.zoom
         project = self.tl.project
@@ -601,67 +348,88 @@ class SceneInteraction:
             return
 
         t = (pos.x() - lbl_w) / zoom
-
-        # Verificar se pos.y esta na track correta
-        track_positions = self.scene._track_positions
-        if track_name in track_positions:
-            ty, th = track_positions[track_name]
+        tp = self.scene._track_positions
+        if track_name in tp:
+            ty, th = tp[track_name]
             if not (ty <= pos.y() <= ty + th):
                 self.tl._exit_split_mode()
                 return
 
-        # Encontrar items sobrepostos
-        items = [i for i in project.get_track_items(track_name)
-                 if i.start_time < t < i.start_time + i.duration]
+        for item in project.get_track_items(track_name):
+            if item.start_time < t < item.start_time + item.duration:
+                cut = t - item.start_time
+                if cut > 0.1 and cut < item.duration - 0.1:
+                    project.add_track_item(
+                        name=item.name, track=item.track,
+                        start_time=t, duration=item.duration - cut,
+                        file_path=item.file_path, params=dict(item.params))
+                    item.duration = cut
 
-        for item in items:
-            cut_point = t - item.start_time
-            if cut_point <= 0.1 or cut_point >= item.duration - 0.1:
-                continue
-            new_dur = item.duration - cut_point
-            project.add_track_item(
-                name=item.name, track=item.track,
-                start_time=t, duration=new_dur,
-                file_path=item.file_path, params=dict(item.params))
-            item.duration = cut_point
-
-        from makevid.config import PROJECTS_DIR
-        project.save(PROJECTS_DIR)
+        self._save()
         self.tl._exit_split_mode()
         self.tl.redraw()
 
-    # ============================================================
-    # HELPERS
-    # ============================================================
+    # ── Storyboard ────────────────────────────────────────────────────────────
 
-    def _remove_clip_ghost(self):
-        pass  # sem ghost visual — clip vazio é inserido no release
-
-    def _highlight_dragged_clip(self, clip):
-        pass
-
-    def _get_item_group(self, item):
-        """Retorna lista de (track_item, offset_relativo) do grupo."""
+    def _check_storyboard_click(self, pos):
+        lbl_w = self.tl.LBL_W
+        zoom = self.tl.zoom
         project = self.tl.project
-        if item.clip_index >= 0:
-            group_items = [i for i in project.get_track_items(item.track)
-                          if i.clip_index == item.clip_index]
+
+        if not getattr(project, '_storyboard_applied', False):
+            return False
+
+        scenes = getattr(project.world, 'scenes', [])
+        cur = 0.0
+        for scene in scenes:
+            dur = float(scene.get("duration", 5))
+            x = lbl_w + int(cur * zoom)
+            if abs(pos.x() - x) < 12:
+                visual = scene.get("visual", "")
+                camera = scene.get("camera", "")
+                prompt = f"{visual}, {camera}" if camera else visual
+                from PySide6.QtWidgets import QApplication
+                QApplication.clipboard().setText(prompt)
+                return True
+            cur += dur
+        return False
+
+    # ── Diamond undo ──────────────────────────────────────────────────────────
+
+    def _undo_last_diamond_toggle(self):
+        if not self._last_diamond_toggle:
+            return
+        did, was = self._last_diamond_toggle
+        if was:
+            self._marked_diamonds.add(did)
         else:
-            group_items = [i for i in project.get_track_items(item.track)
-                          if abs(i.start_time - item.start_time) < 0.05]
-        return [(i, i.start_time - item.start_time) for i in group_items]
+            self._marked_diamonds.discard(did)
+        self._last_diamond_toggle = None
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _item_at(self, pos):
+        item = self.scene.itemAt(pos, self.tl._view.transform())
+        while item and item.parentItem():
+            item = item.parentItem()
+        return item
 
     def _find_item_at_time(self, t, track_name):
-        """Encontra item na posicao temporal t (fallback quando itemAt falha)."""
         candidates = [i for i in self.tl.project.get_track_items(track_name)
                       if i.start_time <= t <= i.start_time + i.duration]
         if not candidates:
             return None
         return min(candidates, key=lambda i: abs((i.start_time + i.duration / 2) - t))
 
+    def _get_item_group(self, item):
+        """Agrupa apenas items com mesmo clip_index (se >= 0)."""
+        if item.clip_index < 0:
+            return [(item, 0.0)]
+        group = [i for i in self.tl.project.get_track_items(item.track)
+                 if i.clip_index == item.clip_index]
+        return [(i, i.start_time - item.start_time) for i in group]
+
     def _get_wav_duration(self, item):
-        """Duração real do arquivo WAV."""
-        from pathlib import Path
         if not item.file_path or not Path(item.file_path).exists():
             return 0
         try:
@@ -670,55 +438,40 @@ class SceneInteraction:
         except Exception:
             return 0
 
-    def _undo_last_diamond_toggle(self):
-        """Desfaz o último toggle de diamond (para double-click funcionar corretamente)."""
-        if not self._last_diamond_toggle:
-            return
-        diamond_id, was_marked = self._last_diamond_toggle
-        if was_marked:
-            self._marked_diamonds.add(diamond_id)
-        else:
-            self._marked_diamonds.discard(diamond_id)
-        self._last_diamond_toggle = None
+    def _save(self):
+        from makevid.config import PROJECTS_DIR
+        self.tl.project.save(PROJECTS_DIR)
 
     def _update_drag_guide(self, time_val):
-        """Atualiza linha guia + badge durante drag."""
         self._remove_drag_guide()
-        scene = self.scene
         lbl_w = self.tl.LBL_W
         zoom = self.tl.zoom
-        guide_x = lbl_w + int(time_val * zoom)
-        scene_h = scene.sceneRect().height()
+        gx = lbl_w + int(time_val * zoom)
+        sh = self.scene.sceneRect().height()
 
-        # Linha pontilhada
-        line = QGraphicsLineItem(guide_x, self.tl.RULER_H, guide_x, scene_h)
+        line = QGraphicsLineItem(gx, self.tl.RULER_H, gx, sh)
         line.setPen(QPen(QColor("#00ccff"), 1, Qt.DashLine))
         line.setZValue(50)
         line._is_drag_guide = True
-        scene.addItem(line)
+        self.scene.addItem(line)
 
-        # Badge
         m, s = int(time_val) // 60, time_val % 60
-        txt_str = f"{m:02d}:{s:04.1f}"
-
-        bg = QGraphicsRectItem(guide_x - 26, 1, 52, 18)
+        bg = QGraphicsRectItem(gx - 26, 1, 52, 18)
         bg.setPen(QPen(QColor("#005577")))
         bg.setBrush(QColor("#00ccff"))
         bg.setZValue(51)
         bg._is_drag_guide = True
-        scene.addItem(bg)
+        self.scene.addItem(bg)
 
-        txt = QGraphicsTextItem(txt_str)
+        txt = QGraphicsTextItem(f"{m:02d}:{s:04.1f}")
         txt.setFont(QFont("Consolas", 8, QFont.Bold))
         txt.setDefaultTextColor(QColor("#0a0a0f"))
-        txt.setPos(guide_x - 22, -1)
+        txt.setPos(gx - 22, -1)
         txt.setZValue(52)
         txt._is_drag_guide = True
-        scene.addItem(txt)
+        self.scene.addItem(txt)
 
     def _remove_drag_guide(self):
-        """Remove guia visual."""
-        scene = self.scene
-        for item in list(scene.items()):
+        for item in list(self.scene.items()):
             if getattr(item, '_is_drag_guide', False):
-                scene.removeItem(item)
+                self.scene.removeItem(item)

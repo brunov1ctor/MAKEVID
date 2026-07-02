@@ -52,7 +52,7 @@ class ExportPanel(QWidget):
 
         # Nome
         layout.addWidget(self._sub("Nome:"))
-        self._name_entry = QLineEdit(self.project.name or "meu_video")
+        self._name_entry = QLineEdit(self.project.name or "")
         self._name_entry.setStyleSheet(
             f"background: {C['dark']}; color: {C['text']}; border: 2px solid {C['primary']}; "
             f"border-radius: 10px; padding: 4px; font-size: 11pt; font-weight: bold;")
@@ -313,7 +313,7 @@ class ExportPanel(QWidget):
 
     def _on_project_changed(self, proj):
         self.project = proj
-        self._name_entry.setText(proj.name or "meu_video")
+        self._name_entry.setText(proj.name or "")
         self._update_estimate()
 
     def _mix_audio(self, project, total_dur, safe_name):

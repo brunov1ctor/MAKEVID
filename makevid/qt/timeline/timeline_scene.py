@@ -51,7 +51,6 @@ class TimelineScene(QGraphicsScene):
         """Reconstroi toda a scene."""
         self.clear()
         self._playhead_item = None
-        self._drag_guide_line = None
         # Atualizar config com cores atuais do tema
         global TRACK_CONFIG
         TRACK_CONFIG = _track_config()

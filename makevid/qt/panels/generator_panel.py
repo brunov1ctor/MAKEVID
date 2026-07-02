@@ -11,10 +11,17 @@ from PySide6.QtWidgets import (
     QStackedWidget, QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal, QObject, QRect, QTimer
-from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QPen
+from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QPen, QKeySequence
+from PySide6.QtWidgets import QApplication
+
+
+class _PlainTextEdit(QTextEdit):
+    """QTextEdit que sempre cola como texto puro, sem formatação HTML."""
+    def insertFromMimeData(self, source):
+        self.insertPlainText(source.text())
 
 from makevid.qt.theme import C
-from makevid.qt.widgets import GlassTabBar, GlassButton, SectionLabel
+from makevid.qt.widgets import BrowserTabBar, GlassButton, SectionLabel
 from makevid.config import PROJECTS_DIR
 
 
@@ -35,12 +42,17 @@ class GeneratorPanel(QWidget):
         outer.setContentsMargins(14, 14, 14, 14)
         outer.setSpacing(10)
 
-        self._tab_bar = GlassTabBar(["GERAR CLIP", "GERAR IMAGEM"], self)
+        self._tab_bar = BrowserTabBar(["GERAR CLIP", "GERAR IMAGEM"], self)
         self._tab_bar.tab_clicked.connect(self._switch_tab)
         outer.addWidget(self._tab_bar)
+        outer.setSpacing(0)
 
         self._tab_stack = QStackedWidget()
-        self._tab_stack.setStyleSheet("background: transparent; border: none;")
+        self._tab_stack.setStyleSheet(
+            f"QStackedWidget {{ background: {__import__('makevid.qt.theme', fromlist=['C']).C['glass']}; "
+            f"border: 1px solid rgba(255,255,255,0.06); border-top: none; "
+            f"border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }}"
+        )
         self._tab_stack.addWidget(self._build_clip_tab())   # 0
         self._tab_stack.addWidget(self._build_image_tab())  # 1
         outer.addWidget(self._tab_stack)
@@ -58,7 +70,7 @@ class GeneratorPanel(QWidget):
         """Mostra campo inline no scroll para inserir HF token. auto_generate=True faz retry apos salvar."""
         if self._token_frame:
             try:
-                self._token_frame.setParent(None)
+                self._token_frame.hide()
                 self._token_frame.deleteLater()
             except Exception:
                 pass
@@ -116,7 +128,7 @@ class GeneratorPanel(QWidget):
 
     def _hide_token_prompt(self):
         if self._token_frame:
-            self._token_frame.setParent(None)
+            self._token_frame.hide()
             self._token_frame.deleteLater()
             self._token_frame = None
 
@@ -124,7 +136,7 @@ class GeneratorPanel(QWidget):
         """Mostra campo inline para Freesound API key (mesmo padrao do HF token)."""
         if self._fs_token_frame:
             try:
-                self._fs_token_frame.setParent(None)
+                self._fs_token_frame.hide()
                 self._fs_token_frame.deleteLater()
             except Exception:
                 pass
@@ -177,7 +189,7 @@ class GeneratorPanel(QWidget):
 
     def _hide_fs_prompt(self):
         if self._fs_token_frame:
-            self._fs_token_frame.setParent(None)
+            self._fs_token_frame.hide()
             self._fs_token_frame.deleteLater()
             self._fs_token_frame = None
 
@@ -289,7 +301,7 @@ class GeneratorPanel(QWidget):
 
         # MOTION SECTION (hidden by default)
         self._motion_frame = QFrame()
-        self._prompt = QTextEdit()
+        self._prompt = _PlainTextEdit()
         self._prompt.setFixedHeight(90)
         self._prompt.setPlaceholderText("Descreva a cena...")
         self._prompt.setToolTip("Descreva o que voce quer ver no video.\nEx: 'Um guerreiro caminhando por uma floresta sombria'")
@@ -386,6 +398,16 @@ class GeneratorPanel(QWidget):
         self._gen_btn.clicked.connect(self._on_generate)
         L.addWidget(self._gen_btn)
 
+        self._cancel_btn = QPushButton("Cancelar")
+        self._cancel_btn.setFixedHeight(30)
+        self._cancel_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {C['danger']}; font-weight: bold; "
+            f"font-size: 9pt; border: 1px solid {C['danger']}; border-radius: 6px; }}"
+            f"QPushButton:hover {{ background: {C['danger']}; color: {C['dark']}; }}")
+        self._cancel_btn.clicked.connect(self._cancel_clip_generation)
+        self._cancel_btn.hide()
+        L.addWidget(self._cancel_btn)
+
         # PROGRESS + STATUS
         self._progress = QProgressBar()
         self._progress.setFixedHeight(6)
@@ -424,7 +446,7 @@ class GeneratorPanel(QWidget):
 
         # Prompt
         L.addWidget(self._sub_label("PROMPT"))
-        self._img_prompt = QTextEdit()
+        self._img_prompt = _PlainTextEdit()
         self._img_prompt.setFixedHeight(70)
         self._img_prompt.setPlaceholderText("Descreva a imagem...")
         self._img_prompt.setStyleSheet(
@@ -602,6 +624,8 @@ class GeneratorPanel(QWidget):
             self._img_status.setText("Digite um prompt")
             return
 
+        # Garante que projeto é persistido antes de usar self.project
+        self.generation_requested.emit({"action": "ensure_project"})
         self._img_cancelled = False
         self._img_gen_btn.setEnabled(False)
         self._img_cancel_btn.show()
@@ -626,18 +650,24 @@ class GeneratorPanel(QWidget):
                 return
 
         # Animacao de progress com tempo decorrido
+        if hasattr(self, '_img_progress_timer') and self._img_progress_timer:
+            self._img_progress_timer.stop()
+            self._img_progress_timer = None
         self._img_progress_timer = QTimer(self)
         self._img_progress_timer.setInterval(500)
-        self._img_progress_value = 5
         self._img_start_time = __import__('time').time()
+        _progress_val = [5]
+        _done = [False]
         def _animate_progress():
+            if _done[0]:
+                return
             import time as _t
             elapsed = _t.time() - self._img_start_time
-            if self._img_progress_value < 90:
-                self._img_progress_value += 1
-                self._img_progress.setValue(self._img_progress_value)
+            if _progress_val[0] < 90:
+                _progress_val[0] += 1
+                self._img_progress.setValue(_progress_val[0])
             m, s = int(elapsed) // 60, int(elapsed) % 60
-            self._img_status.setText(f"Gerando... {m:02d}:{s:02d} | FLUX.1 processando")
+            self._img_status.setText(f"Gerando... {m:02d}:{s:02d}")
             self._img_status.setStyleSheet(f"color: {C['gold']}; font-size: 9pt;")
         self._img_progress_timer.timeout.connect(_animate_progress)
         self._img_progress.setValue(5)
@@ -667,40 +697,48 @@ class GeneratorPanel(QWidget):
                     img_path = out_dir / f"img_{int(__import__('time').time())}.png"
                     img.save(str(img_path))
 
-                    # Criar video estatico a partir da imagem
                     mp4_path = img_path.with_suffix(".mp4")
                     self._image_to_static_video(str(img_path), str(mp4_path), duration, 16, w, h)
 
-                    # Adicionar clip
                     clip = self.project.add_clip(prompt=prompt, position=len(self.project.clips))
                     clip.video_path = str(mp4_path)
                     clip.duration = duration
                     clip.status = "done"
                     self.project.save(PROJECTS_DIR)
 
-                    from PySide6.QtCore import QTimer
-                    def _on_img_done():
+                    import time as _t
+                    elapsed = _t.time() - self._img_start_time
+
+                    def _on_img_done(elapsed=elapsed, clip_id=clip.id):
+                        _done[0] = True
+                        if hasattr(self, '_img_progress_timer') and self._img_progress_timer:
+                            self._img_progress_timer.stop()
+                            self._img_progress_timer = None
                         if self._img_cancelled:
+                            self._reset_img_status()
                             return
-                        import time as _t
-                        elapsed = _t.time() - self._img_start_time
-                        self._img_progress_timer.stop()
+                        from makevid.qt.timeline.clip_item import ClipGraphicsItem
+                        if ClipGraphicsItem._thumb_cache:
+                            ClipGraphicsItem._thumb_cache.invalidate(clip_id)
+                        self.generation_requested.emit({"action": "image_done"})
                         self._img_progress.setValue(100)
-                        self._img_status.setText(f"\u2714 Pronto! {w}x{h} | {elapsed:.1f}s | clip {duration}s")
+                        self._img_status.setText(f"\u2714 Pronto! {w}x{h} | {elapsed:.1f}s")
                         self._img_status.setStyleSheet(f"color: {C['cyan']}; font-size: 9pt;")
                         self._img_gen_btn.setEnabled(True)
                         self._img_cancel_btn.hide()
                         self._img_prompt.clear()
-                        self.generation_requested.emit({"action": "image_done"})
-                        QTimer.singleShot(3000, lambda: [self._img_progress.setValue(0), self._img_status.setText("")])
+                        QTimer.singleShot(3000, self._reset_img_status)
                     QTimer.singleShot(0, _on_img_done)
                 else:
                     err = r.text[:60] if r.text else str(r.status_code)
-                    from PySide6.QtCore import QTimer
                     def _on_img_fail():
-                        self._img_progress_timer.stop()
+                        _done[0] = True
+                        if hasattr(self, '_img_progress_timer') and self._img_progress_timer:
+                            self._img_progress_timer.stop()
+                            self._img_progress_timer = None
                         self._img_progress.setValue(0)
                         self._img_cancel_btn.hide()
+                        self._img_gen_btn.setEnabled(True)
                         if self._img_cancelled:
                             self._img_status.setText("Cancelado")
                             self._img_status.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
@@ -709,15 +747,18 @@ class GeneratorPanel(QWidget):
                             self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
                             if "401" in err or "403" in err or "token" in err.lower():
                                 self._show_token_prompt(auto_generate=True)
-                        self._img_gen_btn.setEnabled(True)
+                        QTimer.singleShot(4000, self._reset_img_status)
                     QTimer.singleShot(0, _on_img_fail)
             except Exception as e:
-                from PySide6.QtCore import QTimer
                 err_msg = str(e)[:40]
                 def _on_img_error():
-                    self._img_progress_timer.stop()
+                        _done[0] = True
+                        if hasattr(self, '_img_progress_timer') and self._img_progress_timer:
+                            self._img_progress_timer.stop()
+                            self._img_progress_timer = None
                     self._img_progress.setValue(0)
                     self._img_cancel_btn.hide()
+                    self._img_gen_btn.setEnabled(True)
                     if self._img_cancelled:
                         self._img_status.setText("Cancelado")
                         self._img_status.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
@@ -726,7 +767,7 @@ class GeneratorPanel(QWidget):
                         self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
                         if "401" in str(e) or "token" in str(e).lower() or "unauthorized" in str(e).lower():
                             self._show_token_prompt(auto_generate=True)
-                    self._img_gen_btn.setEnabled(True)
+                    QTimer.singleShot(4000, self._reset_img_status)
                 QTimer.singleShot(0, _on_img_error)
 
         threading.Thread(target=run, daemon=True).start()
@@ -793,10 +834,7 @@ class GeneratorPanel(QWidget):
 
         # Prompt vazio = clip vazio
         if not prompt:
-            clip = self.project.add_clip(prompt="", position=len(self.project.clips))
-            clip.duration = duration
-            self.project.save(PROJECTS_DIR)
-            self.generation_requested.emit({"action": "empty_clip"})
+            self.generation_requested.emit({"action": "empty_clip", "duration": duration})
             return
 
         w, h = self._get_resolution()
@@ -823,6 +861,7 @@ class GeneratorPanel(QWidget):
         }
 
         self._gen_btn.setEnabled(False)
+        self._cancel_btn.show()
         self._status.setText("Gerando...")
         self._status.setStyleSheet(f"color: {C['primary']}; font-size: 10pt; border: none;")
         self._progress.setValue(15)
@@ -877,11 +916,28 @@ class GeneratorPanel(QWidget):
         elif "Salvando" in msg:
             self._progress.setValue(90)
 
-    def on_done(self, clip):
+    def _cancel_clip_generation(self):
+        self._cancel_btn.hide()
         self._gen_btn.setEnabled(True)
         self._progress.setValue(0)
-        self._status.setText(f"Pronto! {clip.duration:.1f}s")
+        self._status.setText("Cancelado")
+        self._status.setStyleSheet(f"color: {C['text3']}; font-size: 10pt; border: none;")
+        QTimer.singleShot(3000, self._reset_clip_status)
+
+    def _reset_clip_status(self):
+        self._cancel_btn.hide()
+        self._gen_btn.setEnabled(True)
+        self._progress.setValue(0)
+        self._status.setText("Pronto")
+        self._status.setStyleSheet(f"color: {C['text3']}; font-size: 10pt; border: none;")
+
+    def on_done(self, clip):
+        self._cancel_btn.hide()
+        self._gen_btn.setEnabled(True)
+        self._progress.setValue(100)
+        self._status.setText(f"\u2714 Pronto! {clip.duration:.1f}s")
         self._status.setStyleSheet(f"color: {C['cyan']}; font-size: 10pt; border: none;")
+        QTimer.singleShot(3000, self._reset_clip_status)
 
     def _cancel_image_generation(self):
         self._img_cancelled = True
@@ -892,12 +948,21 @@ class GeneratorPanel(QWidget):
         self._img_progress.setValue(0)
         self._img_status.setText("Cancelado")
         self._img_status.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
+        QTimer.singleShot(3000, self._reset_img_status)
+
+    def _reset_img_status(self):
+        self._img_cancel_btn.hide()
+        self._img_gen_btn.setEnabled(True)
+        self._img_progress.setValue(0)
+        self._img_status.setText("")
 
     def on_error(self, error):
+        self._cancel_btn.hide()
         self._gen_btn.setEnabled(True)
         self._progress.setValue(0)
         self._status.setText(f"Erro: {error[:50]}")
-        self._status.setStyleSheet(f"color: {C['red']}; font-size: 10pt; border: none;")
+        self._status.setStyleSheet(f"color: {C['danger']}; font-size: 10pt; border: none;")
+        QTimer.singleShot(5000, self._reset_clip_status)
 
     def set_clip_data(self, clip):
         """Preenche campos com dados de um clip selecionado."""

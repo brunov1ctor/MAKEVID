@@ -381,6 +381,159 @@ class GlassButton(QPushButton):
 
 
 # ─────────────────────────────────────────────
+#  BrowserTabBar  — abas estilo navegador web
+# ─────────────────────────────────────────────
+
+class BrowserTabBar(QWidget):
+    """
+    Tab bar estilo navegador web: abas com cantos arredondados no topo,
+    aba ativa "conectada" ao conteúdo (sem borda inferior).
+    """
+
+    tab_clicked = Signal(int)
+
+    def __init__(self, tabs: list[str], parent=None):
+        super().__init__(parent)
+        self._tabs = tabs
+        self._active = 0
+        self._hover = -1
+        self.setFixedHeight(34)
+        self.setCursor(QCursor(Qt.PointingHandCursor))
+        self.setMouseTracking(True)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+    def _tab_rect(self, idx: int) -> QRectF:
+        n = len(self._tabs)
+        if n == 0:
+            return QRectF()
+        tw = self.width() / n
+        return QRectF(idx * tw, 0, tw, self.height())
+
+    def set_active(self, idx: int):
+        self._active = idx
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+
+        w, h = self.width(), self.height()
+        n = len(self._tabs)
+        if n == 0:
+            return
+
+        tw = w / n
+        R = 9  # raio dos cantos superiores
+
+        # Linha de base (fundo das abas inativas)
+        base_color = QColor(C["glass"])
+        base_color.setAlpha(180)
+        p.fillRect(QRectF(0, h - 1, w, 1), base_color)
+
+        for i, tab in enumerate(self._tabs):
+            rect = self._tab_rect(i)
+            is_active = (i == self._active)
+            is_hover = (i == self._hover and not is_active)
+
+            # Fundo da aba
+            tab_path = QPainterPath()
+            # Cantos arredondados apenas no topo
+            tab_path.moveTo(rect.left() + 2, rect.bottom())
+            tab_path.lineTo(rect.left() + 2, rect.top() + R)
+            tab_path.quadTo(rect.left() + 2, rect.top(), rect.left() + 2 + R, rect.top())
+            tab_path.lineTo(rect.right() - 2 - R, rect.top())
+            tab_path.quadTo(rect.right() - 2, rect.top(), rect.right() - 2, rect.top() + R)
+            tab_path.lineTo(rect.right() - 2, rect.bottom())
+            tab_path.closeSubpath()
+
+            if is_active:
+                # Aba ativa: fundo igual ao painel, sem borda inferior
+                fill = QColor(C["glass"])
+                fill.setAlpha(255)
+                grad = QLinearGradient(rect.left(), rect.top(), rect.left(), rect.bottom())
+                top_c = QColor(fill)
+                top_c.setRed(min(255, fill.red() + 14))
+                top_c.setGreen(min(255, fill.green() + 12))
+                top_c.setBlue(min(255, fill.blue() + 18))
+                grad.setColorAt(0.0, top_c)
+                grad.setColorAt(1.0, fill)
+                p.fillPath(tab_path, QBrush(grad))
+
+                # Borda superior colorida (indicador ativo)
+                accent = QColor(C["primary"])
+                p.setPen(QPen(accent, 2))
+                p.drawLine(QPointF(rect.left() + 2 + R, rect.top() + 1),
+                           QPointF(rect.right() - 2 - R, rect.top() + 1))
+
+                # Borda lateral esquerda e direita (sem borda inferior)
+                bc = QColor(C["glass_border"])
+                bc.setAlpha(60)
+                p.setPen(QPen(bc, 1))
+                # esquerda
+                p.drawLine(QPointF(rect.left() + 2, rect.top() + R),
+                           QPointF(rect.left() + 2, rect.bottom()))
+                # direita
+                p.drawLine(QPointF(rect.right() - 2, rect.top() + R),
+                           QPointF(rect.right() - 2, rect.bottom()))
+                # arco topo-esquerdo
+                p.drawArc(QRect(int(rect.left() + 2), int(rect.top()), R * 2, R * 2), 90 * 16, 90 * 16)
+                # arco topo-direito
+                p.drawArc(QRect(int(rect.right() - 2 - R * 2), int(rect.top()), R * 2, R * 2), 0, 90 * 16)
+
+            elif is_hover:
+                hover_fill = QColor(C["glass_hover"])
+                hover_fill.setAlpha(120)
+                p.fillPath(tab_path, hover_fill)
+                bc = QColor(C["glass_border"])
+                bc.setAlpha(30)
+                p.setPen(QPen(bc, 1))
+                p.drawPath(tab_path)
+
+            # Texto
+            p.setPen(Qt.NoPen)
+            if is_active:
+                color = QColor(C["text"])
+            elif is_hover:
+                color = QColor(C["text2"])
+                color.setAlpha(200)
+            else:
+                color = QColor(C["text3"])
+                color.setAlpha(160)
+
+            p.setPen(color)
+            font = QFont("Segoe UI", 9, QFont.Bold if is_active else QFont.Normal)
+            p.setFont(font)
+            p.drawText(rect, Qt.AlignCenter, tab)
+
+        p.end()
+
+    def mousePressEvent(self, event):
+        n = len(self._tabs)
+        if n == 0:
+            return
+        tw = self.width() / n
+        idx = int(event.position().x() / tw)
+        idx = max(0, min(n - 1, idx))
+        self.set_active(idx)
+        self.tab_clicked.emit(idx)
+
+    def mouseMoveEvent(self, event):
+        n = len(self._tabs)
+        if n == 0:
+            return
+        tw = self.width() / n
+        new_hover = int(event.position().x() / tw)
+        new_hover = max(0, min(n - 1, new_hover))
+        if new_hover != self._hover:
+            self._hover = new_hover
+            self.update()
+
+    def leaveEvent(self, event):
+        self._hover = -1
+        self.update()
+
+
+# ─────────────────────────────────────────────
 #  GlassTabBar  — tab bar VisionOS pill-style
 # ─────────────────────────────────────────────
 
@@ -634,21 +787,25 @@ class GlowDot(QWidget):
 #  TopbarButton  — botão de menu da topbar
 # ─────────────────────────────────────────────
 
-class TopbarButton(QPushButton):
+class TopbarButton(QWidget):
     """Botão da topbar com underline animado no hover."""
 
+    clicked = Signal()
+
     def __init__(self, text="", parent=None):
-        super().__init__(text, parent)
+        super().__init__(parent)
+        self._text = text
         self._hover_t = 0.0
-        self.setFlat(True)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setStyleSheet("background: transparent; border: none;")
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
         self.setCursor(QCursor(Qt.PointingHandCursor))
         self.setFixedHeight(46)
 
         self._hover_anim = QPropertyAnimation(self, b"_hover_prop")
         self._hover_anim.setDuration(180)
         self._hover_anim.setEasingCurve(QEasingCurve.OutCubic)
+
+    def text(self):
+        return self._text
 
     def _get_hover_prop(self):
         return int(self._hover_t * 100)
@@ -673,6 +830,10 @@ class TopbarButton(QPushButton):
         self._hover_anim.start()
         super().leaveEvent(event)
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
@@ -680,7 +841,6 @@ class TopbarButton(QPushButton):
         t = self._hover_t
         w, h = self.width(), self.height()
 
-        # Fundo hover
         if t > 0:
             bg = QColor(C["glass_hover"])
             bg.setAlpha(int(t * 80))
@@ -688,13 +848,11 @@ class TopbarButton(QPushButton):
             path.addRoundedRect(QRectF(2, 4, w - 4, h - 8), 8, 8)
             p.fillPath(path, bg)
 
-        # Texto
         tc = QColor(C["text"] if t > 0.3 else C["text2"])
         p.setPen(tc)
         p.setFont(QFont("Segoe UI", 10, QFont.Bold))
-        p.drawText(QRectF(0, 0, w, h - 3), Qt.AlignCenter, self.text())
+        p.drawText(QRectF(0, 0, w, h - 3), Qt.AlignCenter, self._text)
 
-        # Underline animado
         if t > 0:
             uw = int((w - 16) * t)
             ux = (w - uw) // 2
@@ -708,4 +866,4 @@ class TopbarButton(QPushButton):
 
     def sizeHint(self):
         fm = QFontMetrics(QFont("Segoe UI", 10, QFont.Bold))
-        return QSize(fm.horizontalAdvance(self.text()) + 28, 46)
+        return QSize(fm.horizontalAdvance(self._text) + 28, 46)
