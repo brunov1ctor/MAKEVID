@@ -1,5 +1,6 @@
 """export_actions — exportação e logs."""
 
+import logging
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -10,6 +11,9 @@ from PySide6.QtCore import QTimer
 
 from makevid.qt.theme import C
 from makevid.config import PROJECTS_DIR
+from makevid.core.logger import log_export, log_error
+
+_log = logging.getLogger("export")
 
 
 class ExportActionsMixin:
@@ -56,8 +60,10 @@ class ExportActionsMixin:
                 preset=get_preset_key(preset_cb.currentText()),
                 resolution=resolution, fps=int(fps_cb.currentText()),
             )
+            log_export(preset_cb.currentText(), str(result), self.project.total_duration())
             self.generator._status.setText(f"Exportado: {result.name}")
         except Exception as e:
+            log_error("export_game_engine", str(e))
             self.generator._status.setText(f"Erro export: {str(e)[:40]}")
 
     def _open_logs(self):

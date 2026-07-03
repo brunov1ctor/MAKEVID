@@ -1,8 +1,12 @@
 """timeline_actions — inpaint e manipulação de itens na timeline."""
 
+import logging
 from pathlib import Path
 from PySide6.QtCore import QTimer
 from makevid.config import PROJECTS_DIR
+from makevid.core.logger import log_error
+
+_log = logging.getLogger("clip")
 
 
 class TimelineActionsMixin:
@@ -28,11 +32,12 @@ class TimelineActionsMixin:
 
     def _do_inpaint(self, params):
         from makevid.services.inpainting_service import InpaintingService
+        _log.info(f"Inpaint iniciado: '{params.get('prompt','')[:40]}'")
         svc = InpaintingService()
         svc.inpaint_region(
             frame=params["frame"], mask=params["mask"], prompt=params["prompt"],
             project_id=self.project.id,
             on_progress=lambda msg: QTimer.singleShot(0, lambda: self.inpaint_panel._status.setText(msg)),
             on_done=lambda result: QTimer.singleShot(0, lambda: self.inpaint_panel.on_done(result)),
-            on_error=lambda err: QTimer.singleShot(0, lambda: self.inpaint_panel.on_error(err)),
+            on_error=lambda err: [log_error("inpaint", err), QTimer.singleShot(0, lambda: self.inpaint_panel.on_error(err))],
         )

@@ -33,9 +33,14 @@ class TimelineWidget(QWidget):
         self._split_mode = False
         self._audio_split_mode = None
         self._selected_clip_id = None
+        self.collapsed_tracks = set()  # tracks colapsadas
 
         self._build_ui()
-        self.setFocusPolicy(Qt.StrongFocus)  # receber teclas
+        self.setFocusPolicy(Qt.StrongFocus)
+        self._redraw_timer = QTimer(self)
+        self._redraw_timer.setSingleShot(True)
+        self._redraw_timer.setInterval(50)
+        self._redraw_timer.timeout.connect(self.redraw)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -72,17 +77,13 @@ class TimelineWidget(QWidget):
         self._anim_timer.start()
 
     def _tick_clip_animation(self):
-        """Avança frame de animação dos clips e repinta."""
         from makevid.qt.timeline.clip_item import ClipGraphicsItem
         ClipGraphicsItem.tick_animation()
-        # Repintar apenas os clips (sem rebuild completo)
-        for item in self._scene.items():
-            if isinstance(item, ClipGraphicsItem) and item.clip.status == "done":
-                item.update()
+        self._scene.update()  # repinta a scene inteira de uma vez, não item por item
 
     def _build_toolbar(self) -> QWidget:
         tb = QWidget()
-        tb.setFixedHeight(32)
+        tb.setFixedHeight(38)
         tb.setStyleSheet(
             f"background: {C['glass']}; border: none; "
             f"border-top-left-radius: 20px; border-top-right-radius: 20px; "
@@ -282,7 +283,7 @@ class TimelineWidget(QWidget):
             app = self.window()
             if hasattr(app, 'preview') and app.preview.player.is_playing:
                 app.preview.player.set_speed(self.playback_speed)
-        except Exception:
+        except AttributeError:
             pass
 
     def _on_speed_enter(self):
@@ -296,7 +297,7 @@ class TimelineWidget(QWidget):
             app = self.window()
             if hasattr(app, 'preview') and app.preview.player.is_playing:
                 app.preview.player.set_speed(self.playback_speed)
-        except Exception:
+        except AttributeError:
             pass
 
     def _on_export_direct(self):
@@ -353,12 +354,11 @@ class TimelineWidget(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        QTimer.singleShot(10, self.redraw)
+        self._redraw_timer.start()  # reinicia o timer a cada resize, dispara 1x após 50ms
 
     def _on_view_resize(self, event):
-        """QGraphicsView foi redimensionado — recalcular tracks."""
         QGraphicsView.resizeEvent(self._view, event)
-        QTimer.singleShot(10, self.redraw)
+        self._redraw_timer.start()
 
     # ============================================================
     # VOLUME SCROLL (Shift+wheel)
@@ -368,11 +368,11 @@ class TimelineWidget(QWidget):
         """Shift+Scroll ajusta volume da track sob o mouse."""
         pos = self._view.mapToScene(event.position().toPoint())
         y = pos.y()
-        track_positions = self._scene._track_positions
+        track_positions = self._scene._track_pos
 
         track_key = None
         for name in ("voice", "sfx", "music", "audio"):
-            if name in track_positions:
+            if name in track_positions and name not in getattr(self, 'collapsed_tracks', set()):
                 ty, th = track_positions[name]
                 if ty <= y <= ty + th:
                     track_key = name

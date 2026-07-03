@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer
 
 from makevid.qt.widgets import GlassPanel
-from makevid.qt.preview.glow_layer import PreviewGlowPanel, PreviewHalo
+from makevid.qt.preview.glow_layer import PreviewGlowPanel, GlowOverlay
 from makevid.qt.timeline.timeline_widget import TimelineWidget
 from makevid.qt.preview.preview_widget import PreviewWidget
 from makevid.qt.panels.generator_panel import GeneratorPanel
@@ -22,10 +22,6 @@ from makevid.qt.panels.inpaint_panel import InpaintPanel
 
 
 def build_layout(window, main_layout):
-    """
-    Constrói splitters, preview, timeline e left stack.
-    Injeta referências em `window` e adiciona ao `main_layout`.
-    """
     project = window.project
 
     # ── Splitters ─────────────────────────────────────────────────────────────
@@ -67,8 +63,7 @@ def build_layout(window, main_layout):
     window._preview_layout.addWidget(window.preview)
     window._preview_shell = preview_shell
     window.preview._glow_layer = preview_shell
-    # halo criado depois de montar o splitter para ter parent correto
-    window._preview_halo = None  # instanciado em _install_halo abaixo
+    window._preview_halo = None
 
     timeline_shell = GlassPanel(radius=20, shadow=True, shadow_radius=28, shadow_dy=6)
     window._timeline_layout = QVBoxLayout(timeline_shell)
@@ -87,22 +82,30 @@ def build_layout(window, main_layout):
 
     main_layout.addWidget(window._v_splitter)
 
-    # instala o halo após o layout estar montado (precisa do parent correto)
-    def _install_halo():
-        halo = PreviewHalo(window._h_splitter)
-        halo.track(preview_shell)
-        preview_shell._halo = halo
-        window._preview_halo = halo
+    # ── GlowOverlay — filho do centralWidget, atrás de tudo ──────────────────
+    def _install_overlay():
+        central = window.centralWidget()
+        overlay = GlowOverlay(central)
+        overlay.track(preview_shell)
+        preview_shell._halo = overlay
+        window._preview_halo = overlay
 
-    QTimer.singleShot(0, _install_halo)
+        # atualiza quando splitter mover ou janela redimensionar
+        def _update():
+            overlay.track(preview_shell)
 
-    # ── Style panel (oculto, fora dos splitters) ──────────────────────────────
+        window._h_splitter.splitterMoved.connect(lambda *_: _update())
+        window._v_splitter.splitterMoved.connect(lambda *_: _update())
+        window._glow_update = _update  # guarda ref para resizeEvent
+
+    QTimer.singleShot(0, _install_overlay)
+
+    # ── Style panel ───────────────────────────────────────────────────────────
     window.style_panel = StylePanel(project, parent=window)
     window.style_panel.hide()
 
 
 def _build_panels(window):
-    """Cria todos os paineis do left_stack uma única vez."""
     project = window.project
 
     window.generator     = GeneratorPanel(project)

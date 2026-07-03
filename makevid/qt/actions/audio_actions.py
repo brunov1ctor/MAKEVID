@@ -1,5 +1,6 @@
 """audio_actions — geração de áudio por IA e manipulação de tracks."""
 
+import logging
 import shutil
 from pathlib import Path
 
@@ -8,6 +9,9 @@ from PySide6.QtCore import QTimer
 
 from makevid.qt.theme import C
 from makevid.config import PROJECTS_DIR, AUDIO_DIR
+from makevid.core.logger import log_error
+
+_log = logging.getLogger("audio")
 
 
 class AudioActionsMixin:
@@ -27,8 +31,8 @@ class AudioActionsMixin:
             try:
                 from makevid.core.audio_utils import get_audio_duration
                 dur = get_audio_duration(str(dest)) or 5.0
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("import_audio", str(e))
             existing = self.project.get_track_items(track_name)
             start = max((i.start_time + i.duration for i in existing), default=self.timeline.playhead_pos)
             self.project.add_track_item(
@@ -36,16 +40,19 @@ class AudioActionsMixin:
                 duration=dur, file_path=str(dest),
                 params={"block_name": f"\U0001f4c2 {src.stem[:12]}"},
             )
+            _log.info(f"Audio importado: {src.name} -> {track_name} dur={dur:.1f}s")
         self.project.save(PROJECTS_DIR)
         self.timeline.redraw()
         self._show_generator()
 
     def _clear_track(self, track_name):
+        n = len(self.project.get_track_items(track_name))
         for item in self.project.get_track_items(track_name):
             self.project.remove_track_item(item.id)
         self.project.save(PROJECTS_DIR)
         self.timeline.redraw()
         self._show_generator()
+        _log.info(f"Track '{track_name}' limpa ({n} itens removidos)")
 
     def _add_fx_to_timeline(self, fx_name):
         interaction = self.timeline._scene._interaction
@@ -115,6 +122,7 @@ class AudioActionsMixin:
                             params={"block_name": f"{icons.get(key,'')} {key[:8]}"},
                         )
             self.project.save(PROJECTS_DIR)
+            _log.info(f"Audio cena {idx} gerado: {list(results.keys())}")
             def _done():
                 self._audio_progress_timer.stop()
                 self.generator._progress.setValue(100)
@@ -132,6 +140,7 @@ class AudioActionsMixin:
                 self.generator._status.setStyleSheet("color: #ff4444; font-size: 10pt; border: none;")
                 if "API_KEY" in err or "key" in err.lower() or "configurada" in err.lower():
                     self.generator._show_freesound_prompt(on_saved=lambda: self._generate_scene_audio())
+            _log.error(f"Erro audio cena {idx}: {err[:80]}")
             QTimer.singleShot(0, _err)
 
         AudioService().generate_scene_audio(

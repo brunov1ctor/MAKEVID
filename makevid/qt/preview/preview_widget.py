@@ -86,6 +86,9 @@ class _VideoDisplay(QLabel):
         if self._last_pixmap and not self._last_pixmap.isNull():
             self.setPixmap(self._last_pixmap.scaled(
                 self.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
+        pv = self._pv
+        if getattr(pv, '_play_overlay', None) and pv._play_overlay.isVisible():
+            pv._center_overlay()
 
     # ── fade ──────────────────────────────────────────────────────────────────
 
@@ -351,16 +354,16 @@ class PreviewWidget(ClipPropertiesMixin, MediaBrowserMixin, ProjectsViewMixin, Q
             self._display.setText("")
         if not self._play_overlay:
             self._play_overlay = _PlayOverlay(self._display)
-        self._center_overlay()
         self._play_overlay.show()
+        QTimer.singleShot(0, self._center_overlay)
 
     def _center_overlay(self):
         if self._play_overlay:
             s = self._play_overlay.width()
-            self._play_overlay.move(
-                (self._display.width() - s) // 2,
-                (self._display.height() - s) // 2,
-            )
+            dw, dh = self._display.width(), self._display.height()
+            x = (dw - s) // 2
+            y = (dh - s) // 2
+            self._play_overlay.move(x, y)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

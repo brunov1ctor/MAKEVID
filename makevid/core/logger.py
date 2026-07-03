@@ -53,6 +53,13 @@ def setup_logging():
     logging.getLogger("player").setLevel(logging.WARNING)
     logging.getLogger("preview").setLevel(logging.WARNING)
 
+    # Glow: so vai pro arquivo, nao pro console
+    glow_log = logging.getLogger("glow")
+    glow_log.propagate = False
+    glow_log.handlers.clear()
+    glow_log.setLevel(logging.DEBUG)
+    glow_log.addHandler(file_handler)
+
     logging.info("MAKEVID iniciado")
 
 
@@ -69,10 +76,26 @@ def get_log_content(max_lines: int = 200) -> str:
 
 
 def clear_logs():
-    try:
-        LOG_FILE.write_text("", encoding="utf-8")
-    except Exception as _e:
-        logger.debug(f"Suppressed: {_e}")
+    """Fecha handlers, limpa todos os arquivos de log e reabre."""
+    root = logging.getLogger()
+    glow = logging.getLogger("glow")
+
+    # fecha todos os handlers que usam arquivos de log
+    for logger in (root, glow):
+        for h in list(logger.handlers):
+            if hasattr(h, 'baseFilename') and 'makevid' in h.baseFilename:
+                h.close()
+                logger.removeHandler(h)
+
+    # apaga todos os arquivos de backup e limpa o principal
+    for f in LOG_DIR.glob("makevid.log*"):
+        try:
+            f.unlink()
+        except Exception:
+            pass
+
+    # reconfigura o logging do zero
+    setup_logging()
 
 
 def log_generation(prompt: str, engine: str, duration: float, status: str, error: str = ""):

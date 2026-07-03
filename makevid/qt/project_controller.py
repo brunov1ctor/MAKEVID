@@ -1,7 +1,10 @@
 """ProjectController — troca, criação e carregamento de projetos."""
 
+import logging
 from makevid.config import PROJECTS_DIR
 from makevid.core.project import Project
+
+_log = logging.getLogger("gen")
 
 
 def load_last_project() -> Project:
@@ -27,5 +30,5 @@ class ProjectController:
         w.project_changed.emit(proj)
         w.timeline.redraw()
         if hasattr(w, "_project_badge"):
-            label = proj.name or proj.id or "sem nome"
-            w._project_badge.set_text(label)
+            _log.debug(f"[ctrl.open] badge='{proj.name}' id={proj.id}")
+            w._project_badge.set_text(proj.name)

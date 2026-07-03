@@ -119,18 +119,24 @@ class AutoResizeTextEdit(QTextEdit):
 
 
 class FlexTextEdit(QTextEdit):
-    """QTextEdit auto-resize para uso em QScrollArea/QVBoxLayout.
-    Usa documentSizeChanged nativo do QTextEdit."""
+    """QTextEdit auto-resize para uso em QScrollArea/QVBoxLayout."""
 
-    def __init__(self, text="", color="#0ac8b9", border_color="#1a3a3a", parent=None):
+    def __init__(self, text="", color="#0ac8b9", border_color="#1a3a3a",
+                 font_size="9pt", font_weight="bold", bg="#080a14",
+                 border_px="2px", border_radius="4px",
+                 hover_color=None, focus_color=None, focus_px=None,
+                 min_lines=4, parent=None):
         super().__init__(parent)
+        hover_color = hover_color or color
+        focus_color = focus_color or color
+        focus_px = focus_px or border_px
         self.setStyleSheet(
-            f"QTextEdit {{ background: #080a14; color: {color}; "
-            f"border: 2px solid {border_color}; border-radius: 4px; "
-            f"font-family: Consolas; font-size: 9pt; font-weight: bold; "
-            f"padding: 2px 4px; }}"
-            f"QTextEdit:hover {{ border: 2px solid {color}; }}"
-            f"QTextEdit:focus {{ border: 2px solid {color}; }}")
+            f"QTextEdit {{ background: {bg}; color: {color}; "
+            f"border: {border_px} solid {border_color}; border-radius: {border_radius}; "
+            f"font-family: Consolas; font-size: {font_size}; font-weight: {font_weight}; "
+            f"padding: 4px 6px; }}"
+            f"QTextEdit:hover {{ border: {border_px} solid {hover_color}; }}"
+            f"QTextEdit:focus {{ border: {focus_px} solid {focus_color}; }}")
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setLineWrapMode(QTextEdit.WidgetWidth)
@@ -139,9 +145,23 @@ class FlexTextEdit(QTextEdit):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.document().documentLayout().documentSizeChanged.connect(self._on_doc_size)
         self.textChanged.connect(self._on_text_change)
-        self.setFixedHeight(28)
-        if text:
-            self.setPlainText(text)
+        self._pending_text = text
+        self._ready = False
+        self._min_lines = min_lines
+        self._min_h = 24
+        self.setFixedHeight(24)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._ready:
+            return
+        self._ready = True
+        lh = self.fontMetrics().lineSpacing()
+        self._min_h = lh * self._min_lines + 10
+        self.setFixedHeight(self._min_h)
+        if self._pending_text:
+            self.setPlainText(self._pending_text)
+            self._pending_text = ""
 
     def _on_text_change(self):
         w = self.viewport().width()
@@ -149,16 +169,20 @@ class FlexTextEdit(QTextEdit):
             self.document().setTextWidth(w)
 
     def _on_doc_size(self, size):
+        if not self._ready:
+            return
         m = self.document().documentMargin()
         h = int(size.height() + 2 * m)
-        h = max(28, h)
-        self.setFixedHeight(h)
+        self.setFixedHeight(max(self._min_h, h))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         w = self.viewport().width()
         if w > 0:
             self.document().setTextWidth(w)
+
+    def insertFromMimeData(self, source):
+        self.insertPlainText(source.text())
 
     def get_text(self):
         return self.toPlainText().strip()

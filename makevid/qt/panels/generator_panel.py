@@ -1,6 +1,7 @@
 """Generator Panel Qt - Painel esquerdo para gerar clips e imagens."""
 
 import os
+import logging
 import threading
 from pathlib import Path
 
@@ -10,9 +11,13 @@ from PySide6.QtWidgets import (
     QButtonGroup, QProgressBar, QScrollArea, QFrame, QFileDialog,
     QStackedWidget, QSizePolicy
 )
-from PySide6.QtCore import Qt, Signal, QObject, QRect, QTimer
-from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QPen, QKeySequence
+from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QPen
 from PySide6.QtWidgets import QApplication
+
+from makevid.core.logger import log_generation, log_error
+
+_log = logging.getLogger("gen")
 
 
 class _PlainTextEdit(QTextEdit):
@@ -22,19 +27,30 @@ class _PlainTextEdit(QTextEdit):
 
 from makevid.qt.theme import C
 from makevid.qt.widgets import BrowserTabBar, GlassButton, SectionLabel
+from makevid.qt.panels.style.widgets import FlexTextEdit
 from makevid.config import PROJECTS_DIR
 
 
 class GeneratorPanel(QWidget):
     """Painel de geração de clips (modo texto/imagem/motion)."""
 
-    generation_requested = Signal(dict)  # emite params de geração
+    generation_requested = Signal(dict)
+    _img_done_signal     = Signal(str, float, int, int, float)  # clip_id, elapsed, w, h, duration
+    _img_fail_signal     = Signal(str)   # err msg
+    _img_error_signal    = Signal(str)   # exception msg
 
     def __init__(self, project, parent=None):
         super().__init__(parent)
         self.project = project
         self._ref_images = []
         self.setMinimumWidth(250)
+        self._img_cancelled = False
+        self._img_progress_timer = None
+        self._img_start_time = 0.0
+
+        self._img_done_signal.connect(self._on_img_done_slot)
+        self._img_fail_signal.connect(self._on_img_fail_slot)
+        self._img_error_signal.connect(self._on_img_error_slot)
 
         self._build_ui()
     def _build_ui(self):
@@ -301,15 +317,21 @@ class GeneratorPanel(QWidget):
 
         # MOTION SECTION (hidden by default)
         self._motion_frame = QFrame()
-        self._prompt = _PlainTextEdit()
-        self._prompt.setFixedHeight(90)
-        self._prompt.setPlaceholderText("Descreva a cena...")
+        self._prompt = FlexTextEdit(
+            "",
+            color=C['accent'],
+            border_color=C['glass_border'],
+            font_size="11pt",
+            font_weight="bold",
+            border_radius="10px",
+            bg=C['input'],
+            border_px="1px",
+            hover_color=C['primary'],
+            focus_color=C['primary'],
+            focus_px="2px",
+        )
+
         self._prompt.setToolTip("Descreva o que voce quer ver no video.\nEx: 'Um guerreiro caminhando por uma floresta sombria'")
-        self._prompt.setStyleSheet(
-            f"QTextEdit {{ background: {C['input']}; color: {C['accent']}; border: 1px solid {C['glass_border']}; "
-            f"border-radius: 10px; font-family: Consolas; font-size: 11pt; font-weight: bold; }}"
-            f"QTextEdit:hover {{ border: 1px solid {C['primary']}; }}"
-            f"QTextEdit:focus {{ border: 2px solid {C['primary']}; }}")
         L.addWidget(self._prompt)
 
         # Continuidade
@@ -324,14 +346,17 @@ class GeneratorPanel(QWidget):
         neg_lbl.setToolTip("Descreva o que voce NAO quer no video.\nO modelo tenta evitar esses elementos.")
         neg_lbl.setCursor(Qt.WhatsThisCursor)
         L.addWidget(neg_lbl)
-        self._negative = QTextEdit()
-        self._negative.setFixedHeight(40)
-        self._negative.setPlainText("blurry, low quality, distorted, watermark, static")
-        self._negative.setStyleSheet(
-            f"QTextEdit {{ background: {C['input']}; color: {C['text3']}; border: 1px solid {C['glass_border']}; "
-            f"border-radius: 10px; font-family: Consolas; font-size: 10pt; }}"
-            f"QTextEdit:hover {{ border: 1px solid {C['primary']}; }}"
-            f"QTextEdit:focus {{ border: 1px solid {C['primary']}; }}")
+        self._negative = FlexTextEdit(
+            "blurry, low quality, distorted, watermark, static",
+            color=C['text3'],
+            border_color=C['glass_border'],
+            font_size="10pt",
+            bg=C['input'],
+            border_px="1px",
+            hover_color=C['primary'],
+            focus_color=C['primary'],
+            min_lines=1,
+        )
         L.addWidget(self._negative)
 
         # PARAMETROS
@@ -446,22 +471,37 @@ class GeneratorPanel(QWidget):
 
         # Prompt
         L.addWidget(self._sub_label("PROMPT"))
-        self._img_prompt = _PlainTextEdit()
-        self._img_prompt.setFixedHeight(70)
-        self._img_prompt.setPlaceholderText("Descreva a imagem...")
-        self._img_prompt.setStyleSheet(
-            f"background: {C['input']}; color: {C['accent']}; border: 1px solid {C['glass_border']}; "
-            f"border-radius: 10px; font-family: Consolas; font-size: 11pt; font-weight: bold;")
+        self._img_prompt = FlexTextEdit(
+            "",
+            color=C['accent'],
+            border_color=C['glass_border'],
+            font_size="11pt",
+            font_weight="bold",
+            border_radius="10px",
+            bg=C['input'],
+            border_px="1px",
+            hover_color=C['primary'],
+            focus_color=C['primary'],
+            focus_px="2px",
+        )
+
         L.addWidget(self._img_prompt)
 
         # Negative
         L.addWidget(self._sub_label("NEGATIVE"))
-        self._img_negative = QTextEdit()
-        self._img_negative.setFixedHeight(35)
-        self._img_negative.setPlainText("blurry, low quality, watermark")
-        self._img_negative.setStyleSheet(
-            f"background: {C['input']}; color: {C['text3']}; border: 2px solid {C['border']}; "
-            f"border-radius: 8px; font-family: Consolas; font-size: 10pt;")
+        self._img_negative = FlexTextEdit(
+            "blurry, low quality, watermark",
+            color=C['text3'],
+            border_color=C['border'],
+            font_size="10pt",
+            bg=C['input'],
+            border_px="2px",
+            border_radius="8px",
+            hover_color=C['primary'],
+            focus_color=C['primary'],
+            focus_px="2px",
+            min_lines=1,
+        )
         L.addWidget(self._img_negative)
 
         # Engine
@@ -487,6 +527,7 @@ class GeneratorPanel(QWidget):
         # Duration as static clip
         r_dur = QHBoxLayout()
         self._img_dur = self._param_entry(r_dur, "Duracao (clip)", "5", 50)
+        r_dur.addStretch()
         L.addLayout(r_dur)
 
         # Generate button
@@ -657,10 +698,7 @@ class GeneratorPanel(QWidget):
         self._img_progress_timer.setInterval(500)
         self._img_start_time = __import__('time').time()
         _progress_val = [5]
-        _done = [False]
         def _animate_progress():
-            if _done[0]:
-                return
             import time as _t
             elapsed = _t.time() - self._img_start_time
             if _progress_val[0] < 90:
@@ -677,18 +715,17 @@ class GeneratorPanel(QWidget):
             try:
                 actual_token = token or os.environ.get("HF_TOKEN", "")
 
-                import requests, tempfile, io
+                import requests, io
                 from PIL import Image
-                from pathlib import Path
                 from makevid.config import OUTPUTS_DIR
 
                 url = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
                 headers = {"Authorization": f"Bearer {actual_token}"}
                 import random
                 payload = {"inputs": prompt, "parameters": {"seed": random.randint(0, 2**32 - 1)}}
-                print(f"[IMG] Gerando: '{prompt[:40]}' token={actual_token[:10]}...")
+                _log.info(f"[IMG] Gerando: '{prompt[:40]}' token={actual_token[:10]}...")
                 r = requests.post(url, headers=headers, json=payload, timeout=120)
-                print(f"[IMG] Status={r.status_code} size={len(r.content)}")
+                _log.info(f"[IMG] Status={r.status_code} size={len(r.content)}")
 
                 if r.status_code == 200 and "image" in r.headers.get("content-type", ""):
                     img = Image.open(io.BytesIO(r.content)).resize((w, h))
@@ -696,81 +733,91 @@ class GeneratorPanel(QWidget):
                     out_dir.mkdir(parents=True, exist_ok=True)
                     img_path = out_dir / f"img_{int(__import__('time').time())}.png"
                     img.save(str(img_path))
+                    _log.debug(f"[IMG] imagem salva: {img_path}")
 
                     mp4_path = img_path.with_suffix(".mp4")
                     self._image_to_static_video(str(img_path), str(mp4_path), duration, 16, w, h)
+                    _log.debug(f"[IMG] mp4 criado: {mp4_path}")
 
                     clip = self.project.add_clip(prompt=prompt, position=len(self.project.clips))
                     clip.video_path = str(mp4_path)
                     clip.duration = duration
                     clip.status = "done"
                     self.project.save(PROJECTS_DIR)
+                    _log.info(f"[IMG] clip salvo: id={clip.id} project_clips={len(self.project.clips)}")
 
                     import time as _t
                     elapsed = _t.time() - self._img_start_time
-
-                    def _on_img_done(elapsed=elapsed, clip_id=clip.id):
-                        _done[0] = True
-                        if hasattr(self, '_img_progress_timer') and self._img_progress_timer:
-                            self._img_progress_timer.stop()
-                            self._img_progress_timer = None
-                        if self._img_cancelled:
-                            self._reset_img_status()
-                            return
-                        from makevid.qt.timeline.clip_item import ClipGraphicsItem
-                        if ClipGraphicsItem._thumb_cache:
-                            ClipGraphicsItem._thumb_cache.invalidate(clip_id)
-                        self.generation_requested.emit({"action": "image_done"})
-                        self._img_progress.setValue(100)
-                        self._img_status.setText(f"\u2714 Pronto! {w}x{h} | {elapsed:.1f}s")
-                        self._img_status.setStyleSheet(f"color: {C['cyan']}; font-size: 9pt;")
-                        self._img_gen_btn.setEnabled(True)
-                        self._img_cancel_btn.hide()
-                        self._img_prompt.clear()
-                        QTimer.singleShot(3000, self._reset_img_status)
-                    QTimer.singleShot(0, _on_img_done)
+                    self._img_done_signal.emit(clip.id, elapsed, w, h, duration)
                 else:
-                    err = r.text[:60] if r.text else str(r.status_code)
-                    def _on_img_fail():
-                        _done[0] = True
-                        if hasattr(self, '_img_progress_timer') and self._img_progress_timer:
-                            self._img_progress_timer.stop()
-                            self._img_progress_timer = None
-                        self._img_progress.setValue(0)
-                        self._img_cancel_btn.hide()
-                        self._img_gen_btn.setEnabled(True)
-                        if self._img_cancelled:
-                            self._img_status.setText("Cancelado")
-                            self._img_status.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
-                        else:
-                            self._img_status.setText(f"Erro: {err}")
-                            self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
-                            if "401" in err or "403" in err or "token" in err.lower():
-                                self._show_token_prompt(auto_generate=True)
-                        QTimer.singleShot(4000, self._reset_img_status)
-                    QTimer.singleShot(0, _on_img_fail)
+                    err = r.text[:120] if r.text else str(r.status_code)
+                    _log.error(f"[IMG] falha HTTP {r.status_code}: {err}")
+                    self._img_fail_signal.emit(err)
             except Exception as e:
-                err_msg = str(e)[:40]
-                def _on_img_error():
-                        _done[0] = True
-                        if hasattr(self, '_img_progress_timer') and self._img_progress_timer:
-                            self._img_progress_timer.stop()
-                            self._img_progress_timer = None
-                    self._img_progress.setValue(0)
-                    self._img_cancel_btn.hide()
-                    self._img_gen_btn.setEnabled(True)
-                    if self._img_cancelled:
-                        self._img_status.setText("Cancelado")
-                        self._img_status.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
-                    else:
-                        self._img_status.setText(f"Erro: {err_msg}")
-                        self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
-                        if "401" in str(e) or "token" in str(e).lower() or "unauthorized" in str(e).lower():
-                            self._show_token_prompt(auto_generate=True)
-                    QTimer.singleShot(4000, self._reset_img_status)
-                QTimer.singleShot(0, _on_img_error)
+                import traceback
+                _log.error(f"[IMG] excecao: {e}\n{traceback.format_exc()}")
+                self._img_error_signal.emit(str(e)[:120])
 
         threading.Thread(target=run, daemon=True).start()
+
+    def _on_img_done_slot(self, clip_id: str, elapsed: float, w: int, h: int, duration: float):
+        _log.info(f"[IMG done] clip_id={clip_id} elapsed={elapsed:.1f}s cancelled={self._img_cancelled} project_id={self.project.id} project_clips={len(self.project.clips)}")
+        if hasattr(self, '_img_progress_timer') and self._img_progress_timer:
+            self._img_progress_timer.stop()
+            self._img_progress_timer = None
+        if self._img_cancelled:
+            self._reset_img_status()
+            return
+        from makevid.qt.timeline.clip_item import ClipGraphicsItem
+        if ClipGraphicsItem._thumb_cache:
+            ClipGraphicsItem._thumb_cache.invalidate(clip_id)
+        log_generation("", "FLUX", duration, "done")
+        _log.info(f"[IMG done] emitindo image_done para project_id={self.project.id}")
+        self.generation_requested.emit({"action": "image_done"})
+        self._img_progress.setValue(100)
+        self._img_status.setText(f"\u2714 Pronto! {w}x{h} | {elapsed:.1f}s")
+        self._img_status.setStyleSheet(f"color: {C['cyan']}; font-size: 9pt;")
+        self._img_gen_btn.setEnabled(True)
+        self._img_cancel_btn.hide()
+        self._img_prompt.clear()
+        QTimer.singleShot(3000, self._reset_img_status)
+
+    def _on_img_fail_slot(self, err: str):
+        _log.error(f"[IMG] fail slot: {err}")
+        if hasattr(self, '_img_progress_timer') and self._img_progress_timer:
+            self._img_progress_timer.stop()
+            self._img_progress_timer = None
+        self._img_progress.setValue(0)
+        self._img_cancel_btn.hide()
+        self._img_gen_btn.setEnabled(True)
+        if self._img_cancelled:
+            self._img_status.setText("Cancelado")
+            self._img_status.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
+        else:
+            self._img_status.setText(f"Erro: {err[:60]}")
+            self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
+            if "401" in err or "403" in err or "token" in err.lower():
+                self._show_token_prompt(auto_generate=True)
+        QTimer.singleShot(4000, self._reset_img_status)
+
+    def _on_img_error_slot(self, err: str):
+        _log.error(f"[IMG] error slot: {err}")
+        log_error("generate_image", err)
+        if hasattr(self, '_img_progress_timer') and self._img_progress_timer:
+            self._img_progress_timer.stop()
+            self._img_progress_timer = None
+        self._img_progress.setValue(0)
+        self._img_cancel_btn.hide()
+        self._img_gen_btn.setEnabled(True)
+        if self._img_cancelled:
+            self._img_status.setText("Cancelado")
+            self._img_status.setStyleSheet(f"color: {C['text3']}; font-size: 9pt;")
+        else:
+            self._img_status.setText(f"Erro: {err[:60]}")
+            self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
+            if "401" in err or "token" in err.lower() or "unauthorized" in err.lower():
+                self._show_token_prompt(auto_generate=True)
+        QTimer.singleShot(4000, self._reset_img_status)
 
     def _image_to_static_video(self, img_path, mp4_path, duration, fps, w, h):
         """Converte imagem em video estatico."""

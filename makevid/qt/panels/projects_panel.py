@@ -365,6 +365,7 @@ class ProjectsPanel(QWidget):
                 except Exception:
                     pass
             self._active_id = None
+            self.project_opened.emit(Project.create(""))
 
         self.refresh()
 

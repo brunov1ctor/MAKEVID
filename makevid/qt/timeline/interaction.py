@@ -1,5 +1,6 @@
 """Interaction - Toda interação de mouse na timeline scene."""
 
+from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPen, QColor, QFont
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsRectItem, QGraphicsTextItem
@@ -10,7 +11,6 @@ from makevid.qt.theme import C
 
 
 class SceneInteraction:
-    """Gerencia toda interação do mouse com a timeline scene."""
 
     def __init__(self, scene):
         self.scene = scene
@@ -33,18 +33,17 @@ class SceneInteraction:
         self._drag_ghost_pos = None
         self._drag_clip_item = None
 
-    # ── Double-click ──────────────────────────────────────────────────────────
+    # ── double-click ──────────────────────────────────────────────────────────
 
     def on_double_click(self, pos):
         lbl_w = self.tl.LBL_W
         if pos.x() < lbl_w:
             return False
 
-        track_positions = self.scene._track_positions
+        tp = self.scene._track_pos
 
-        # FX track: toggle todos os diamonds
-        if "fx" in track_positions:
-            ty, th = track_positions["fx"]
+        if "fx" in tp:
+            ty, th = tp["fx"]
             if ty <= pos.y() <= ty + th:
                 project = self.tl.project
                 all_ids = {f"diamond_{c.position}" for c in project.clips if c.position > 0}
@@ -53,9 +52,8 @@ class SceneInteraction:
                     self.tl.redraw()
                     return True
 
-        # Video track: abrir arquivo
-        if "video" in track_positions:
-            vy, vh = track_positions["video"]
+        if "video" in tp:
+            vy, vh = tp["video"]
             if vy <= pos.y() <= vy + vh:
                 item = self._item_at(pos)
                 if isinstance(item, ClipGraphicsItem) and item.clip.video_path:
@@ -67,7 +65,7 @@ class SceneInteraction:
 
         return False
 
-    # ── Press ─────────────────────────────────────────────────────────────────
+    # ── press ─────────────────────────────────────────────────────────────────
 
     def on_press(self, pos, button):
         lbl_w = self.tl.LBL_W
@@ -77,7 +75,7 @@ class SceneInteraction:
         self._reset_drag()
 
         if button == Qt.RightButton:
-            return True  # right-click reservado
+            return True
 
         if getattr(self.tl, '_split_mode', False):
             self._do_split_at(pos)
@@ -89,7 +87,27 @@ class SceneInteraction:
 
         # Labels laterais
         if pos.x() < lbl_w:
-            for name, (ty, th) in self.scene._track_positions.items():
+            from makevid.qt.timeline.timeline_scene import _TRACKS
+            collapsed = self.tl.collapsed_tracks
+
+            # hit-test no triângulo de cada track (usa _label_pos pois todas aparecem no painel)
+            for key, *_ in _TRACKS:
+                if key not in self.scene._label_pos:
+                    continue
+                y, h = self.scene._label_pos[key]
+                cy = y + h / 2
+                tri_x1, tri_x2 = 1, 9
+                tri_y1, tri_y2 = cy - 4, cy + 3
+                if tri_x1 <= pos.x() <= tri_x2 and tri_y1 <= pos.y() <= tri_y2:
+                    if key in collapsed:
+                        collapsed.discard(key)
+                    else:
+                        collapsed.add(key)
+                    self.tl.redraw()
+                    return True
+
+            # clique no label da track → menu (só tracks visíveis)
+            for name, (ty, th) in self.scene._track_pos.items():
                 if ty <= pos.y() <= ty + th:
                     cb = self.label_clicked or self.track_empty_clicked
                     if cb:
@@ -108,7 +126,7 @@ class SceneInteraction:
             return True
 
         # Tracks de audio/fx/voice/sfx/music
-        for name, (ty, th) in self.scene._track_positions.items():
+        for name, (ty, th) in self.scene._track_pos.items():
             if name == "video":
                 continue
             if not (ty <= pos.y() <= ty + th):
@@ -184,7 +202,7 @@ class SceneInteraction:
         self._drag_start_x = pos.x()
         return True
 
-    # ── Move ──────────────────────────────────────────────────────────────────
+    # ── move ──────────────────────────────────────────────────────────────────
 
     def on_move(self, pos):
         if not self._drag_mode:
@@ -203,7 +221,7 @@ class SceneInteraction:
             if self._drag_clip_item:
                 item = self._drag_clip_item
                 item._x = item._orig_x + dx
-                item.setRect(item._x + 1, item._y + 2, item._w - 2, item._h - 4)
+                item.prepareGeometryChange()
                 item.update()
             t = max(0, (pos.x() - lbl_w) / zoom)
             clips = sorted(self.tl.project.clips, key=lambda c: c.position)
@@ -254,18 +272,16 @@ class SceneInteraction:
 
         return False
 
-    # ── Release ───────────────────────────────────────────────────────────────
+    # ── release ───────────────────────────────────────────────────────────────
 
     def on_release(self, pos):
         if not self._drag_mode:
             return False
 
-        dx_total = abs(pos.x() - self._drag_start_x)
-        moved = dx_total >= 3
+        moved = abs(pos.x() - self._drag_start_x) >= 3
 
         if self._drag_mode == "item_move":
             if not moved:
-                # clique simples → abrir editor
                 if self.item_clicked and self._drag_target:
                     self.item_clicked(self._drag_target)
                 self.tl._selected_track_item_id = getattr(self._drag_target, 'id', None)
@@ -278,12 +294,10 @@ class SceneInteraction:
 
         elif self._drag_mode == "clip_move":
             if not moved:
-                # clique simples → selecionar clip
                 self.tl._selected_clip_id = getattr(self._drag_target, 'id', None)
                 if self.clip_clicked and self._drag_target:
                     self.clip_clicked(self._drag_target)
             else:
-                # reordenar
                 clip = self._drag_target
                 orig_pos = int(self._drag_orig)
                 new_pos = self._drag_ghost_pos if self._drag_ghost_pos is not None else orig_pos
@@ -306,7 +320,7 @@ class SceneInteraction:
         self.tl.redraw()
         return True
 
-    # ── Split ─────────────────────────────────────────────────────────────────
+    # ── split ─────────────────────────────────────────────────────────────────
 
     def _do_split_at(self, pos):
         lbl_w = self.tl.LBL_W
@@ -348,7 +362,7 @@ class SceneInteraction:
             return
 
         t = (pos.x() - lbl_w) / zoom
-        tp = self.scene._track_positions
+        tp = self.scene._track_pos
         if track_name in tp:
             ty, th = tp[track_name]
             if not (ty <= pos.y() <= ty + th):
@@ -358,7 +372,7 @@ class SceneInteraction:
         for item in project.get_track_items(track_name):
             if item.start_time < t < item.start_time + item.duration:
                 cut = t - item.start_time
-                if cut > 0.1 and cut < item.duration - 0.1:
+                if 0.1 < cut < item.duration - 0.1:
                     project.add_track_item(
                         name=item.name, track=item.track,
                         start_time=t, duration=item.duration - cut,
@@ -369,7 +383,7 @@ class SceneInteraction:
         self.tl._exit_split_mode()
         self.tl.redraw()
 
-    # ── Storyboard ────────────────────────────────────────────────────────────
+    # ── storyboard ────────────────────────────────────────────────────────────
 
     def _check_storyboard_click(self, pos):
         lbl_w = self.tl.LBL_W
@@ -394,7 +408,7 @@ class SceneInteraction:
             cur += dur
         return False
 
-    # ── Diamond undo ──────────────────────────────────────────────────────────
+    # ── diamond undo ──────────────────────────────────────────────────────────
 
     def _undo_last_diamond_toggle(self):
         if not self._last_diamond_toggle:
@@ -406,7 +420,7 @@ class SceneInteraction:
             self._marked_diamonds.discard(did)
         self._last_diamond_toggle = None
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
+    # ── helpers ───────────────────────────────────────────────────────────────
 
     def _item_at(self, pos):
         item = self.scene.itemAt(pos, self.tl._view.transform())
@@ -422,7 +436,6 @@ class SceneInteraction:
         return min(candidates, key=lambda i: abs((i.start_time + i.duration / 2) - t))
 
     def _get_item_group(self, item):
-        """Agrupa apenas items com mesmo clip_index (se >= 0)."""
         if item.clip_index < 0:
             return [(item, 0.0)]
         group = [i for i in self.tl.project.get_track_items(item.track)

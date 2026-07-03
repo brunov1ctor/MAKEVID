@@ -1,9 +1,13 @@
 """generation_actions — geração e manipulação de clips."""
 
 import os
+import logging
 from PySide6.QtCore import QTimer
 from makevid.config import PROJECTS_DIR
 from makevid.core.project import Project
+from makevid.core.logger import log_generation, log_clip_action, log_error
+
+_log = logging.getLogger("gen")
 
 
 class GenerationActionsMixin:
@@ -14,25 +18,41 @@ class GenerationActionsMixin:
         # Primeira geração: persiste o projeto em disco
         if not (PROJECTS_DIR / f"{self.project.id}.json").exists():
             self.project.save(PROJECTS_DIR)
+            _log.debug(f"[ensure] projeto salvo id={self.project.id}")
             self._on_project_opened(self.project)
 
         if action == "ensure_project":
+            _log.debug(f"[ensure_project] project.id={self.project.id} clips={len(self.project.clips)}")
             return
 
         if action == "image_done":
-            # Se projeto ainda sem nome, nomear automaticamente
-            if not self.project.name:
+            _log.info(f"[image_done] recebido: project.id={self.project.id} clips_memoria={len(self.project.clips)}")
+            try:
+                proj = Project.load(PROJECTS_DIR / f"{self.project.id}.json")
+                _log.info(f"[image_done] disco: clips={len(proj.clips)} name='{proj.name}'")
+            except Exception as e:
+                log_error("image_done", f"erro ao carregar projeto: {e}")
+                proj = self.project
+            if not proj.name:
                 import time as _t
-                self.project.name = f"Projeto {_t.strftime('%d/%m %H:%M')}"
-                self.project.save(PROJECTS_DIR)
-            self._on_project_opened(self.project)
+                proj.name = f"Projeto {_t.strftime('%d/%m %H:%M')}"
+                proj.save(PROJECTS_DIR)
+            self.project = proj
+            self.state.project = proj
+            self.generator.project = proj
+            self.timeline.project = proj
+            _log.info(f"[image_done] timeline atualizada: clips={len(self.timeline.project.clips)} name='{proj.name}'")
             self.timeline.redraw()
+            _log.info(f"[image_done] redraw() chamado")
+            self._on_project_opened(proj)
+            _log.info(f"[image_done] concluido")
             return
 
         if action == "empty_clip":
             clip = self.project.add_clip(prompt="", position=len(self.project.clips))
             clip.duration = params.get("duration", 5.0)
             self.project.save(PROJECTS_DIR)
+            log_clip_action("create_empty", clip.id, f"dur={clip.duration:.1f}s")
             self.timeline.redraw()
             return
 
@@ -46,6 +66,7 @@ class GenerationActionsMixin:
         clip.duration = params["duration"]
         clip.status = "generating"
         self.project.save(PROJECTS_DIR)
+        log_generation(params["prompt"], self.state.engine, params["duration"], "generating")
         self.timeline.redraw()
 
         def on_progress(msg):
@@ -58,6 +79,8 @@ class GenerationActionsMixin:
                 import time as _t
                 self.project.name = f"Projeto {_t.strftime('%d/%m %H:%M')}"
             self.project.save(PROJECTS_DIR)
+            log_generation(clip.prompt, self.state.engine, dur, "done")
+            log_clip_action("generated", clip.id, f"dur={dur:.1f}s seed={seed_used}")
             from makevid.qt.timeline.clip_item import ClipGraphicsItem
             if ClipGraphicsItem._thumb_cache:
                 ClipGraphicsItem._thumb_cache.invalidate(clip.id)
@@ -66,6 +89,8 @@ class GenerationActionsMixin:
         def on_error(err):
             clip.status = "error"
             self.project.save(PROJECTS_DIR)
+            log_generation(clip.prompt, self.state.engine, 0, "error", err)
+            log_error("generate_clip", err)
             QTimer.singleShot(0, lambda: [self.timeline.redraw(), self.generator.on_error(err)])
 
         self._gen_service.generate_clip(
@@ -85,6 +110,7 @@ class GenerationActionsMixin:
             return
         clip.status = "generating"
         self.project.save(PROJECTS_DIR)
+        log_generation(clip.prompt, self.state.engine, clip.duration, "generating")
         self.timeline.redraw()
 
         def on_progress(msg):
@@ -97,6 +123,8 @@ class GenerationActionsMixin:
                 import time as _t
                 self.project.name = f"Projeto {_t.strftime('%d/%m %H:%M')}"
             self.project.save(PROJECTS_DIR)
+            log_generation(clip.prompt, self.state.engine, dur, "done")
+            log_clip_action("regenerated", clip.id, f"dur={dur:.1f}s seed={seed_used}")
             from makevid.qt.timeline.clip_item import ClipGraphicsItem
             if ClipGraphicsItem._thumb_cache:
                 ClipGraphicsItem._thumb_cache.invalidate(clip.id)
@@ -105,6 +133,8 @@ class GenerationActionsMixin:
         def on_error(err):
             clip.status = "error"
             self.project.save(PROJECTS_DIR)
+            log_generation(clip.prompt, self.state.engine, 0, "error", err)
+            log_error("regenerate_clip", err)
             QTimer.singleShot(0, lambda: [self.timeline.redraw(), self.generator.on_error(err)])
 
         self._gen_service.generate_clip(
@@ -127,6 +157,7 @@ class GenerationActionsMixin:
         new_clip.status = clip.status
         new_clip.video_path = clip.video_path
         self.project.save(PROJECTS_DIR)
+        log_clip_action("duplicate", clip.id, f"new_id={new_clip.id}")
         self.timeline.redraw()
 
     def _split_clip_at_playhead(self):

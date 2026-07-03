@@ -52,6 +52,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
     def _build_ui(self):
         central = QWidget()
         central.setObjectName("AppRoot")
+        central.setAttribute(Qt.WA_TranslucentBackground, False)
         self.setCentralWidget(central)
 
         main_layout = QVBoxLayout(central)
@@ -96,6 +97,8 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.project_changed.connect(self.timeline._on_project_changed)
         self.project_changed.connect(self.preview._on_project_changed)
         self.project_changed.connect(self._sync_style_panel_if_visible)
+        self.project_changed.connect(self._sync_projects_panel_if_visible)
+        self.project_changed.connect(lambda proj: self._project_badge.set_text(proj.name) if hasattr(self, "_project_badge") else None)
 
         self.timeline._scene._interaction.item_clicked        = self._on_item_clicked
         self.timeline._scene._interaction.clip_clicked        = self._on_clip_clicked
@@ -104,14 +107,6 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.timeline.export_requested.connect(self._do_export_direct)
         self.timeline.export_config_requested.connect(self._show_export)
         self.timeline.keyPressEvent = self._timeline_key_handler
-        self._h_splitter.splitterMoved.connect(lambda *_: (
-            self._preview_halo.track(self._preview_shell)
-            if self._preview_halo else None
-        ))
-        self._v_splitter.splitterMoved.connect(lambda *_: (
-            self._preview_halo.track(self._preview_shell)
-            if self._preview_halo else None
-        ))
 
     def _sync_browsers_if_visible(self, proj):
         if self.video_browser.isVisible():
@@ -127,6 +122,13 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
     def _sync_style_panel_if_visible(self, proj):
         if self.style_panel.isVisible():
             self.style_panel._on_project_changed(proj)
+
+    def _sync_projects_panel_if_visible(self, proj):
+        panel = getattr(self.preview, "_projects_panel", None)
+        if panel is not None:
+            panel._active_id = proj.id
+            if panel.isVisible():
+                panel.refresh()
 
     # ── Panel switching ───────────────────────────────────────────────────────
 
@@ -230,6 +232,8 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        if hasattr(self, '_glow_update'):
+            self._glow_update()
 
     # ── Keyboard ──────────────────────────────────────────────────────────────
 

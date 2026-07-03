@@ -1,5 +1,6 @@
 """Export - Presets de exportacao para game engines (Unreal, Unity, etc)."""
 
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -7,6 +8,10 @@ from pathlib import Path
 from typing import List, Optional
 from PIL import Image
 import numpy as np
+
+from makevid.core.logger import log_export, log_error
+
+_log = logging.getLogger("export")
 
 
 # ============================================================
@@ -139,6 +144,7 @@ def export_video(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     cfg = PRESETS[preset]
+    _log.info(f"Export iniciado: preset={preset} res={resolution} fps={fps} src={Path(input_path).name}")
 
     # Image sequence export
     if preset in ("png_sequence", "exr_sequence"):
@@ -180,6 +186,8 @@ def export_video(
     cmd.append(str(output_path))
 
     subprocess.run(cmd, capture_output=True, check=True, timeout=600)
+    log_export(preset, str(output_path), 0.0)
+    _log.info(f"Export concluido: {output_path.name}")
     return output_path
 
 
