@@ -37,11 +37,8 @@ class _DropMenu(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("DropMenu")
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(
-            f"QWidget#DropMenu {{ background: {C['card']}; "
-            f"border: 1px solid {C['glass_border']}; border-radius: 12px; }}"
-        )
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAutoFillBackground(False)
         self.hide()
 
         self._vbox = QVBoxLayout(self)
@@ -78,8 +75,16 @@ class _DropMenu(QWidget):
         self.show()
 
     def paintEvent(self, event):
-        # Deixa o QSS cuidar do fundo; apenas garante o raise
-        super().paintEvent(event)
+        from PySide6.QtGui import QPainter, QPainterPath, QColor, QPen
+        from PySide6.QtCore import QRectF
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0.5, 0.5, self.width() - 1, self.height() - 1), 12, 12)
+        p.fillPath(path, QColor(14, 22, 42, 230))
+        p.setPen(QPen(QColor(255, 255, 255, 50), 1.0))
+        p.drawPath(path)
+        p.end()
 
 
 class _DropItem(QWidget):
@@ -141,7 +146,7 @@ class _DropItem(QWidget):
             p.setRenderHint(QPainter.Antialiasing)
             path = QPainterPath()
             path.addRoundedRect(2, 1, self.width() - 4, self.height() - 2, 8, 8)
-            p.fillPath(path, QColor(C["glass_hover"]))
+            p.fillPath(path, QColor(36, 58, 94, 120))
             p.end()
 
 
@@ -167,11 +172,9 @@ class _EngineBadge(QWidget):
         self.setFixedWidth(max(tw, 80))
         path = QPainterPath()
         path.addRoundedRect(0, 0, self.width(), self.height(), 8, 8)
-        bg = QColor(C["glass"])
-        bg.setAlpha(180)
+        bg = QColor(28, 46, 74, 180)
         p.fillPath(path, bg)
-        bc = QColor(C["glass_border"])
-        bc.setAlpha(80)
+        bc = QColor(255, 255, 255, 80)
         p.setPen(QPen(bc, 1))
         p.drawPath(path)
         p.setPen(QColor(C["text3"]))
@@ -206,7 +209,8 @@ class _ProjectBadge(QWidget):
 
 def build_topbar(window) -> GlassPanel:
     """Constrói a topbar e injeta referências em `window`."""
-    tb = GlassPanel(radius=22, shadow=True, shadow_radius=24, shadow_dy=6)
+    tb = GlassPanel(radius=22, shadow=True, shadow_radius=24, shadow_dy=6,
+                    tint="#1a2d50", tint_alpha=210, border_opacity=80)
     tb.setFixedHeight(58)
 
     h = QHBoxLayout(tb)

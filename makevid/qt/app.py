@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt, QTimer
 
 from makevid.qt.theme import STYLESHEET, C
 from makevid.qt.topbar import build_topbar
+from makevid.qt.widgets import AmbientBackground
 from makevid.qt.layout import build_layout
 from makevid.qt.project_controller import ProjectController, load_last_project
 from makevid.qt.actions import ActionsMixin
@@ -50,10 +51,11 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        central = QWidget()
+        central = AmbientBackground()
         central.setObjectName("AppRoot")
-        central.setAttribute(Qt.WA_TranslucentBackground, False)
         self.setCentralWidget(central)
+        self.setStyleSheet("QMainWindow, QMainWindow > QWidget { background: transparent; }")
+        central.lower()  # garante que AmbientBackground fica na base da pilha Z
 
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(14, 14, 14, 14)
@@ -63,6 +65,16 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         main_layout.addWidget(self._topbar)
 
         build_layout(self, main_layout)
+
+        if hasattr(self, '_preview_shell'):
+            central.set_preview_shell(self._preview_shell)
+        self._ambient = central
+        # propaga set_has_media do preview para o fundo global
+        _orig_set_has_media = self.preview.set_has_media
+        def _set_has_media_global(value):
+            _orig_set_has_media(value)
+            central.set_has_media(value)
+        self.preview.set_has_media = _set_has_media_global
 
     # ── Signals ───────────────────────────────────────────────────────────────
 
@@ -232,8 +244,8 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if hasattr(self, '_glow_update'):
-            self._glow_update()
+        if hasattr(self, '_ambient'):
+            self._ambient.update()
 
     # ── Keyboard ──────────────────────────────────────────────────────────────
 
@@ -288,7 +300,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
 
 def run():
     app = QApplication(sys.argv)
-    app.setStyleSheet(STYLESHEET + "\n#AppRoot { background: " + C["bg"] + "; }")
+    app.setStyleSheet(STYLESHEET)
     app.setEffectEnabled(Qt.UI_AnimateTooltip, False)
     app.setEffectEnabled(Qt.UI_AnimateMenu, False)
     app.setEffectEnabled(Qt.UI_FadeMenu, False)

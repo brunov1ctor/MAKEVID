@@ -201,7 +201,7 @@ class WaveformWidget(QWidget):
         w, h = self.width(), self.height()
         if w <= 0 or h <= 0:
             return
-        bg = QColor(C['card'])
+        bg = QColor(28, 46, 74, 160)
         p.fillRect(0, 0, w, h, bg)
         n = len(self._bars)
         gap = 1

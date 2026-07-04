@@ -74,7 +74,7 @@ class _LiveWaveformWidget(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, False)
         w, h = self.width(), self.height()
-        p.fillRect(0, 0, w, h, QColor(C["dark"]))
+        p.fillRect(0, 0, w, h, QColor(11, 18, 32, 220))
         p.setPen(QPen(self._color, 1))
         p.setBrush(Qt.NoBrush)
         p.drawRoundedRect(0, 0, w - 1, h - 1, 4, 4)

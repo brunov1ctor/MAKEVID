@@ -55,11 +55,12 @@ class _FullscreenWindow(QDialog):
 class _VideoDisplay(QLabel):
     """QLabel que pinta o vídeo e todos os controles sobrepostos diretamente."""
 
-    BTN   = 24
-    PAD   = 8
-    VOL_W = 60
-    BAR_H = 4   # altura da barra de progresso
-    BAR_PAD = 8  # margem lateral da barra
+    BTN     = 24
+    PAD     = 8
+    VOL_W   = 60
+    BAR_H   = 4
+    BAR_PAD = 8
+    MARGIN  = 10   # espaço livre ao redor da tela — deixa o glow visível
 
     def __init__(self, preview, parent=None):
         super().__init__(parent)
@@ -74,18 +75,21 @@ class _VideoDisplay(QLabel):
         self._fade_timer.timeout.connect(self._tick_fade)
         self.setAlignment(Qt.AlignCenter)
         self.setMinimumSize(200, 80)
-        self.setStyleSheet(
-            f"border: none; border-radius: 20px;"
-            f"background: {C['dark']};"
-        )
+        self.setStyleSheet("border: none; border-radius: 20px; background: transparent;")
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setCursor(QCursor(Qt.PointingHandCursor))
         self.setMouseTracking(True)
+
+    def _display_rect(self) -> QRectF:
+        m = self.MARGIN
+        return QRectF(self.rect().adjusted(m, m, -m, -m))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if self._last_pixmap and not self._last_pixmap.isNull():
+            dr = self._display_rect()
             self.setPixmap(self._last_pixmap.scaled(
-                self.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
+                dr.size().toSize(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
         pv = self._pv
         if getattr(pv, '_play_overlay', None) and pv._play_overlay.isVisible():
             pv._center_overlay()
@@ -104,88 +108,104 @@ class _VideoDisplay(QLabel):
     # ── rects ─────────────────────────────────────────────────────────────────
 
     def _bar_rect(self):
-        """Barra de progresso vermelha — acima dos botões."""
-        bw = self.width() - self.BAR_PAD * 2
-        y  = self.height() - self.BTN - self.PAD * 2 - self.BAR_H - 4
-        return QRectF(self.BAR_PAD, y, bw, self.BAR_H)
+        dr = self._display_rect()
+        bw = dr.width() - self.BAR_PAD * 2
+        y  = dr.bottom() - self.BTN - self.PAD * 2 - self.BAR_H - 4
+        return QRectF(dr.left() + self.BAR_PAD, y, bw, self.BAR_H)
 
     def _play_rect(self):
-        # mantido apenas para compatibilidade de clique no vídeo
         return QRectF(0, 0, 0, 0)
 
     def _mute_rect(self):
-        y = self.height() - self.BTN - self.PAD
-        return QRectF(self.PAD, y, self.BTN, self.BTN)
+        dr = self._display_rect()
+        return QRectF(dr.left() + self.PAD, dr.bottom() - self.BTN - self.PAD, self.BTN, self.BTN)
 
     def _vol_rect(self):
-        y = self.height() - self.BTN - self.PAD + self.BTN // 2 - 3
-        x = self.PAD + self.BTN + 4
+        dr  = self._display_rect()
+        x   = dr.left() + self.PAD + self.BTN + 4
+        y   = dr.bottom() - self.BTN - self.PAD + self.BTN // 2 - 3
         return QRectF(x, y, self.VOL_W, 6)
 
     def _time_rect(self):
-        """Área do texto de tempo — à direita do volume."""
-        y = self.height() - self.BTN - self.PAD
-        return QRectF(self.PAD + self.BTN + 4 + self.VOL_W + 8, y, 120, self.BTN)
+        dr = self._display_rect()
+        x  = dr.left() + self.PAD + self.BTN + 4 + self.VOL_W + 8
+        y  = dr.bottom() - self.BTN - self.PAD
+        return QRectF(x, y, 120, self.BTN)
 
     def _expand_rect(self):
-        y = self.height() - self.BTN - self.PAD
-        return QRectF(self.width() - self.BTN - self.PAD, y, self.BTN, self.BTN)
+        dr = self._display_rect()
+        return QRectF(dr.right() - self.BTN - self.PAD, dr.bottom() - self.BTN - self.PAD, self.BTN, self.BTN)
 
     # ── paint ─────────────────────────────────────────────────────────────────
 
     def paintEvent(self, event):
-        super().paintEvent(event)
-        pv = self._pv
+        pv         = self._pv
         is_playing = pv.player.is_playing or pv._is_playing
-        progress   = getattr(pv, '_progress_value', 0.0)   # 0.0–1.0
+        progress   = getattr(pv, '_progress_value', 0.0)
         time_text  = getattr(pv, '_time_text', '')
+        dr         = self._display_rect()
+        R          = 26.0   # raio dos cantos da tela
 
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
 
-        # Clipar ao border-radius para nao vazar fora das bordas arredondadas
-        clip_path = QPainterPath()
-        clip_path.addRoundedRect(QRectF(self.rect()), 20, 20)
-        p.setClipPath(clip_path)
+        # ── tela preta (fundo do vídeo) ───────────────────────────────────────
+        screen_path = QPainterPath()
+        screen_path.addRoundedRect(dr.adjusted(1, 1, -1, -1), R - 1, R - 1)
+        p.fillPath(screen_path, QColor(0, 0, 0, 255))
 
-        # ── barra de progresso (sempre visível quando tocando) ────────────────
+        # ── pixmap do vídeo dentro da tela ────────────────────────────────────
+        px = self._last_pixmap
+        if px and not px.isNull():
+            p.setClipPath(screen_path)
+            scaled = px.scaled(dr.size().toSize(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+            p.drawPixmap(dr.adjusted(1, 1, -1, -1).toRect(), scaled)
+            p.setClipping(False)
+
+        # ── borda translúcida ─────────────────────────────────────────────────
+        border_path = QPainterPath()
+        border_path.addRoundedRect(dr.adjusted(0.5, 0.5, -0.5, -0.5), R - 0.5, R - 0.5)
+        pen = QPen(QColor(255, 255, 255, 55), 1.0)
+        pen.setCosmetic(False)
+        p.setPen(pen)
+        p.drawPath(border_path)
+        p.setPen(Qt.NoPen)
+
+        # ── highlight na borda superior ───────────────────────────────────────
+
+        # ── barra de progresso ────────────────────────────────────────────────
         if is_playing or progress > 0:
             br = self._bar_rect()
-            # trilha
             track = QPainterPath()
             track.addRoundedRect(br, 2, 2)
-            p.setPen(Qt.NoPen)
             p.fillPath(track, QColor(255, 255, 255, 40))
-            # preenchimento vermelho
             if progress > 0:
                 fp = QPainterPath()
                 fp.addRoundedRect(QRectF(br.x(), br.y(), br.width() * progress, br.height()), 2, 2)
                 p.fillPath(fp, QColor("#ff0000"))
-            # bolinha na posição atual
             dot_x = br.x() + br.width() * progress
             p.setBrush(QColor("#ff4444"))
             p.drawEllipse(QPointF(dot_x, br.center().y()), 5, 5)
 
-        # ── tempo (sempre visível quando tocando) ─────────────────────────────
+        # ── tempo ─────────────────────────────────────────────────────────────
         if time_text and (is_playing or progress > 0):
-            tr = self._time_rect()
             p.setPen(QColor(255, 255, 255, 200))
             p.setFont(QFont("Consolas", 8, QFont.Bold))
-            p.drawText(tr, Qt.AlignVCenter | Qt.AlignLeft, time_text)
+            p.drawText(self._time_rect(), Qt.AlignVCenter | Qt.AlignLeft, time_text)
 
         # ── controles com fade no hover ───────────────────────────────────────
         a = self._fade
         if a > 0:
-            # gradiente escuro na base
-            grad = QLinearGradient(0, self.height() - 60, 0, self.height())
+            grad = QLinearGradient(0, dr.bottom() - 60, 0, dr.bottom())
             grad.setColorAt(0.0, QColor(0, 0, 0, 0))
             grad.setColorAt(1.0, QColor(0, 0, 0, int(a * 0.70)))
-            p.fillRect(self.rect(), QBrush(grad))
+            p.setClipPath(screen_path)
+            p.fillRect(dr, QBrush(grad))
+            p.setClipping(False)
 
-            # mute
             self._draw_btn(p, self._mute_rect(), "🔇" if pv._muted else "🔊", a)
 
-            # volume
             vr = self._vol_rect()
             vtrack = QPainterPath()
             vtrack.addRoundedRect(vr, 3, 3)
@@ -200,7 +220,6 @@ class _VideoDisplay(QLabel):
             p.setBrush(QColor(255, 255, 255, int(a * 0.9)))
             p.drawEllipse(QPointF(vr.x() + fw, vr.center().y()), 5, 5)
 
-            # expand
             self._draw_btn(p, self._expand_rect(), "⛶", a)
 
         p.end()
@@ -208,7 +227,7 @@ class _VideoDisplay(QLabel):
     def _draw_btn(self, p, rect, icon, alpha):
         path = QPainterPath()
         path.addRoundedRect(rect, 6, 6)
-        bg = QColor(C["glass"]); bg.setAlpha(int(alpha * 0.55))
+        bg = QColor(28, 46, 74, int(alpha * 0.55))
         p.fillPath(path, bg)
         p.setPen(QColor(255, 255, 255, int(alpha * 0.9)))
         p.setFont(QFont("Segoe UI Symbol", 10))
@@ -289,6 +308,8 @@ class PreviewWidget(ClipPropertiesMixin, MediaBrowserMixin, ProjectsViewMixin, Q
         self._connect_signals()
 
     def _build_ui(self):
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAutoFillBackground(False)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(0)
@@ -343,8 +364,7 @@ class PreviewWidget(ClipPropertiesMixin, MediaBrowserMixin, ProjectsViewMixin, Q
         img = QImage(rgb.data, w, h, w * 3, QImage.Format_RGB888)
         px = QPixmap.fromImage(img)
         self._display._last_pixmap = px
-        self._display.setPixmap(
-            px.scaled(self._display.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
+        self._display.update()
         self.set_has_media(True)
 
     def _show_play_button(self, clear_frame=True):

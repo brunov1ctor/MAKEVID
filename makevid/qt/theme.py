@@ -2,17 +2,17 @@
 
 C = {
     # Backgrounds
-    "bg":           "#0B1220",
-    "panel":        "#111827",
-    "card":         "#1A2336",
-    "card_hover":   "#24304A",
-    "input":        "#111827",
-    "border":       "rgba(255,255,255,0.08)",
+    "bg":           "rgba(11,18,32,0.0)",
+    "panel":        "rgba(17,24,39,0.0)",
+    "card":         "rgba(28,46,74,0.55)",
+    "card_hover":   "rgba(36,58,94,0.65)",
+    "input":        "rgba(10,16,30,0.70)",
+    "border":       "rgba(255,255,255,0.10)",
 
-    # Liquid Glass — tint frio azulado
-    "glass":        "#111827",
-    "glass_hover":  "#24304A",
-    "glass_border": "rgba(255,255,255,0.08)",
+    # Liquid Glass — tint frio azulado iOS
+    "glass":        "rgba(28,46,74,0.55)",
+    "glass_hover":  "rgba(36,58,94,0.65)",
+    "glass_border": "rgba(255,255,255,0.55)",
 
     # Brand — roxo como primário, azul como accent
     "primary":   "#6C63FF",
@@ -66,13 +66,16 @@ C = {
 
 STYLESHEET = """
 QMainWindow {
-    background-color: #0B1220;
+    background-color: #040814;
 }
 QWidget {
-    background-color: #0B1220;
+    background-color: transparent;
     color: #F3F6FF;
     font-family: "Segoe UI";
     font-size: 10pt;
+}
+#AppRoot {
+    background: transparent;
 }
 QLabel {
     background: transparent;
@@ -82,20 +85,20 @@ QLabel {
 
 /* ── Botões Glass ── */
 QPushButton {
-    background-color: #1A2336;
+    background-color: rgba(28,46,74,0.55);
     color: #F3F6FF;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
     border-radius: 10px;
     padding: 6px 14px;
     font-weight: bold;
 }
 QPushButton:hover {
-    background-color: #24304A;
-    border-color: rgba(255,255,255,0.16);
+    background-color: rgba(36,58,94,0.70);
+    border-color: rgba(255,255,255,0.22);
     color: #8B7DFF;
 }
 QPushButton:pressed {
-    background-color: #2C3C5A;
+    background-color: rgba(44,60,90,0.80);
     border-color: #6C63FF;
 }
 QPushButton#closeBtn {
@@ -139,27 +142,27 @@ QPushButton#primary:hover {
 
 /* ── Inputs Glass ── */
 QLineEdit, QTextEdit, QPlainTextEdit {
-    background-color: #111827;
+    background-color: rgba(10,16,30,0.70);
     color: #58D8FF;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.10);
     border-radius: 10px;
     padding: 4px 10px;
     font-family: "Consolas";
     font-weight: bold;
 }
 QLineEdit:hover, QTextEdit:hover {
-    border-color: rgba(255,255,255,0.16);
+    border-color: rgba(255,255,255,0.20);
 }
 QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
     border: 2px solid #6C63FF;
-    background-color: #111827;
+    background-color: rgba(10,16,30,0.80);
 }
 
 /* ── ComboBox Glass ── */
 QComboBox {
-    background-color: #1A2336;
+    background-color: rgba(28,46,74,0.55);
     color: #F3F6FF;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
     border-radius: 8px;
     padding: 4px 10px;
 }
@@ -171,11 +174,11 @@ QComboBox::drop-down {
     width: 20px;
 }
 QComboBox QAbstractItemView {
-    background-color: #1A2336;
+    background-color: rgba(20,32,55,0.92);
     color: #F3F6FF;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
     border-radius: 8px;
-    selection-background-color: #24304A;
+    selection-background-color: rgba(36,58,94,0.80);
     selection-color: #6C63FF;
     outline: none;
 }
@@ -206,13 +209,13 @@ QSlider::sub-page:horizontal {
 
 /* ── ScrollBar Glass ── */
 QScrollBar:vertical {
-    background: #111827;
+    background: rgba(10,16,30,0.30);
     width: 8px;
     border-radius: 4px;
     margin: 2px 0;
 }
 QScrollBar::handle:vertical {
-    background: #1A2336;
+    background: rgba(28,46,74,0.60);
     min-height: 30px;
     border-radius: 4px;
 }
@@ -225,13 +228,13 @@ QScrollBar::handle:vertical:pressed {
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
 QScrollBar:horizontal {
-    background: #111827;
+    background: rgba(10,16,30,0.30);
     height: 8px;
     border-radius: 4px;
     margin: 0 2px;
 }
 QScrollBar::handle:horizontal {
-    background: #1A2336;
+    background: rgba(28,46,74,0.60);
     min-width: 30px;
     border-radius: 4px;
 }
@@ -258,13 +261,17 @@ QSplitter { padding: 0px; }
 
 /* ── GraphicsView ── */
 QGraphicsView {
-    background-color: #0B1220;
+    background-color: transparent;
+    border: none;
+}
+QScrollArea {
+    background: transparent;
     border: none;
 }
 
 /* ── ProgressBar Glass ── */
 QProgressBar {
-    background: #1A2336;
+    background: rgba(28,46,74,0.45);
     border: 1px solid rgba(255,255,255,0.08);
     border-radius: 4px;
     text-align: center;
@@ -278,9 +285,9 @@ QProgressBar::chunk {
 
 /* ── Tooltip Glass ── */
 QToolTip {
-    background-color: #1A2336;
+    background-color: rgba(20,32,55,0.92);
     color: #A9B4C8;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.14);
     border-radius: 10px;
     padding: 8px 12px;
     font-family: "Segoe UI";
@@ -289,9 +296,9 @@ QToolTip {
 
 /* ── Menu Glass ── */
 QMenu {
-    background-color: #1A2336;
+    background-color: rgba(20,32,55,0.92);
     color: #F3F6FF;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.14);
     border-radius: 12px;
     padding: 6px 4px;
     font-family: "Segoe UI";
@@ -303,7 +310,7 @@ QMenu::item {
     margin: 1px 4px;
 }
 QMenu::item:selected {
-    background-color: #24304A;
+    background-color: rgba(36,58,94,0.80);
     color: #6C63FF;
 }
 QMenu::item:pressed {
@@ -312,7 +319,7 @@ QMenu::item:pressed {
 }
 QMenu::separator {
     height: 1px;
-    background: rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.10);
     margin: 4px 10px;
 }
 QMenu::indicator:checked {
@@ -325,10 +332,10 @@ QMenu::indicator:checked {
 
 /* ── AudioCard: waveform e botão play ── */
 QWidget#waveformWidget {
-    background-color: #1A2336;
+    background-color: rgba(28,46,74,0.55);
 }
 QPushButton#btnPlay {
-    background-color: #1A2336;
+    background-color: rgba(28,46,74,0.55);
     color: #58D8FF;
     border: 1px solid #58D8FF;
     border-radius: 5px;

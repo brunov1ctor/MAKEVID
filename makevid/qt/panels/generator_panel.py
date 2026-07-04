@@ -26,7 +26,7 @@ class _PlainTextEdit(QTextEdit):
         self.insertPlainText(source.text())
 
 from makevid.qt.theme import C
-from makevid.qt.widgets import BrowserTabBar, GlassButton, SectionLabel
+from makevid.qt.widgets import GlassTabBar, GlassButton, SectionLabel
 from makevid.qt.panels.style.widgets import FlexTextEdit
 from makevid.config import PROJECTS_DIR
 
@@ -54,21 +54,19 @@ class GeneratorPanel(QWidget):
 
         self._build_ui()
     def _build_ui(self):
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAutoFillBackground(False)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(14, 14, 14, 14)
         outer.setSpacing(10)
 
-        self._tab_bar = BrowserTabBar(["GERAR CLIP", "GERAR IMAGEM"], self)
+        self._tab_bar = GlassTabBar(["GERAR CLIP", "GERAR IMAGEM"], self)
         self._tab_bar.tab_clicked.connect(self._switch_tab)
         outer.addWidget(self._tab_bar)
         outer.setSpacing(0)
 
         self._tab_stack = QStackedWidget()
-        self._tab_stack.setStyleSheet(
-            f"QStackedWidget {{ background: {__import__('makevid.qt.theme', fromlist=['C']).C['glass']}; "
-            f"border: 1px solid rgba(255,255,255,0.06); border-top: none; "
-            f"border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }}"
-        )
+        self._tab_stack.setStyleSheet("QStackedWidget { background: transparent; }")
         self._tab_stack.addWidget(self._build_clip_tab())   # 0
         self._tab_stack.addWidget(self._build_image_tab())  # 1
         outer.addWidget(self._tab_stack)
@@ -80,7 +78,6 @@ class GeneratorPanel(QWidget):
 
     def _switch_tab(self, idx):
         self._tab_stack.setCurrentIndex(idx)
-        self._tab_bar.set_active(idx)
 
     def _show_token_prompt(self, auto_generate=False):
         """Mostra campo inline no scroll para inserir HF token. auto_generate=True faz retry apos salvar."""
@@ -217,8 +214,10 @@ class GeneratorPanel(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("border: none;")
+        scroll.setStyleSheet("border: none; background: transparent;")
+        scroll.viewport().setStyleSheet("background: transparent;")
         content = QWidget()
+        content.setStyleSheet("background: transparent;")
         L = QVBoxLayout(content)
         L.setContentsMargins(10, 10, 10, 10)
         L.setSpacing(6)
@@ -320,12 +319,12 @@ class GeneratorPanel(QWidget):
         self._prompt = FlexTextEdit(
             "",
             color=C['accent'],
-            border_color=C['glass_border'],
+            border_color="#3a4a6a",
             font_size="11pt",
             font_weight="bold",
             border_radius="10px",
             bg=C['input'],
-            border_px="1px",
+            border_px="2px",
             hover_color=C['primary'],
             focus_color=C['primary'],
             focus_px="2px",
@@ -349,10 +348,10 @@ class GeneratorPanel(QWidget):
         self._negative = FlexTextEdit(
             "blurry, low quality, distorted, watermark, static",
             color=C['text3'],
-            border_color=C['glass_border'],
+            border_color="#2a3a52",
             font_size="10pt",
             bg=C['input'],
-            border_px="1px",
+            border_px="2px",
             hover_color=C['primary'],
             focus_color=C['primary'],
             min_lines=1,
@@ -459,8 +458,10 @@ class GeneratorPanel(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("border: none;")
+        scroll.setStyleSheet("border: none; background: transparent;")
+        scroll.viewport().setStyleSheet("background: transparent;")
         content = QWidget()
+        content.setStyleSheet("background: transparent;")
         L = QVBoxLayout(content)
         L.setContentsMargins(10, 10, 10, 10)
         L.setSpacing(6)
@@ -474,12 +475,12 @@ class GeneratorPanel(QWidget):
         self._img_prompt = FlexTextEdit(
             "",
             color=C['accent'],
-            border_color=C['glass_border'],
+            border_color="#3a4a6a",
             font_size="11pt",
             font_weight="bold",
             border_radius="10px",
             bg=C['input'],
-            border_px="1px",
+            border_px="2px",
             hover_color=C['primary'],
             focus_color=C['primary'],
             focus_px="2px",
@@ -492,11 +493,11 @@ class GeneratorPanel(QWidget):
         self._img_negative = FlexTextEdit(
             "blurry, low quality, watermark",
             color=C['text3'],
-            border_color=C['border'],
+            border_color="#2a3a52",
             font_size="10pt",
             bg=C['input'],
             border_px="2px",
-            border_radius="8px",
+            border_radius="10px",
             hover_color=C['primary'],
             focus_color=C['primary'],
             focus_px="2px",

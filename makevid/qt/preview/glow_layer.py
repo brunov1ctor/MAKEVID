@@ -1,82 +1,37 @@
-"""GlowOverlay — light spill pintado sobre o centralWidget, atrás de tudo."""
+"""Glow/light-spill pintado diretamente no PreviewGlowPanel."""
 
-import logging
-from PySide6.QtWidgets import QWidget, QSplitter, QSplitterHandle
-from PySide6.QtCore import Qt, QTimer, QRect, QPoint
-from PySide6.QtGui import QPainter, QRadialGradient, QColor
+from PySide6.QtWidgets import QWidget, QSplitter
+from PySide6.QtCore import Qt, QTimer, QRectF, QPointF
+from PySide6.QtGui import QPainter, QRadialGradient, QColor, QPainterPath
 
 from makevid.qt.widgets import GlassPanel
 
-log = logging.getLogger("glow")
-
 
 class PreviewGlowPanel(GlassPanel):
-    """GlassPanel normal — notifica o GlowOverlay quando há mídia."""
-
+    """GlassPanel com halo local ao redor do display. Glow ambiental fica no AmbientBackground."""
     def __init__(self, **kwargs):
+        kwargs.setdefault('shadow', False)
         super().__init__(**kwargs)
         self._has_media = False
-        self._halo = None  # compatibilidade
+        self._alpha_t   = 0.35
+        self._halo      = None
+        self._preview   = None  # referência ao PreviewWidget
 
-    def set_has_media(self, value: bool):
-        if value != self._has_media:
-            self._has_media = value
-            if self._halo:
-                self._halo.set_has_media(value)
-
-
-class GlowOverlay(QWidget):
-    """
-    Widget filho do centralWidget que pinta o glow atrás de tudo.
-    - setAttribute(WA_TransparentForMouseEvents) — não captura mouse
-    - lower() — fica atrás de todos os outros filhos
-    - Atualiza posição/tamanho via track()
-    """
-
-    _SPREAD = 0.35
-
-    def __init__(self, parent: QWidget):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_TransparentForMouseEvents)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_NoSystemBackground)
-        self.setAutoFillBackground(False)
-        self._has_media = False
-        self._alpha_t   = 0.0
-        self._cx        = 0.0
-        self._cy        = 0.0
-        self._rw        = 1.0
-        self._rh        = 1.0
         self._timer = QTimer(self)
         self._timer.setInterval(16)
         self._timer.timeout.connect(self._tick)
         self._timer.start()
-        self.lower()
-        log.info("[GlowOverlay] criado")
+
+    def set_preview(self, preview_widget):
+        """Registra o PreviewWidget para localizar a geometria do display."""
+        self._preview = preview_widget
 
     def set_has_media(self, value: bool):
-        self._has_media = value
-
-    def track(self, target: QWidget):
-        """Cobre o parent inteiro e memoriza o centro/tamanho do target."""
-        p = self.parent()
-        if not p:
-            return
-        # cobre todo o parent
-        self.setGeometry(0, 0, p.width(), p.height())
-        self.lower()
-        # centro do target em coordenadas do parent
-        origin = target.mapTo(p, QPoint(0, 0))
-        self._cx = origin.x() + target.width()  / 2.0
-        self._cy = origin.y() + target.height() / 2.0
-        self._rw = float(target.width())
-        self._rh = float(target.height())
-        self.update()
-        log.debug(f"[GlowOverlay.track] overlay=({self.width()}x{self.height()}) "
-                  f"center=({self._cx:.0f},{self._cy:.0f}) target=({self._rw:.0f}x{self._rh:.0f})")
+        if value != self._has_media:
+            self._has_media = value
 
     def _tick(self):
-        target = 1.0 if self._has_media else 0.0
+        target = 1.0 if self._has_media else 0.35
         if self._alpha_t == target:
             return
         step = 0.025
@@ -86,38 +41,59 @@ class GlowOverlay(QWidget):
             self._alpha_t += step if target > self._alpha_t else -step
         self.update()
 
+    def _display_rect_in_panel(self) -> QRectF:
+        """Retorna a geometria do _VideoDisplay em coordenadas deste painel."""
+        pv = self._preview
+        if pv is None:
+            return QRectF(self.rect())
+        display = getattr(pv, '_display', None)
+        if display is None:
+            return QRectF(self.rect())
+        origin = display.mapTo(self, display.rect().topLeft())
+        return QRectF(origin.x(), origin.y(), display.width(), display.height())
+
     def paintEvent(self, event):
-        if self._rw == 0:
-            return
+        super().paintEvent(event)
+
         p = QPainter(self)
         if not p.isActive():
             return
         p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
 
-        cx, cy   = self._cx, self._cy
-        rw, rh   = self._rw, self._rh
-        scale    = 0.6 + 0.4 * self._alpha_t
-        rad      = max(rw, rh) * (1.0 + self._SPREAD)
+        w  = self.width()
+        h  = self.height()
+        a  = self._alpha_t
+        dr = self._display_rect_in_panel()
 
-        def _grad(fx, fy, rfrac, r, g, b, ba):
-            gx = cx + fx * rw * 0.3
-            gy = cy + fy * rh * 0.3
-            gr = QRadialGradient(gx, gy, rfrac * rad)
-            a  = int(ba * scale)
-            gr.setColorAt(0.0, QColor(r, g, b, a))
-            gr.setColorAt(0.5, QColor(r, g, b, int(a * 0.4)))
-            gr.setColorAt(1.0, QColor(0, 0, 0, 0))
-            p.fillRect(self.rect(), gr)
+        def _radial(cx, cy, radius, r, g, b, base_a):
+            gr = QRadialGradient(QPointF(cx, cy), radius)
+            alpha = int(base_a * a)
+            gr.setColorAt(0.0, QColor(r, g, b, alpha))
+            gr.setColorAt(0.5, QColor(r, g, b, int(alpha * 0.3)))
+            gr.setColorAt(1.0, QColor(r, g, b, 0))
+            path = QPainterPath()
+            path.addEllipse(QPointF(cx, cy), radius, radius)
+            p.fillPath(path, gr)
 
-        _grad( 0.0, -0.4, 0.85,  90, 228, 255, 35)
-        _grad( 0.0,  0.4, 0.90, 108,  99, 255, 40)
-        _grad( 0.0,  0.0, 1.00,  96, 165, 250, 25)
-        _grad(-0.5,  0.0, 0.60,  90, 228, 255, 18)
-        _grad( 0.5,  0.0, 0.60, 108,  99, 255, 18)
+        # ── glow local — nasce da tela ────────────────────────────────────────
+        cx = dr.center().x()
+        cy = dr.center().y()
+        _radial(cx, cy, dr.width() * 0.75,  58, 216, 255, 35)
+        _radial(cx, cy, dr.width() * 0.55, 108,  99, 255, 28)
+
         p.end()
 
 
-# Stubs por compatibilidade
+# ── Stubs de compatibilidade ──────────────────────────────────────────────────
+
+class GlowOverlay(QWidget):
+    """Stub — mantido para não quebrar imports legados."""
+    def __init__(self, parent=None): super().__init__(parent)
+    def track(self, *a): pass
+    def set_has_media(self, *a): pass
+
+
 class PreviewHalo:
     def __init__(self, *a, **kw): pass
     def track(self, *a): pass

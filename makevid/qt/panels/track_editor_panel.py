@@ -617,7 +617,7 @@ class _WaveformWidget(QWidget):
         w, h = self.width(), self.height()
 
         # Fundo
-        p.fillRect(0, 0, w, h, QColor(C["dark"]))
+        p.fillRect(0, 0, w, h, QColor(11, 18, 32, 220))
 
         # Waveform
         if self._waveform_data:

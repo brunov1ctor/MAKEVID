@@ -26,12 +26,8 @@ class _GlassProps(QWidget):
         path = QPainterPath()
         path.addRoundedRect(QRectF(0, 0, self.width(), self.height()), 14, 14)
         grad = QLinearGradient(0, 0, 0, self.height())
-        base = QColor(C["glass"])
-        top = QColor(base)
-        top.setRed(min(255, base.red() + 14))
-        top.setGreen(min(255, base.green() + 12))
-        top.setBlue(min(255, base.blue() + 18))
-        top.setAlpha(180); base.setAlpha(155)
+        base = QColor(28, 46, 74, 155)
+        top  = QColor(42, 62, 90, 180)
         grad.setColorAt(0.0, top); grad.setColorAt(1.0, base)
         p.fillPath(path, QBrush(grad))
         hl = QPainterPath()
@@ -40,7 +36,7 @@ class _GlassProps(QWidget):
         hg.setColorAt(0.0, QColor(255, 255, 255, 12))
         hg.setColorAt(1.0, QColor(255, 255, 255, 0))
         p.setPen(Qt.NoPen); p.fillPath(hl, QBrush(hg))
-        bc = QColor(C["glass_border"]); bc.setAlpha(55)
+        bc = QColor(255, 255, 255, 55)
         p.setPen(QPen(bc, 1.0)); p.drawPath(path); p.end()
 
 

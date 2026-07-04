@@ -35,7 +35,7 @@ class RulerItem(QGraphicsItem):
         painter.fillRect(QRectF(lbl_w, 0, w - lbl_w, h), QColor("#0d1020"))
 
         # Linha inferior sutil (não mais borda dourada grossa)
-        painter.setPen(QPen(QColor(C["glass_border"]), 1))
+        painter.setPen(QPen(QColor(255, 255, 255, 45), 1))
         painter.drawLine(lbl_w, h - 1, w, h - 1)
 
         # Step adaptativo
@@ -69,7 +69,7 @@ class RulerItem(QGraphicsItem):
                 if is_hovered:
                     tw = len(txt) * 7 + 6
                     painter.setPen(Qt.NoPen)
-                    painter.setBrush(QBrush(QColor(C["glass_hover"])))
+                    painter.setBrush(QBrush(QColor(36, 58, 94, 160)))
                     painter.drawRoundedRect(QRectF(x - 1, 2, tw, 14), 3, 3)
                     painter.setPen(QPen(QColor(C["text"])))
                     painter.setFont(QFont("Consolas", 9, QFont.Bold))
@@ -84,7 +84,7 @@ class RulerItem(QGraphicsItem):
                     sx = lbl_w + int((t + sub_step * si) * pps)
                     if lbl_w <= sx <= w:
                         alpha = 80 if si == subdivs // 2 else 45
-                        painter.setPen(QPen(QColor(C["glass_border"]), 1))
+                        painter.setPen(QPen(QColor(255, 255, 255, 45), 1))
                         painter.drawLine(sx, h - (7 if si == subdivs // 2 else 4), sx, h - 1)
 
             t += step

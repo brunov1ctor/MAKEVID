@@ -36,7 +36,7 @@ def _soft_shadow(widget: QWidget, radius=64, opacity=180, dy=16):
     """Sombra profunda para separar painéis do fundo."""
     fx = QGraphicsDropShadowEffect(widget)
     fx.setBlurRadius(radius)
-    c = QColor(C["dark"])
+    c = QColor(11, 18, 32)
     c.setAlpha(opacity)
     fx.setColor(c)
     fx.setOffset(0, dy)
@@ -51,69 +51,85 @@ def _soft_shadow(widget: QWidget, radius=64, opacity=180, dy=16):
 class GlassPanel(QWidget):
     """
     Painel com fundo glass pintado via QPainter.
-    Suporta borda translúcida, gradiente interno e sombra.
+    Sombra pintada internamente — sem QGraphicsEffect para não bloquear
+    a transparência do AmbientBackground.
     """
 
-    def __init__(self, parent=None, radius=20, tint=None, border_opacity=45,
+    def __init__(self, parent=None, radius=20, tint=None, tint_alpha=None, border_opacity=55,
                  shadow=True, shadow_radius=40, shadow_dy=12):
         super().__init__(parent)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAutoFillBackground(False)
 
-        self._radius = radius
-        self._tint = QColor(tint) if tint else QColor(C["glass"])
+        self._radius        = radius
+        if tint:
+            self._tint = QColor(tint)
+            if tint_alpha is not None:
+                self._tint.setAlpha(tint_alpha)
+        else:
+            self._tint = QColor(28, 46, 74, 200)
         self._border_opacity = border_opacity
-
-        if shadow:
-            _soft_shadow(self, radius=shadow_radius, opacity=130, dy=shadow_dy)
-
-    # ── paint ──────────────────────────────────
+        self._shadow        = shadow
+        self._shadow_dy     = shadow_dy
+        # sem QGraphicsDropShadowEffect — ele quebra a transparência
 
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
 
         w, h = self.width(), self.height()
-        r = QRectF(1, 1, w - 2, h - 2)
-        path = QPainterPath()
-        path.addRoundedRect(r, self._radius, self._radius)
+        R    = self._radius
 
-        # Gradiente topo→base — painel mais claro no topo, mais escuro na base
-        grad = QLinearGradient(0, 0, 0, h)
+        if self._tint is None:
+            p.end()
+            return
+
+        r    = QRectF(1, 1, w - 2, h - 2)
+        path = QPainterPath()
+        path.addRoundedRect(r, R, R)
+
+        p.setClipPath(path)
+
+        # ── camada base: tint frio translúcido (simula frosted glass) ──────────
         base = QColor(self._tint)
-        top_c = QColor(base)
-        top_c.setRed(min(255, base.red() + 14))
-        top_c.setGreen(min(255, base.green() + 12))
-        top_c.setBlue(min(255, base.blue() + 18))
-        top_c.setAlpha(245)
-        base.setAlpha(230)
-        grad.setColorAt(0.0, top_c)
-        grad.setColorAt(1.0, base)
+        base.setAlpha(self._tint.alpha())
+        p.fillPath(path, base)
+
+        # ── gradiente vertical: topo mais claro (reflexo de luz) ───────────────
+        grad = QLinearGradient(0, 0, 0, h)
+        grad.setColorAt(0.0,  QColor(255, 255, 255, 10))
+        grad.setColorAt(0.18, QColor(255, 255, 255, 4))
+        grad.setColorAt(0.5,  QColor(255, 255, 255, 1))
+        grad.setColorAt(1.0,  QColor(0,   0,   0,   6))
         p.fillPath(path, QBrush(grad))
 
-        # Inner shadow no topo — profundidade
-        inner_grad = QLinearGradient(0, 0, 0, self._radius * 2)
-        inner_grad.setColorAt(0.0, QColor(0, 0, 0, 28))
-        inner_grad.setColorAt(1.0, QColor(0, 0, 0, 0))
-        inner_path = QPainterPath()
-        inner_path.addRoundedRect(QRectF(1, 1, w - 2, self._radius * 2), self._radius, self._radius)
-        p.fillPath(inner_path, QBrush(inner_grad))
-
-        # Highlight branco no topo — brilho de superfície
-        ref_rect = QRectF(self._radius * 0.4, 1, w - self._radius * 0.8, min(self._radius * 1.2, 20))
-        ref_path = QPainterPath()
-        ref_path.addRoundedRect(ref_rect, self._radius * 0.3, self._radius * 0.3)
-        ref_grad = QLinearGradient(0, 0, 0, ref_rect.height())
-        ref_grad.setColorAt(0.0, QColor(255, 255, 255, 22))
-        ref_grad.setColorAt(0.5, QColor(255, 255, 255, 8))
-        ref_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
+        # ── specular highlight: faixa brilhante no topo (liquid glass) ─────────
+        spec_h = min(R * 1.6, h * 0.28)
+        spec   = QRectF(R * 0.5, 1.5, w - R, spec_h)
+        sp     = QPainterPath()
+        sp.addRoundedRect(spec, R * 0.6, R * 0.6)
+        sg = QLinearGradient(0, spec.top(), 0, spec.bottom())
+        sg.setColorAt(0.0, QColor(255, 255, 255, 55))
+        sg.setColorAt(0.5, QColor(255, 255, 255, 18))
+        sg.setColorAt(1.0, QColor(255, 255, 255, 0))
         p.setPen(Qt.NoPen)
-        p.fillPath(ref_path, QBrush(ref_grad))
+        p.fillPath(sp, QBrush(sg))
 
-        # Borda translúcida
-        border_color = QColor(C["glass_border"])
-        border_color.setAlpha(self._border_opacity)
-        p.setPen(QPen(border_color, 1.0))
+        # ── noise/grain sutil: linha de separação interna ──────────────────────
+        sep = QLinearGradient(0, spec_h + 1.5, w, spec_h + 1.5)
+        sep.setColorAt(0.0, QColor(255, 255, 255, 0))
+        sep.setColorAt(0.3, QColor(255, 255, 255, 22))
+        sep.setColorAt(0.7, QColor(255, 255, 255, 22))
+        sep.setColorAt(1.0, QColor(255, 255, 255, 0))
+        p.setPen(QPen(QBrush(sep), 0.8))
+        p.drawLine(QPointF(R, spec_h + 1.5), QPointF(w - R, spec_h + 1.5))
+
+        p.setClipping(False)
+
+        # ── borda luminosa (glass edge) ────────────────────────────────────────
+        bc = QColor(255, 255, 255)
+        bc.setAlpha(self._border_opacity)
+        p.setPen(QPen(bc, 1.0))
         p.drawPath(path)
 
         p.end()
@@ -131,8 +147,8 @@ class GlassCard(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAutoFillBackground(False)
         self._radius = radius
-        self._base_color = QColor(C["glass"])
-        self._hover_color = QColor(hover_color) if hover_color else QColor(C["glass_hover"])
+        self._base_color = QColor(28, 46, 74, 140)
+        self._hover_color = QColor(hover_color) if hover_color else QColor(36, 58, 94, 165)
         self._current_color = QColor(self._base_color)
         self._hovered = False
         self.setCursor(QCursor(Qt.PointingHandCursor))
@@ -207,7 +223,7 @@ class GlassCard(QWidget):
         p.fillPath(ref_path, QBrush(ref_grad))
 
         # Borda
-        bc = QColor(C["glass_border"])
+        bc = QColor(255, 255, 255)
         bc.setAlpha(int(60 + t * 100))
         p.setPen(QPen(bc, 1.0))
         p.drawPath(path)
@@ -249,8 +265,8 @@ class GlassButton(QPushButton):
             self._color_hover = QColor(C["danger"])
             self._text_color = QColor(C["danger"])
         else:
-            self._color_base = QColor(C["glass"])
-            self._color_hover = QColor(C["glass_hover"])
+            self._color_base = QColor(28, 46, 74, 140)
+            self._color_hover = QColor(36, 58, 94, 165)
             self._text_color = QColor(C["text"])
 
         # Animação hover
@@ -347,7 +363,7 @@ class GlassButton(QPushButton):
             bc = QColor(C["danger"])
             bc.setAlpha(int(110 + t * 145))
         else:
-            bc = QColor(C["glass_border"])
+            bc = QColor(255, 255, 255)
             bc.setAlpha(int(60 + t * 120))
         p.setPen(QPen(bc, 1.0))
         p.drawPath(path)
@@ -426,7 +442,7 @@ class BrowserTabBar(QWidget):
         R = 9  # raio dos cantos superiores
 
         # Linha de base (fundo das abas inativas)
-        base_color = QColor(C["glass"])
+        base_color = QColor(28, 46, 74, 140)
         base_color.setAlpha(180)
         p.fillRect(QRectF(0, h - 1, w, 1), base_color)
 
@@ -448,8 +464,7 @@ class BrowserTabBar(QWidget):
 
             if is_active:
                 # Aba ativa: fundo igual ao painel, sem borda inferior
-                fill = QColor(C["glass"])
-                fill.setAlpha(255)
+                fill = QColor(28, 46, 74, 180)
                 grad = QLinearGradient(rect.left(), rect.top(), rect.left(), rect.bottom())
                 top_c = QColor(fill)
                 top_c.setRed(min(255, fill.red() + 14))
@@ -466,7 +481,7 @@ class BrowserTabBar(QWidget):
                            QPointF(rect.right() - 2 - R, rect.top() + 1))
 
                 # Borda lateral esquerda e direita (sem borda inferior)
-                bc = QColor(C["glass_border"])
+                bc = QColor(255, 255, 255)
                 bc.setAlpha(60)
                 p.setPen(QPen(bc, 1))
                 # esquerda
@@ -481,10 +496,9 @@ class BrowserTabBar(QWidget):
                 p.drawArc(QRect(int(rect.right() - 2 - R * 2), int(rect.top()), R * 2, R * 2), 0, 90 * 16)
 
             elif is_hover:
-                hover_fill = QColor(C["glass_hover"])
-                hover_fill.setAlpha(120)
+                hover_fill = QColor(36, 58, 94, 120)
                 p.fillPath(tab_path, hover_fill)
-                bc = QColor(C["glass_border"])
+                bc = QColor(255, 255, 255)
                 bc.setAlpha(30)
                 p.setPen(QPen(bc, 1))
                 p.drawPath(tab_path)
@@ -604,16 +618,14 @@ class GlassTabBar(QWidget):
         bg_path = QPainterPath()
         bg_path.addRoundedRect(QRectF(0, 0, w, h), 12, 12)
         bg_grad = QLinearGradient(0, 0, 0, h)
-        bg_top = QColor(C["dark"])
-        bg_top.setAlpha(180)
-        bg_bot = QColor(C["dark"])
-        bg_bot.setAlpha(140)
+        bg_top = QColor(11, 18, 32, 180)
+        bg_bot = QColor(11, 18, 32, 140)
         bg_grad.setColorAt(0.0, bg_top)
         bg_grad.setColorAt(1.0, bg_bot)
         p.fillPath(bg_path, QBrush(bg_grad))
 
         # Borda da barra
-        bc = QColor(C["glass_border"])
+        bc = QColor(255, 255, 255)
         bc.setAlpha(40)
         p.setPen(QPen(bc, 0.8))
         p.drawPath(bg_path)
@@ -842,8 +854,7 @@ class TopbarButton(QWidget):
         w, h = self.width(), self.height()
 
         if t > 0:
-            bg = QColor(C["glass_hover"])
-            bg.setAlpha(int(t * 80))
+            bg = QColor(36, 58, 94, int(t * 80))
             path = QPainterPath()
             path.addRoundedRect(QRectF(2, 4, w - 4, h - 8), 8, 8)
             p.fillPath(path, bg)
@@ -867,3 +878,98 @@ class TopbarButton(QWidget):
     def sizeHint(self):
         fm = QFontMetrics(QFont("Segoe UI", 10, QFont.Bold))
         return QSize(fm.horizontalAdvance(self._text) + 28, 46)
+
+
+# ─────────────────────────────────────────────
+#  AmbientBackground  — fundo atmosférico global
+# ─────────────────────────────────────────────
+
+class AmbientBackground(QWidget):
+    """
+    Central widget que pinta o fundo atmosférico da aplicação.
+    Fica atrás de toda a interface. Os GlassPanel são translucidos
+    e deixam o glow vazar através deles.
+    """
+
+    _BG = QColor(0x04, 0x08, 0x14)   # azul-marinho profundo iOS-style
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._preview_shell = None
+        self._has_media = False
+        self._alpha_t = 0.35
+        self.setAutoFillBackground(False)
+        self.setAttribute(Qt.WA_OpaquePaintEvent)
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)
+        self._timer.timeout.connect(self._tick)
+        self._timer.start()
+
+    def set_preview_shell(self, shell: QWidget):
+        self._preview_shell = shell
+        self.update()
+
+    def set_has_media(self, value: bool):
+        if value != self._has_media:
+            self._has_media = value
+
+    def _tick(self):
+        target = 1.0 if self._has_media else 0.35
+        if self._alpha_t == target:
+            return
+        step = 0.025
+        if abs(self._alpha_t - target) < step:
+            self._alpha_t = target
+        else:
+            self._alpha_t += step if target > self._alpha_t else -step
+        self.update()
+
+    def _preview_center(self):
+        """Retorna o centro do preview shell em coordenadas deste widget."""
+        shell = self._preview_shell
+        if shell is None:
+            return self.width() * 0.62, self.height() * 0.35
+        pos = shell.mapTo(self, shell.rect().center())
+        return float(pos.x()), float(pos.y())
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
+
+        w, h = self.width(), self.height()
+        base = max(w, h)
+        a = self._alpha_t
+
+        # ── fundo base escuro ───────────────────────────────────────────────────
+        p.fillRect(self.rect(), self._BG)
+
+        def _radial(cx, cy, radius, r, g, b, alpha):
+            gr = QRadialGradient(QPointF(cx, cy), radius)
+            gr.setColorAt(0.0,  QColor(r, g, b, alpha))
+            gr.setColorAt(0.45, QColor(r, g, b, int(alpha * 0.4)))
+            gr.setColorAt(1.0,  QColor(r, g, b, 0))
+            path = QPainterPath()
+            path.addEllipse(QPointF(cx, cy), radius, radius)
+            p.fillPath(path, gr)
+
+        # ── glows estáticos de base ─────────────────────────────────────────────
+        _radial(w * 0.14, h * 0.40, base * 0.50,  20,  80, 200, 28)   # azul — painel esquerdo
+        _radial(w * 0.50, h * 0.88, base * 0.70,  60,  40, 200, 25)   # roxo — timeline
+        _radial(w * 0.85, h * 0.55, base * 0.45,  20, 120, 220, 20)   # azul direita
+
+        # ── glow dinâmico centrado no preview — espalha por todo o app ──────────
+        px, py = self._preview_center()
+        dyn_a = int(a * 255)
+        _radial(px, py, base * 1.10, 40, 180, 255, int(38 * a))   # ciano
+        _radial(px, py, base * 0.95, 90,  70, 255, int(30 * a))   # roxo
+
+        # ── vinheta ─────────────────────────────────────────────────────────────
+        vig = QRadialGradient(QPointF(w / 2, h / 2), max(w, h) * 0.68)
+        vig.setColorAt(0.40, QColor(0, 0, 0, 0))
+        vig.setColorAt(1.0,  QColor(0, 0, 0, 130))
+        p.setBrush(QBrush(vig))
+        p.drawRect(self.rect())
+
+        p.end()

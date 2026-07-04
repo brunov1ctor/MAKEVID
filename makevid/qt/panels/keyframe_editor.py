@@ -81,7 +81,7 @@ class KeyframeEditorWidget(QWidget):
         y_offset = 30  # offset pelo header
 
         # Fundo
-        painter.fillRect(QRectF(0, y_offset, w, h), QColor(C["card"]))
+        painter.fillRect(QRectF(0, y_offset, w, h), QColor(28, 46, 74, 140))
 
         # Grid horizontal
         painter.setPen(QPen(QColor(C["border"]), 1, Qt.DashLine))

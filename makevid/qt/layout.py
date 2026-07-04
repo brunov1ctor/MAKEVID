@@ -3,10 +3,10 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QSplitter, QStackedWidget, QSizePolicy
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 
 from makevid.qt.widgets import GlassPanel
-from makevid.qt.preview.glow_layer import PreviewGlowPanel, GlowOverlay
+from makevid.qt.preview.glow_layer import PreviewGlowPanel
 from makevid.qt.timeline.timeline_widget import TimelineWidget
 from makevid.qt.preview.preview_widget import PreviewWidget
 from makevid.qt.panels.generator_panel import GeneratorPanel
@@ -28,12 +28,12 @@ def build_layout(window, main_layout):
     window._v_splitter = QSplitter(Qt.Vertical)
     window._v_splitter.setHandleWidth(10)
     window._v_splitter.setChildrenCollapsible(False)
-    window._v_splitter.setStyleSheet("QSplitter::handle { background: transparent; }")
+    window._v_splitter.setStyleSheet("QSplitter { background: transparent; } QSplitter::handle { background: transparent; }")
 
     window._h_splitter = QSplitter(Qt.Horizontal)
     window._h_splitter.setHandleWidth(10)
     window._h_splitter.setChildrenCollapsible(False)
-    window._h_splitter.setStyleSheet("QSplitter::handle { background: transparent; }")
+    window._h_splitter.setStyleSheet("QSplitter { background: transparent; } QSplitter::handle { background: transparent; }")
 
     # ── Left stack ────────────────────────────────────────────────────────────
     window._left_stack = QStackedWidget()
@@ -41,6 +41,7 @@ def build_layout(window, main_layout):
     window._left_stack.setMinimumHeight(0)
     window._left_stack.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Ignored)
     window._left_stack.setStyleSheet("background: transparent;")
+    window._left_stack.setAttribute(Qt.WA_TranslucentBackground)
 
     # ── Widgets principais ────────────────────────────────────────────────────
     window.timeline = TimelineWidget(project)
@@ -51,21 +52,25 @@ def build_layout(window, main_layout):
     _build_panels(window)
 
     # ── GlassPanel wrappers ───────────────────────────────────────────────────
-    left_shell = GlassPanel(radius=20, shadow=True, shadow_radius=30, shadow_dy=8)
+    left_shell = GlassPanel(radius=20, shadow=False)
+    left_shell.setAttribute(Qt.WA_TranslucentBackground)
     window._left_layout = QVBoxLayout(left_shell)
     window._left_layout.setContentsMargins(0, 0, 0, 0)
     window._left_layout.setSpacing(0)
     window._left_layout.addWidget(window._left_stack)
 
-    preview_shell = PreviewGlowPanel(radius=20, shadow=True, shadow_radius=36, shadow_dy=10)
+    preview_shell = PreviewGlowPanel(radius=20, shadow=False)
     window._preview_layout = QVBoxLayout(preview_shell)
     window._preview_layout.setContentsMargins(0, 0, 0, 0)
     window._preview_layout.addWidget(window.preview)
     window._preview_shell = preview_shell
     window.preview._glow_layer = preview_shell
-    window._preview_halo = None
+    preview_shell.set_preview(window.preview)
+    # glow global no AmbientBackground
+    window.preview._ambient_bg = None  # será setado pelo app.py via set_ambient_bg
 
-    timeline_shell = GlassPanel(radius=20, shadow=True, shadow_radius=28, shadow_dy=6)
+    timeline_shell = GlassPanel(radius=20, shadow=False)
+    timeline_shell.setAttribute(Qt.WA_TranslucentBackground)
     window._timeline_layout = QVBoxLayout(timeline_shell)
     window._timeline_layout.setContentsMargins(0, 0, 0, 0)
     window._timeline_layout.addWidget(window.timeline)
@@ -81,24 +86,6 @@ def build_layout(window, main_layout):
     window._h_splitter.setSizes([300, 900])
 
     main_layout.addWidget(window._v_splitter)
-
-    # ── GlowOverlay — filho do centralWidget, atrás de tudo ──────────────────
-    def _install_overlay():
-        central = window.centralWidget()
-        overlay = GlowOverlay(central)
-        overlay.track(preview_shell)
-        preview_shell._halo = overlay
-        window._preview_halo = overlay
-
-        # atualiza quando splitter mover ou janela redimensionar
-        def _update():
-            overlay.track(preview_shell)
-
-        window._h_splitter.splitterMoved.connect(lambda *_: _update())
-        window._v_splitter.splitterMoved.connect(lambda *_: _update())
-        window._glow_update = _update  # guarda ref para resizeEvent
-
-    QTimer.singleShot(0, _install_overlay)
 
     # ── Style panel ───────────────────────────────────────────────────────────
     window.style_panel = StylePanel(project, parent=window)
@@ -119,10 +106,43 @@ def _build_panels(window):
     window.track_menu    = TrackMenuPanel()
     window.inpaint_panel = InpaintPanel()
     window.audio_browser = AudioBrowserPanel(project, window.timeline)
-    for panel in (
+
+    panels = (
         window.generator, window.mixer, window.fx_editor, window.track_editor,
         window.export_panel, window.recorder, window.tts_panel, window.video_browser,
         window.track_menu, window.inpaint_panel, window.audio_browser,
-    ):
+    )
+    for panel in panels:
+        _make_transparent(panel)
         window._left_stack.addWidget(panel)
     window._left_stack.setCurrentWidget(window.generator)
+
+
+def _make_transparent(widget):
+    """Torna o widget e todos os filhos QFrame/QWidget/QScrollArea transparentes."""
+    from PySide6.QtWidgets import QScrollArea, QFrame
+    widget.setAttribute(Qt.WA_TranslucentBackground)
+    widget.setAutoFillBackground(False)
+    for child in widget.findChildren(QScrollArea):
+        child.setStyleSheet("background: transparent; border: none;")
+        child.viewport().setStyleSheet("background: transparent;")
+        child.viewport().setAttribute(Qt.WA_TranslucentBackground)
+        if child.widget():
+            child.widget().setStyleSheet("background: transparent;")
+            child.widget().setAttribute(Qt.WA_TranslucentBackground)
+    for child in widget.findChildren(QFrame):
+        child.setAttribute(Qt.WA_TranslucentBackground)
+        child.setAttribute(Qt.WA_StyledBackground, False)
+        child.setAutoFillBackground(False)
+        ss = child.styleSheet()
+        if ss and 'background' in ss:
+            import re
+            ss = re.sub(r'background(-color)?\s*:[^;]+;?', 'background: transparent;', ss)
+            child.setStyleSheet(ss)
+    for child in widget.findChildren(QWidget):
+        if type(child).__name__ not in ('QScrollBar', 'QSlider', 'QProgressBar',
+                                        'QLineEdit', 'QTextEdit', 'QPlainTextEdit',
+                                        'QComboBox', 'QCheckBox', 'QRadioButton',
+                                        'QPushButton', 'QLabel'):
+            child.setAttribute(Qt.WA_TranslucentBackground)
+            child.setAutoFillBackground(False)

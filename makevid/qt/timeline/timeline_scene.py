@@ -33,7 +33,7 @@ class TimelineScene(QGraphicsScene):
         self._compact_strip_y = None
         self._playhead = None
         self._interaction = SceneInteraction(self)
-        self.setBackgroundBrush(QColor(C["dark"]))
+        self.setBackgroundBrush(Qt.transparent)
 
     # ── public ────────────────────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ class TimelineScene(QGraphicsScene):
         sw = max(vw, lw + int(total * zoom) + 100)
 
         self.setSceneRect(0, 0, sw, vh)
-        self.setBackgroundBrush(QColor(C["dark"]))
+        self.setBackgroundBrush(Qt.transparent)
 
         self._calc_positions(vh, rh)
         self._draw_backgrounds(lw, sw)
@@ -75,7 +75,7 @@ class TimelineScene(QGraphicsScene):
         vh = self.tl._view.viewport().height() or 300
 
         self.setSceneRect(0, 0, vw, vh)
-        self.setBackgroundBrush(QColor(C["dark"]))
+        self.setBackgroundBrush(Qt.transparent)
         self._calc_positions(vh, rh)
         self._draw_backgrounds(lw, vw)
         self._draw_ruler(lw, vw, rh, self.tl.zoom, 30)
@@ -143,13 +143,14 @@ class TimelineScene(QGraphicsScene):
                 continue
             y, h = self._track_pos[key]
 
+            bg_color = QColor(14, 22, 42, 28) if i % 2 == 0 else QColor(7, 11, 20, 28)
             bg = QGraphicsRectItem(lw, y, sw - lw, h)
             bg.setPen(Qt.NoPen)
-            bg.setBrush(QColor(C["panel"] if i % 2 == 0 else C["bg"]))
+            bg.setBrush(bg_color)
             bg.setZValue(-10)
             self.addItem(bg)
 
-            tint = QColor(color); tint.setAlpha(25)
+            tint = QColor(color); tint.setAlpha(12)
             ti = QGraphicsRectItem(lw, y, sw - lw, h)
             ti.setPen(Qt.NoPen)
             ti.setBrush(tint)
@@ -157,7 +158,7 @@ class TimelineScene(QGraphicsScene):
             self.addItem(ti)
 
             sep = QGraphicsLineItem(lw, y, sw, y)
-            sep.setPen(QPen(QColor(255, 255, 255, 10), 1))
+            sep.setPen(QPen(QColor(255, 255, 255, 5), 1))
             sep.setZValue(-8)
             self.addItem(sep)
 
@@ -171,19 +172,20 @@ class TimelineScene(QGraphicsScene):
     # ── labels ────────────────────────────────────────────────────────────────
 
     def _draw_labels(self, lw, vh, rh, project):
+        lbl_bg = QColor(28, 46, 74, 70)
         bg = QGraphicsRectItem(0, 0, lw, vh)
         bg.setPen(Qt.NoPen)
-        bg.setBrush(QColor(C["glass"]))
+        bg.setBrush(lbl_bg)
         bg.setZValue(5)
         self.addItem(bg)
 
         bdr = QGraphicsLineItem(lw - 1, rh, lw - 1, vh)
-        bdr.setPen(QPen(QColor(C["glass_border"]), 1))
+        bdr.setPen(QPen(QColor(255, 255, 255, 45), 1))
         bdr.setZValue(6)
         self.addItem(bdr)
 
         rbdr = QGraphicsLineItem(0, rh - 1, lw, rh - 1)
-        rbdr.setPen(QPen(QColor(C["glass_border"]), 1))
+        rbdr.setPen(QPen(QColor(255, 255, 255, 45), 1))
         rbdr.setZValue(6)
         self.addItem(rbdr)
 

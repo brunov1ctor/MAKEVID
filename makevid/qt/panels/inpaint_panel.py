@@ -74,7 +74,7 @@ class MaskCanvas(QWidget):
                     scaled.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 p.drawPixmap(ox, oy, mask_pix)
         else:
-            p.fillRect(self.rect(), QColor(C["dark"]))
+            p.fillRect(self.rect(), QColor(11, 18, 32, 220))
             p.setPen(QColor(C['text3']))
             p.drawText(self.rect(), Qt.AlignCenter, "Nenhum frame carregado")
 

@@ -1,7 +1,8 @@
 """Widgets compartilhados do Style Panel."""
 
 from PySide6.QtWidgets import QFrame, QTextEdit, QSizePolicy
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QRectF
+from PySide6.QtGui import QPainter, QColor, QPen
 
 
 class DraggableDivider(QFrame):
@@ -127,16 +128,18 @@ class FlexTextEdit(QTextEdit):
                  hover_color=None, focus_color=None, focus_px=None,
                  min_lines=4, parent=None):
         super().__init__(parent)
-        hover_color = hover_color or color
-        focus_color = focus_color or color
-        focus_px = focus_px or border_px
+        self._border_color   = border_color
+        self._hover_color    = hover_color or color
+        self._focus_color    = focus_color or color
+        self._border_radius  = int(''.join(filter(str.isdigit, border_radius)) or 4)
+        self._border_w       = int(''.join(filter(str.isdigit, border_px)) or 2)
+        self._is_focused     = False
+        self._is_hovered     = False
         self.setStyleSheet(
-            f"QTextEdit {{ background: {bg}; color: {color}; "
-            f"border: {border_px} solid {border_color}; border-radius: {border_radius}; "
+            f"QTextEdit {{ background: {bg}; color: {color}; border: none; "
+            f"border-radius: {border_radius}; "
             f"font-family: Consolas; font-size: {font_size}; font-weight: {font_weight}; "
-            f"padding: 4px 6px; }}"
-            f"QTextEdit:hover {{ border: {border_px} solid {hover_color}; }}"
-            f"QTextEdit:focus {{ border: {focus_px} solid {focus_color}; }}")
+            f"padding: 4px 6px; }}")
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setLineWrapMode(QTextEdit.WidgetWidth)
@@ -150,6 +153,48 @@ class FlexTextEdit(QTextEdit):
         self._min_lines = min_lines
         self._min_h = 24
         self.setFixedHeight(24)
+
+    def _current_border_color(self):
+        if self._is_focused:
+            return self._focus_color
+        if self._is_hovered:
+            return self._hover_color
+        return self._border_color
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        p = QPainter(self.viewport())
+        if not p.isActive():
+            return
+        p.setRenderHint(QPainter.Antialiasing)
+        bw = self._border_w
+        r  = self._border_radius
+        rect = QRectF(self.viewport().rect()).adjusted(bw/2, bw/2, -bw/2, -bw/2)
+        pen = QPen(QColor(self._current_border_color()), bw)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(rect, r, r)
+        p.end()
+
+    def focusInEvent(self, event):
+        self._is_focused = True
+        self.viewport().update()
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event):
+        self._is_focused = False
+        self.viewport().update()
+        super().focusOutEvent(event)
+
+    def enterEvent(self, event):
+        self._is_hovered = True
+        self.viewport().update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._is_hovered = False
+        self.viewport().update()
+        super().leaveEvent(event)
 
     def showEvent(self, event):
         super().showEvent(event)

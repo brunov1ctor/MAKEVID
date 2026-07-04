@@ -59,8 +59,9 @@ class TimelineWidget(QWidget):
         self._view.setTransformationAnchor(QGraphicsView.NoAnchor)
         self._view.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
         self._view.setStyleSheet(
-            f"background: {C['dark']}; border: none; "
-            f"border-bottom-left-radius: 20px; border-bottom-right-radius: 20px;")
+            "background: transparent; border: none; "
+            "border-bottom-left-radius: 20px; border-bottom-right-radius: 20px;")
+        self._view.viewport().setStyleSheet("background: transparent;")
         self._view.setAcceptDrops(True)
         self._view.dragEnterEvent = self._on_drag_enter
         self._view.dragMoveEvent = self._on_drag_move
@@ -85,9 +86,9 @@ class TimelineWidget(QWidget):
         tb = QWidget()
         tb.setFixedHeight(38)
         tb.setStyleSheet(
-            f"background: {C['glass']}; border: none; "
+            f"background: rgba(28,46,74,0.45); border: none; "
             f"border-top-left-radius: 20px; border-top-right-radius: 20px; "
-            f"border-bottom: 1px solid {C['glass_border']};")
+            f"border-bottom: 1px solid rgba(255,255,255,0.12);")
         h = QHBoxLayout(tb)
         h.setContentsMargins(12, 0, 12, 0)
         h.setSpacing(6)
@@ -180,7 +181,7 @@ class TimelineWidget(QWidget):
         self._loop_cb = QCheckBox("Loop")
         self._loop_cb.setStyleSheet(
             f"QCheckBox {{ color: {C['text3']}; font-size: 8pt; font-weight: bold; spacing: 4px; }}"
-            f"QCheckBox::indicator {{ width: 14px; height: 14px; border-radius: 3px; border: 2px solid {C['cyan']}; background: {C['card']}; }}"
+            f"QCheckBox::indicator {{ width: 14px; height: 14px; border-radius: 3px; border: 2px solid {C['cyan']}; background: transparent; }}"
             f"QCheckBox::indicator:checked {{ background: {C['cyan']}; }}"
             f"QCheckBox::indicator:hover {{ border: 2px solid {C['gold']}; }}")
         self._loop_cb.setToolTip("Repetir playback em loop")
