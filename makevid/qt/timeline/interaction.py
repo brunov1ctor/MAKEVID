@@ -107,6 +107,7 @@ class SceneInteraction:
 
             for name, (ty, th) in self.scene._track_pos.items():
                 if ty <= pos.y() <= ty + th:
+                    self.tl.set_active_track(name)
                     cb = self.label_clicked or self.track_empty_clicked
                     if cb:
                         cb(name)
@@ -134,6 +135,7 @@ class SceneInteraction:
             gi = self._track_item_at(pos)
             _log.debug(f"on_press track={name} pos=({pos.x():.0f},{pos.y():.0f}) gi={'None' if gi is None else gi.track_item.id}")
             if gi is not None:
+                self.tl.set_active_track(name)
                 found = gi.track_item
                 ix1 = lbl_w + int(found.start_time * zoom)
                 iw = int(found.duration * zoom)
@@ -168,6 +170,7 @@ class SceneInteraction:
 
             # Área vazia → menu da track
             _log.debug(f"on_press track={name} area_vazia → track_empty_clicked sel_track={self.tl._selected_track_item_id}")
+            self.tl.set_active_track(name)
             cb = self.track_empty_clicked or self.label_clicked
             if cb:
                 cb(name)
@@ -176,6 +179,7 @@ class SceneInteraction:
         # Clip de video
         item = self._item_at(pos)
         if isinstance(item, ClipGraphicsItem):
+            self.tl.set_active_track("video")
             clip = item.clip
             local_x = pos.x() - item._x
             iw = item._w

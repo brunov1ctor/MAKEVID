@@ -204,6 +204,14 @@ class Project:
     output_fps: int = 16
     output_width: int = 832
     output_height: int = 480
+    export_format: str = "MP4 (H.264)"
+    export_tracks: Dict[str, bool] = field(default_factory=lambda: {
+        "video": True,
+        "voice": True,
+        "sfx": True,
+        "music": True,
+        "audio": True,
+    })
 
     def add_clip(self, prompt: str = "", position: Optional[int] = None) -> Clip:
         pos = position if position is not None else len(self.clips)
@@ -271,6 +279,14 @@ class Project:
             output_fps=data.get("output_fps", 16),
             output_width=data.get("output_width", 832),
             output_height=data.get("output_height", 480),
+            export_format=data.get("export_format", "MP4 (H.264)"),
+            export_tracks=data.get("export_tracks", {
+                "video": True,
+                "voice": True,
+                "sfx": True,
+                "music": True,
+                "audio": True,
+            }),
         )
         return proj
 

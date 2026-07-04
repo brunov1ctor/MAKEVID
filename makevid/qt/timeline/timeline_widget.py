@@ -37,6 +37,7 @@ class TimelineWidget(QWidget):
         self._audio_split_mode = None
         self._selected_clip_id = None
         self._selected_track_item_id = None
+        self._active_track_key = None
         self.collapsed_tracks = set()  # tracks colapsadas
 
         self._build_ui()
@@ -62,12 +63,13 @@ class TimelineWidget(QWidget):
         self._view.setDragMode(QGraphicsView.NoDrag)
         self._view.setTransformationAnchor(QGraphicsView.NoAnchor)
         self._view.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
-        self._view.setStyleSheet("background: transparent; border: none;")
-        self._view.viewport().setStyleSheet("background: transparent;")
+        self._view.setStyleSheet("background: rgba(8,12,22,0.92); border: none;")
+        self._view.viewport().setStyleSheet("background: rgba(8,12,22,0.92);")
         self._view.setInteractive(True)
         self._view.setAcceptDrops(True)
         self._view.dragEnterEvent = self._on_drag_enter
         self._view.dragMoveEvent = self._on_drag_move
+        self._view.dragLeaveEvent = self._on_drag_leave
         self._view.dropEvent = self._on_drop
         self._view.resizeEvent = self._on_view_resize
         self._view.mousePressEvent = self._on_view_mouse_press
@@ -91,11 +93,26 @@ class TimelineWidget(QWidget):
         tb = QWidget()
         tb.setFixedHeight(38)
         tb.setStyleSheet(
-            f"background: rgba(28,46,74,0.45); border: none; "
-            f"border-top-left-radius: 20px; border-top-right-radius: 20px; "
-            f"border-bottom: 1px solid rgba(255,255,255,0.12);")
+            "background: transparent; border: none;"
+            f"QPushButton#tlZoomBtn {{"
+            f"  background: rgba(18,28,44,0.95);"
+            f"  color: {C['text']};"
+            "  border: 1px solid rgba(255,255,255,0.34);"
+            "  border-radius: 4px;"
+            "  padding: 0;"
+            "  font-size: 10pt;"
+            "  font-weight: bold;"
+            "}"
+            f"QPushButton#tlZoomBtn:hover {{"
+            f"  background: rgba(28,42,64,0.98);"
+            f"  border-color: {C['primary']};"
+            "}"
+            f"QPushButton#tlZoomBtn:pressed {{"
+            f"  background: rgba(42,58,86,1.0);"
+            "}"
+        )
         h = QHBoxLayout(tb)
-        h.setContentsMargins(12, 0, 12, 0)
+        h.setContentsMargins(12, 4, 12, 4)
         h.setSpacing(6)
 
         # Title
@@ -111,7 +128,20 @@ class TimelineWidget(QWidget):
         lbl_z.setStyleSheet(f"color: {C['text3']}; font-size: 8pt;")
         h.addWidget(lbl_z)
         btn_zm = QPushButton("-")
-        btn_zm.setFixedSize(20, 18)
+        btn_zm.setObjectName("tlZoomBtn")
+        btn_zm.setFixedSize(28, 24)
+        btn_zm.setStyleSheet(
+            "QPushButton {"
+            "background: transparent;"
+            "color: #ffffff;"
+            "border: none;"
+            "padding: 0;"
+            "font-size: 12pt;"
+            "font-weight: bold;"
+            "}"
+            "QPushButton:hover { color: #cfe3ff; }"
+            "QPushButton:pressed { color: #8fb8ff; }"
+        )
         btn_zm.setToolTip("Diminuir zoom")
         btn_zm.clicked.connect(lambda: self._adjust_zoom(-10))
         h.addWidget(btn_zm)
@@ -125,7 +155,20 @@ class TimelineWidget(QWidget):
         h.addWidget(self._zoom_slider)
 
         btn_zp = QPushButton("+")
-        btn_zp.setFixedSize(20, 18)
+        btn_zp.setObjectName("tlZoomBtn")
+        btn_zp.setFixedSize(28, 24)
+        btn_zp.setStyleSheet(
+            "QPushButton {"
+            "background: transparent;"
+            "color: #ffffff;"
+            "border: none;"
+            "padding: 0;"
+            "font-size: 12pt;"
+            "font-weight: bold;"
+            "}"
+            "QPushButton:hover { color: #cfe3ff; }"
+            "QPushButton:pressed { color: #8fb8ff; }"
+        )
         btn_zp.setToolTip("Aumentar zoom")
         btn_zp.clicked.connect(lambda: self._adjust_zoom(10))
         h.addWidget(btn_zp)
@@ -248,8 +291,20 @@ class TimelineWidget(QWidget):
             return
         _log.debug(f"redraw sel_track={self._selected_track_item_id}")
         self._scene.rebuild(self.project, self.zoom, self.playhead_pos,
-                            self._selected_track_item_id, self._selected_clip_id)
+                            self._selected_track_item_id, self._selected_clip_id,
+                            self._active_track_key)
         self._update_time_label()
+
+    def set_active_track(self, track_key):
+        valid = {"video", "fx", "voice", "sfx", "music", "audio"}
+        new_key = track_key if track_key in valid else None
+        if self._active_track_key == new_key:
+            return
+        self._active_track_key = new_key
+        self.redraw()
+
+    def clear_active_track(self):
+        self.set_active_track(None)
 
     def _on_project_changed(self, proj):
         _log.debug(f"_on_project_changed track_items={len(proj.track_items)} sel_track={self._selected_track_item_id}")
@@ -363,14 +418,17 @@ class TimelineWidget(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._redraw_timer.start()  # reinicia o timer a cada resize, dispara 1x após 50ms
+        # Redesenha em tempo real durante o arraste de resize.
+        self.redraw()
 
     def _on_view_leave(self, event):
         self._scene.update_hover(None)
+        event.accept()
 
     def _on_view_resize(self, event):
         QGraphicsView.resizeEvent(self._view, event)
-        self._redraw_timer.start()
+        # Atualiza imediatamente enquanto a view é redimensionada.
+        self.redraw()
 
     def _on_view_mouse_press(self, event):
         pos = self._view.mapToScene(event.pos())
@@ -462,13 +520,48 @@ class TimelineWidget(QWidget):
     # DRAG-AND-DROP (arquivos do SO)
     # ============================================================
 
+    def _drop_scene_pos(self, event):
+        try:
+            p = event.position().toPoint()
+        except Exception:
+            p = event.pos()
+        return self._view.mapToScene(p)
+
+    def _track_at_scene_pos(self, pos):
+        for name, (ty, th) in self._scene._track_pos.items():
+            if ty <= pos.y() <= ty + th:
+                return name
+        return None
+
+    def _time_at_scene_pos(self, pos):
+        return max(0.0, (pos.x() - self.LBL_W) / max(1, self.zoom))
+
+    def _clip_position_at_time(self, t):
+        clips = sorted(self.project.clips, key=lambda c: c.position)
+        if not clips:
+            return 0
+        cur = 0.0
+        for i, c in enumerate(clips):
+            if t < cur + c.duration:
+                return i
+            cur += c.duration
+        return len(clips)
+
     def _on_drag_enter(self, event):
         if event.mimeData().hasUrls():
+            pos = self._drop_scene_pos(event)
+            self._scene.update_hover(pos)
             event.acceptProposedAction()
 
     def _on_drag_move(self, event):
         if event.mimeData().hasUrls():
+            pos = self._drop_scene_pos(event)
+            self._scene.update_hover(pos)
             event.acceptProposedAction()
+
+    def _on_drag_leave(self, event):
+        self._scene.update_hover(None)
+        event.accept()
 
     def _on_drop(self, event):
         """Arquivos soltos na timeline: audio → track audio, video → clip."""
@@ -478,6 +571,11 @@ class TimelineWidget(QWidget):
         urls = event.mimeData().urls()
         if not urls:
             return
+
+        pos = self._drop_scene_pos(event)
+        drop_track = self._track_at_scene_pos(pos)
+        drop_time = self._time_at_scene_pos(pos)
+        self._scene.update_hover(None)
 
         audio_exts = {'.wav', '.mp3', '.ogg', '.flac'}
         video_exts = {'.mp4', '.avi', '.mov', '.mkv', '.webm'}
@@ -490,7 +588,7 @@ class TimelineWidget(QWidget):
             ext = path.suffix.lower()
 
             if ext in audio_exts:
-                # Importar como audio
+                # Importar como item de track no ponto solto.
                 dest_dir = AUDIO_DIR / self.project.id
                 dest_dir.mkdir(parents=True, exist_ok=True)
                 dest = dest_dir / path.name
@@ -502,15 +600,19 @@ class TimelineWidget(QWidget):
                     dur = get_audio_duration(str(dest)) or 5.0
                 except Exception:
                     pass
-                existing = self.project.get_track_items("audio")
-                start = max((i.start_time + i.duration for i in existing), default=self.playhead_pos)
+
+                target_track = drop_track if drop_track in {"voice", "sfx", "music", "audio"} else "audio"
                 self.project.add_track_item(
-                    name=path.stem[:20], track="audio",
-                    start_time=start, duration=dur, file_path=str(dest),
-                    params={"block_name": f"\U0001f4c2 {path.stem[:12]}"})
+                    name=path.stem[:20],
+                    track=target_track,
+                    start_time=drop_time,
+                    duration=dur,
+                    file_path=str(dest),
+                    params={"block_name": f"\U0001f4c2 {path.stem[:12]}"},
+                )
 
             elif ext in video_exts:
-                # Importar como clip
+                # Importar como clip de video no ponto solto da timeline.
                 dest_dir = OUTPUTS_DIR / self.project.id
                 dest_dir.mkdir(parents=True, exist_ok=True)
                 dest = dest_dir / path.name
@@ -518,7 +620,8 @@ class TimelineWidget(QWidget):
                     shutil.copy2(str(path), str(dest))
                 from makevid.core.timeline import get_video_duration
                 dur = get_video_duration(str(dest)) or 5.0
-                clip = self.project.add_clip(prompt=path.stem, position=len(self.project.clips))
+                clip_pos = self._clip_position_at_time(drop_time)
+                clip = self.project.add_clip(prompt=path.stem, position=clip_pos)
                 clip.video_path = str(dest)
                 clip.duration = dur
                 clip.status = "done"

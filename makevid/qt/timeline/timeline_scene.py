@@ -5,6 +5,7 @@ import math
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsItem
 from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import QPen, QBrush, QColor, QFont, QPolygonF, QPainterPath, QPainter, QLinearGradient
+import shiboken6
 
 from makevid.qt.theme import C
 from makevid.qt.timeline.clip_item import ClipGraphicsItem
@@ -30,15 +31,22 @@ _log = logging.getLogger("timeline")
 class _BgItem(QGraphicsItem):
     """Fundo de uma faixa — nunca selecionável pelo Qt."""
 
-    def __init__(self, x, y, w, h, color_even, tint_color):
+    def __init__(self, x, y, w, h, color_even, tint_color, active=False):
         super().__init__()
         self._x, self._y, self._w, self._h = x, y, w, h
-        self._bg = color_even
-        self._tint = tint_color
+        self._bg = QColor(color_even)
+        self._tint = QColor(tint_color)
+        self._active = active
+        self._hovered = False
         self.setFlags(QGraphicsItem.GraphicsItemFlag(0))
         self.setAcceptedMouseButtons(Qt.NoButton)
         self.setAcceptHoverEvents(False)
         self.setZValue(-10)
+
+    def set_hovered(self, hovered: bool):
+        if self._hovered != hovered:
+            self._hovered = hovered
+            self.update()
 
     def boundingRect(self):
         return QRectF(self._x, self._y, self._w, self._h)
@@ -46,8 +54,25 @@ class _BgItem(QGraphicsItem):
     def paint(self, painter: QPainter, option, widget=None):
         r = QRectF(self._x, self._y, self._w, self._h)
         painter.setPen(Qt.NoPen)
-        painter.fillRect(r, self._bg)
-        painter.fillRect(r, self._tint)
+        bg = QColor(self._bg)
+        tint = QColor(self._tint)
+
+        if self._active:
+            bg.setAlpha(min(255, bg.alpha() + 14))
+            tint.setAlpha(min(255, tint.alpha() + 16))
+
+        painter.fillRect(r, bg)
+        painter.fillRect(r, tint)
+
+        if self._hovered:
+            hv = QColor(tint)
+            hv.setAlpha(min(255, tint.alpha() + 36))
+            painter.fillRect(r, hv)
+
+            edge = QColor(tint).lighter(130)
+            edge.setAlpha(230)
+            painter.setPen(QPen(edge, 1.6))
+            painter.drawRect(r.adjusted(0.8, 0.8, -0.8, -0.8))
 
 
 class _SepItem(QGraphicsItem):
@@ -195,7 +220,9 @@ class _FxItem(QGraphicsItem):
     def paint(self, painter: QPainter, option, widget=None):
         x, y, w, h = self._x, self._y + 3, self._w, self._h - 6
         c = self._color
-        painter.setPen(QPen(QColor("#00ffee") if self._hovered else c, 2 if self._hovered else 1))
+        hover_pen = QColor(c)
+        hover_pen = hover_pen.lighter(115)
+        painter.setPen(QPen(hover_pen if self._hovered else c, 2 if self._hovered else 1))
         painter.setBrush(QBrush(QColor("#1a0a2a")))
         painter.drawRect(QRectF(x, y, w, h))
 
@@ -283,6 +310,11 @@ class _EyeItem(QGraphicsItem):
     def hoverLeaveEvent(self, event): self._hovered = False; self.setCursor(Qt.ArrowCursor);        self.update()
 
     def mousePressEvent(self, event):
+        self._toggle_collapsed()
+        if event is not None:
+            event.accept()
+
+    def _toggle_collapsed(self):
         _log.debug(f"EyeItem.mousePressEvent track={self._track_key}")
         collapsed = self._tl.collapsed_tracks
         if self._track_key in collapsed:
@@ -290,7 +322,6 @@ class _EyeItem(QGraphicsItem):
         else:
             collapsed.add(self._track_key)
         self._tl.redraw()
-        event.accept()
 
 
 # ── TimelineScene ─────────────────────────────────────────────────────────────
@@ -304,18 +335,23 @@ class TimelineScene(QGraphicsScene):
         self._label_pos = {}
         self._playhead = None
         self._track_items = {}
+        self._bg_items = {}
         self._interaction = SceneInteraction(self)
         self._hovered_item = None
-        self.setBackgroundBrush(Qt.transparent)
+        self._hovered_track_key = None
+        self.setBackgroundBrush(QColor(8, 12, 22, 235))
         self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
 
     # ── public ────────────────────────────────────────────────────────────────
 
-    def rebuild(self, project, zoom, ph_pos, sel_track_id=None, sel_clip_id=None):
+    def rebuild(self, project, zoom, ph_pos, sel_track_id=None, sel_clip_id=None, active_track_key=None):
         _log.debug(f"rebuild sel_track_id={sel_track_id}")
         self.clear()
         self._playhead = None
         self._track_items = {}
+        self._bg_items = {}
+        self._hovered_item = None
+        self._hovered_track_key = None
 
         lw = self.tl.LBL_W
         rh = self.tl.RULER_H
@@ -328,7 +364,7 @@ class TimelineScene(QGraphicsScene):
         self.setSceneRect(0, 0, sw, vh)
 
         self._calc_positions(vh, rh)
-        self._draw_backgrounds(lw, sw)
+        self._draw_backgrounds(lw, sw, active_track_key)
         self._draw_ruler(lw, sw, rh, zoom, total)
         self._draw_clips(project, zoom, lw, sel_clip_id)
         self._draw_diamonds(project, zoom, lw)
@@ -344,6 +380,9 @@ class TimelineScene(QGraphicsScene):
         self.clear()
         self._playhead = None
         self._track_items = {}
+        self._bg_items = {}
+        self._hovered_item = None
+        self._hovered_track_key = None
 
         lw = self.tl.LBL_W
         rh = self.tl.RULER_H
@@ -412,14 +451,20 @@ class TimelineScene(QGraphicsScene):
 
     # ── draw ──────────────────────────────────────────────────────────────────
 
-    def _draw_backgrounds(self, lw, sw):
+    def _draw_backgrounds(self, lw, sw, active_track_key=None):
         for i, (key, _, color, _, _) in enumerate(_TRACKS):
             if key not in self._track_pos:
                 continue
             y, h = self._track_pos[key]
-            bg = QColor(14, 22, 42, 28) if i % 2 == 0 else QColor(7, 11, 20, 28)
-            tint = QColor(color); tint.setAlpha(12)
-            self.addItem(_BgItem(lw, y, sw - lw, h, bg, tint))
+            is_active = key == active_track_key
+            bg_alpha = 82 if is_active else 62
+            tint_alpha = 88 if is_active else 58
+            bg = QColor(14, 22, 42, bg_alpha) if i % 2 == 0 else QColor(7, 11, 20, bg_alpha)
+            tint = QColor(color)
+            tint.setAlpha(tint_alpha)
+            bg_item = _BgItem(lw, y, sw - lw, h, bg, tint, active=is_active)
+            self._bg_items[key] = bg_item
+            self.addItem(bg_item)
             self.addItem(_SepItem(lw, y, sw))
 
     def _draw_ruler(self, lw, sw, rh, zoom, total):
@@ -533,9 +578,7 @@ class TimelineScene(QGraphicsScene):
         item = self.itemAt(pos, self.tl._view.transform())
         _log.debug(f"press item_at={type(item).__name__ if item else None}")
         if isinstance(item, _EyeItem):
-            from PySide6.QtWidgets import QGraphicsSceneMouseEvent
-            # deixa o EyeItem tratar via seu mousePressEvent
-            item.mousePressEvent(None)
+            item._toggle_collapsed()
             return
         self._interaction.on_press(pos, button)
 
@@ -547,6 +590,12 @@ class TimelineScene(QGraphicsScene):
         self._interaction.on_move(pos)
 
     def update_hover(self, pos):
+        def _is_valid_qobj(obj):
+            try:
+                return obj is not None and shiboken6.isValid(obj)
+            except Exception:
+                return False
+
         item = None
         if pos is not None:
             item = self.itemAt(pos, self.tl._view.transform())
@@ -554,18 +603,60 @@ class TimelineScene(QGraphicsScene):
                 item = item.parentItem()
             if item and not item.acceptHoverEvents():
                 item = None
+
+        if item is not None and not _is_valid_qobj(item):
+            item = None
+
+        hovering_rect_item = isinstance(item, (TrackGraphicsItem, _FxItem, ClipGraphicsItem))
+        hovered_track = None if hovering_rect_item else self._track_key_at_pos(pos)
+        self._set_hovered_track(hovered_track)
+
         prev = self._hovered_item
+        if prev is not None and not _is_valid_qobj(prev):
+            prev = None
+            self._hovered_item = None
+
         if item is prev:
-            if item and hasattr(item, 'hoverMoveEvent'):
-                item.hoverMoveEvent(type('E', (), {'scenePos': lambda s: pos, 'pos': lambda s: pos})())
+            if item is not None and pos is not None:
+                self._update_item_cursor(item, pos)
             return
         if prev and hasattr(prev, '_hovered'):
             prev._hovered = False
-            prev.update()
+            if _is_valid_qobj(prev):
+                prev.setCursor(Qt.ArrowCursor)
+                prev.update()
         self._hovered_item = item
         if item and hasattr(item, '_hovered'):
             item._hovered = True
-            item.update()
+            if pos is not None:
+                self._update_item_cursor(item, pos)
+            if _is_valid_qobj(item):
+                item.update()
+
+    def _track_key_at_pos(self, pos):
+        if pos is None:
+            return None
+        for key, (ty, th) in self._track_pos.items():
+            if ty <= pos.y() <= ty + th:
+                return key
+        return None
+
+    def _set_hovered_track(self, track_key):
+        if self._hovered_track_key == track_key:
+            return
+        self._hovered_track_key = track_key
+        for key, item in self._bg_items.items():
+            item.set_hovered(key == track_key)
+
+    def _update_item_cursor(self, item, pos):
+        if isinstance(item, (TrackGraphicsItem, ClipGraphicsItem, _FxItem)):
+            lx = pos.x() - item._x
+            item.setCursor(Qt.SizeHorCursor if lx <= 6 or (item._w - lx) <= 6 else Qt.ArrowCursor)
+            return
+        if isinstance(item, (_EyeItem, _StoryboardBadge)):
+            item.setCursor(Qt.PointingHandCursor)
+            return
+        item.setCursor(Qt.ArrowCursor)
 
     # ── double-click ainda via Qt (não causa seleção) ─────────────────────────
 

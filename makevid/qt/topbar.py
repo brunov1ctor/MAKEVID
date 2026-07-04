@@ -278,7 +278,7 @@ def build_topbar(window) -> GlassPanel:
     window._engine_items = _engine_items
 
     # Tema
-    btn_est = _menu_btn("Tema", "\U0001f3a8")
+    btn_est = _menu_btn("Tema", "\U0001f58b")
     m_est = _make_menu()
     m_est.add_action("Storyboard",  lambda: window._show_style_tab(0))
     m_est.add_action("Personagens", lambda: window._show_style_tab(1))

@@ -150,6 +150,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
 
     def _show_generator(self):
         _log.debug(f"_show_generator sel_track={self.timeline._selected_track_item_id}")
+        self.timeline.clear_active_track()
         self._left_stack.setCurrentWidget(self.generator)
         self.timeline._scene.select_track_item(self.timeline._selected_track_item_id)
 
@@ -162,10 +163,12 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
             self.audio_browser.refresh()
 
     def _show_track_editor(self, item):
+        self.timeline.set_active_track(item.track)
         self.track_editor.show_item(item, self.project)
         self._left_stack.setCurrentWidget(self.track_editor)
 
     def _show_fx_editor(self, item):
+        self.timeline.set_active_track("fx")
         self.fx_editor.show_item(item, self.project)
         self._left_stack.setCurrentWidget(self.fx_editor)
 
@@ -212,6 +215,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
     def _on_label_clicked(self, track_name):
         _log.debug(f"_on_label_clicked track={track_name} sel_track={self.timeline._selected_track_item_id}")
         self.timeline._selected_clip_id = None
+        self.timeline.set_active_track(track_name)
         self.track_menu.show_track(track_name, self.project)
         self._left_stack.setCurrentWidget(self.track_menu)
 

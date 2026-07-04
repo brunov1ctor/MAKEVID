@@ -37,7 +37,7 @@ def build_layout(window, main_layout):
 
     # ── Left stack ────────────────────────────────────────────────────────────
     window._left_stack = QStackedWidget()
-    window._left_stack.setMinimumWidth(260)
+    window._left_stack.setMinimumWidth(160)
     window._left_stack.setMinimumHeight(0)
     window._left_stack.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Ignored)
     window._left_stack.setStyleSheet("background: transparent;")
@@ -84,6 +84,8 @@ def build_layout(window, main_layout):
 
     window._v_splitter.setSizes([560, 260])
     window._h_splitter.setSizes([300, 900])
+    window._h_splitter.setStretchFactor(0, 0)
+    window._h_splitter.setStretchFactor(1, 1)
 
     main_layout.addWidget(window._v_splitter)
 

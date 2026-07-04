@@ -1,7 +1,6 @@
 """Logger - Sistema de logs compacto para MAKEVID."""
 
 import logging
-import sys
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
@@ -17,7 +16,7 @@ BACKUP_COUNT = 2
 
 
 def setup_logging():
-    """Configura logging global com rotacao automatica + console."""
+    """Configura logging global com rotacao automatica (arquivo apenas)."""
     formatter = logging.Formatter(
         fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%H:%M:%S",
@@ -29,16 +28,10 @@ def setup_logging():
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
 
-    # Console: apenas INFO+ (sem DEBUG spam)
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(formatter)
-
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
     root.handlers.clear()
     root.addHandler(file_handler)
-    root.addHandler(console_handler)
 
     # Silenciar libs externas e modulos internos ruidosos
     noisy = (

@@ -8,8 +8,8 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTextEdit, QLineEdit, QComboBox, QCheckBox, QRadioButton,
-    QButtonGroup, QProgressBar, QScrollArea, QFrame, QFileDialog,
-    QStackedWidget, QSizePolicy
+    QButtonGroup, QProgressBar, QScrollArea, QFrame, QFileDialog, QGridLayout,
+    QStackedWidget, QSizePolicy, QTabWidget
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QFont, QPixmap, QPainter, QColor, QPen
@@ -26,7 +26,7 @@ class _PlainTextEdit(QTextEdit):
         self.insertPlainText(source.text())
 
 from makevid.qt.theme import C
-from makevid.qt.widgets import GlassTabBar, GlassButton, SectionLabel
+from makevid.qt.widgets import GlassButton, SectionLabel
 from makevid.qt.panels.style.widgets import FlexTextEdit
 from makevid.config import PROJECTS_DIR
 
@@ -43,7 +43,8 @@ class GeneratorPanel(QWidget):
         super().__init__(parent)
         self.project = project
         self._ref_images = []
-        self.setMinimumWidth(250)
+        self.setMinimumWidth(220)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         self._img_cancelled = False
         self._img_progress_timer = None
         self._img_start_time = 0.0
@@ -60,15 +61,44 @@ class GeneratorPanel(QWidget):
         outer.setContentsMargins(14, 14, 14, 14)
         outer.setSpacing(10)
 
-        self._tab_bar = GlassTabBar(["GERAR CLIP", "GERAR IMAGEM"], self)
-        self._tab_bar.tab_clicked.connect(self._switch_tab)
-        outer.addWidget(self._tab_bar)
-        outer.setSpacing(0)
-
-        self._tab_stack = QStackedWidget()
-        self._tab_stack.setStyleSheet("QStackedWidget { background: transparent; }")
-        self._tab_stack.addWidget(self._build_clip_tab())   # 0
-        self._tab_stack.addWidget(self._build_image_tab())  # 1
+        # Abas estilo navegador direto no painel de vidro
+        self._tab_stack = QTabWidget()
+        self._tab_stack.setObjectName("generatorBrowserTabs")
+        self._tab_stack.setDocumentMode(True)
+        self._tab_stack.setUsesScrollButtons(False)
+        self._tab_stack.setElideMode(Qt.ElideRight)
+        self._tab_stack.setMovable(False)
+        self._tab_stack.setStyleSheet(
+            "QTabWidget#generatorBrowserTabs { background: transparent; border: none; }"
+            "QTabWidget#generatorBrowserTabs::pane {"
+            "  border: none;"
+            "  background: transparent;"
+            "  top: -1px;"
+            "}"
+            "QTabBar { background: transparent; }"
+            "QTabBar::tab {"
+            "  background: transparent;"
+            f"  color: {C['text2']};"
+            "  border: none;"
+            f"  border-bottom: 2px solid transparent;"
+            "  min-width: 132px;"
+            "  padding: 6px 6px;"
+            "  margin-right: 4px;"
+            "  font-size: 9pt;"
+            "  font-weight: 700;"
+            "}"
+            "QTabBar::tab:selected {"
+            f"  color: {C['primary']};"
+            f"  border-bottom: 2px solid {C['primary']};"
+            "}"
+            "QTabBar::tab:hover:!selected {"
+            f"  color: {C['text']};"
+            f"  border-bottom: 2px solid {C['glass_border']};"
+            "}"
+        )
+        self._tab_stack.addTab(self._build_clip_tab(), "GERAR CLIPE")
+        self._tab_stack.addTab(self._build_image_tab(), "GERAR IMAGEM")
+        self._tab_stack.currentChanged.connect(self._switch_tab)
         outer.addWidget(self._tab_stack)
 
         # Token frames (hidden, aparecem inline no scroll quando necessario)
@@ -128,16 +158,37 @@ class GeneratorPanel(QWidget):
 
     def _save_hf_token(self):
         token = self._token_entry.text().strip()
+        if token and not self._is_valid_hf_token(token):
+            msg = "Token HF invalido"
+            self._status.setText(msg)
+            self._status.setStyleSheet(f"color: {C['danger']}; font-size: 10pt; border: none;")
+            if hasattr(self, "_img_status"):
+                self._img_status.setText(msg)
+                self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
+            self._token_entry.setFocus()
+            self._token_entry.selectAll()
+            return
         if token:
             os.environ["HF_TOKEN"] = token
             self._status.setText("Token HF salvo!")
             self._status.setStyleSheet(f"color: {C['cyan']}; font-size: 10pt; border: none;")
+            if hasattr(self, "_img_status"):
+                self._img_status.setText("Token HF salvo!")
+                self._img_status.setStyleSheet(f"color: {C['cyan']}; font-size: 9pt;")
         self._hide_token_prompt()
         if self._auto_retry_generation and token:
             if self._tab_stack.currentIndex() == 0:
                 self._on_generate()
             else:
                 self._on_generate_image()
+
+    def _is_valid_hf_token(self, token: str) -> bool:
+        token = (token or "").strip()
+        if not token:
+            return False
+        if any(ch.isspace() for ch in token):
+            return False
+        return token.startswith("hf_") and len(token) >= 10
 
     def _hide_token_prompt(self):
         if self._token_frame:
@@ -386,23 +437,36 @@ class GeneratorPanel(QWidget):
 
         # PARAMETROS
         L.addWidget(SectionLabel("PARAMETROS"))
-        params_layout = QVBoxLayout()
-        params_layout.setContentsMargins(4, 0, 4, 0)
-        params_layout.setSpacing(6)
-        r1 = QHBoxLayout()
-        self._dur = self._param_entry(r1, "Duracao", "5", 45, tooltip="Duracao do video em segundos")
-        self._steps = self._param_entry(r1, "Steps", "30", 45, tooltip="Passos de inferencia.\nMais steps = mais qualidade, mais lento")
-        r1.addStretch()
-        params_layout.addLayout(r1)
-        r2 = QHBoxLayout()
-        self._cfg = self._param_entry(r2, "CFG", "5.0", 55, tooltip="Classifier-Free Guidance.\nBaixo (1-3): criativo\nMedio (4-7): equilibrado\nAlto (8+): segue o prompt")
-        r2.addStretch()
-        params_layout.addLayout(r2)
-        r3 = QHBoxLayout()
-        self._seed = self._param_entry(r3, "Seed", "", 65, tooltip="Semente para reproducibilidade.\nMesma seed + mesmo prompt = mesmo resultado")
+        params_frame = QFrame()
+        params_frame.setStyleSheet(
+            f"background: {C['card']}; border: 1px solid {C['border']}; border-radius: 8px;"
+        )
+        params_grid = QGridLayout(params_frame)
+        params_grid.setContentsMargins(8, 8, 8, 8)
+        params_grid.setHorizontalSpacing(10)
+        params_grid.setVerticalSpacing(6)
+
+        c00 = QHBoxLayout()
+        self._dur = self._param_entry(c00, "Duracao", "5", 45, tooltip="Duracao do video em segundos")
+        c00.addStretch()
+        params_grid.addLayout(c00, 0, 0)
+
+        c01 = QHBoxLayout()
+        self._steps = self._param_entry(c01, "Steps", "30", 45, tooltip="Passos de inferencia.\nMais steps = mais qualidade, mais lento")
+        c01.addStretch()
+        params_grid.addLayout(c01, 0, 1)
+
+        c10 = QHBoxLayout()
+        self._cfg = self._param_entry(c10, "CFG", "5.0", 55, tooltip="Classifier-Free Guidance.\nBaixo (1-3): criativo\nMedio (4-7): equilibrado\nAlto (8+): segue o prompt")
+        c10.addStretch()
+        params_grid.addLayout(c10, 1, 0)
+
+        c11 = QHBoxLayout()
+        self._seed = self._param_entry(c11, "Seed", "", 65, tooltip="Semente para reproducibilidade.\nMesma seed + mesmo prompt = mesmo resultado")
         self._seed.setPlaceholderText("random")
-        r3.addStretch()
-        params_layout.addLayout(r3)
+        c11.addStretch()
+        params_grid.addLayout(c11, 1, 1)
+
         r4 = QHBoxLayout()
         lbl = QLabel("Resolucao")
         lbl.setStyleSheet(f"color: {C['text2']}; font-size: 9pt; font-weight: bold; border: none;")
@@ -414,8 +478,10 @@ class GeneratorPanel(QWidget):
         self._resolution.setCurrentIndex(0)
         r4.addWidget(self._resolution)
         r4.addStretch()
-        params_layout.addLayout(r4)
-        L.addLayout(params_layout)
+        params_grid.addLayout(r4, 2, 0, 1, 2)
+        params_grid.setColumnStretch(0, 1)
+        params_grid.setColumnStretch(1, 1)
+        L.addWidget(params_frame)
 
         # BOTAO GERAR
         self._gen_btn = GlassButton("GERAR CLIP", accent=True, height=44)
@@ -491,16 +557,14 @@ class GeneratorPanel(QWidget):
         # Negative
         L.addWidget(self._sub_label("NEGATIVE"))
         self._img_negative = FlexTextEdit(
-            "blurry, low quality, watermark",
+            "blurry, low quality, distorted, watermark, static",
             color=C['text3'],
             border_color="#2a3a52",
             font_size="10pt",
             bg=C['input'],
             border_px="2px",
-            border_radius="10px",
             hover_color=C['primary'],
             focus_color=C['primary'],
-            focus_px="2px",
             min_lines=1,
         )
         L.addWidget(self._img_negative)
@@ -669,27 +733,32 @@ class GeneratorPanel(QWidget):
         # Garante que projeto é persistido antes de usar self.project
         self.generation_requested.emit({"action": "ensure_project"})
         self._img_cancelled = False
-        self._img_gen_btn.setEnabled(False)
-        self._img_cancel_btn.show()
-        self._img_status.setText("Gerando imagem...")
-        self._img_status.setStyleSheet(f"color: {C['gold']}; font-size: 9pt;")
 
         engine = self._img_engine.currentText()
         res_text = self._img_resolution.currentText()
         w, h = [int(x) for x in res_text.split("x")]
         duration = float(self._img_dur.text() or "5")
-        token = os.environ.get("HF_TOKEN", "")
+        token = (os.environ.get("HF_TOKEN", "") or "").strip()
 
         # Verificar token
         if not token:
             from makevid.core.hf_api import _get_token
-            token = _get_token()
-            if not token:
-                self._img_gen_btn.setEnabled(True)
-                self._img_status.setText("Insira o token HF")
-                self._img_status.setStyleSheet(f"color: {C['gold']}; font-size: 9pt;")
-                self._show_token_prompt(auto_generate=True)
-                return
+            token = (_get_token() or "").strip()
+
+        if not self._is_valid_hf_token(token):
+            os.environ.pop("HF_TOKEN", None)
+            self._img_gen_btn.setEnabled(True)
+            self._img_cancel_btn.hide()
+            self._img_progress.setValue(0)
+            self._img_status.setText("Insira um token HF valido")
+            self._img_status.setStyleSheet(f"color: {C['gold']}; font-size: 9pt;")
+            self._show_token_prompt(auto_generate=False)
+            return
+
+        self._img_gen_btn.setEnabled(False)
+        self._img_cancel_btn.show()
+        self._img_status.setText("Gerando imagem...")
+        self._img_status.setStyleSheet(f"color: {C['gold']}; font-size: 9pt;")
 
         # Animacao de progress com tempo decorrido
         if hasattr(self, '_img_progress_timer') and self._img_progress_timer:
@@ -798,7 +867,7 @@ class GeneratorPanel(QWidget):
             self._img_status.setText(f"Erro: {err[:60]}")
             self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
             if "401" in err or "403" in err or "token" in err.lower():
-                self._show_token_prompt(auto_generate=True)
+                self._show_token_prompt(auto_generate=False)
         QTimer.singleShot(4000, self._reset_img_status)
 
     def _on_img_error_slot(self, err: str):
@@ -816,8 +885,14 @@ class GeneratorPanel(QWidget):
         else:
             self._img_status.setText(f"Erro: {err[:60]}")
             self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
-            if "401" in err or "token" in err.lower() or "unauthorized" in err.lower():
-                self._show_token_prompt(auto_generate=True)
+            err_l = err.lower()
+            if "invalid leading whitespace" in err_l or "header value" in err_l or "authorization" in err_l:
+                os.environ.pop("HF_TOKEN", None)
+                self._img_status.setText("Token invalido. Insira novamente.")
+                self._img_status.setStyleSheet(f"color: {C['danger']}; font-size: 9pt;")
+                self._show_token_prompt(auto_generate=False)
+            elif "401" in err or "token" in err_l or "unauthorized" in err_l:
+                self._show_token_prompt(auto_generate=False)
         QTimer.singleShot(4000, self._reset_img_status)
 
     def _image_to_static_video(self, img_path, mp4_path, duration, fps, w, h):

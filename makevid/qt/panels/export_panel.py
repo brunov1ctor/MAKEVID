@@ -12,8 +12,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QThread, QObject
 
 from makevid.qt.theme import C
-from makevid.qt.widgets import GlassButton, SectionLabel
-from makevid.config import OUTPUTS_DIR
+from makevid.config import OUTPUTS_DIR, PROJECTS_DIR
 
 
 class ExportPanel(QWidget):
@@ -29,6 +28,7 @@ class ExportPanel(QWidget):
         self.setMinimumWidth(250)
         self._format = None
         self._track_checks = {}
+        self._syncing_export_ui = False
         self._est_dur = self._est_size = self._est_res = self._est_clips = None
         self._build_ui()
 
@@ -98,7 +98,7 @@ class ExportPanel(QWidget):
                 f"border: 2px solid {color}; background: {C['card']}; }}"
                 f"QCheckBox::indicator:checked {{ background: {color}; }}"
                 f"QCheckBox::indicator:hover {{ border-color: {C['text']}; }}")
-            cb.stateChanged.connect(self._update_estimate)
+            cb.stateChanged.connect(self._on_export_pref_changed)
             row.addWidget(cb)
             row.addStretch()
             # Contagem de itens na faixa
@@ -123,7 +123,7 @@ class ExportPanel(QWidget):
         self._format.setStyleSheet(
             f"background: {C['input']}; color: {C['text']}; border: 1px solid {C['border']}; "
             f"border-radius: 3px; padding: 2px 6px;")
-        self._format.currentIndexChanged.connect(self._update_estimate)
+        self._format.currentIndexChanged.connect(self._on_export_pref_changed)
         layout.addWidget(self._format)
 
         # Estimativas
@@ -163,12 +163,11 @@ class ExportPanel(QWidget):
         self._status.setWordWrap(True)
         layout.addWidget(self._status)
 
-        # Botão exportar
-        self._export_btn = GlassButton("EXPORTAR", accent=True, height=36)
-        self._export_btn.clicked.connect(self._do_export)
-        layout.addWidget(self._export_btn)
+        # Exportar é feito pelo botão da timeline; aqui só configura parâmetros.
+        self._export_btn = None
 
         layout.addStretch()
+        self._load_export_prefs_from_project()
 
     def _sub(self, text):
         lbl = QLabel(text)
@@ -203,6 +202,33 @@ class ExportPanel(QWidget):
         self._est_res.setText(f"🎬  Resolução: {width}×{height}  {fps}fps")
         self._est_clips.setText(f"🎞  Clips prontos: {clips_done}/{len(p.clips)}")
 
+    def _on_export_pref_changed(self):
+        self._persist_export_prefs()
+        self._update_estimate()
+
+    def _load_export_prefs_from_project(self):
+        if not self.project or not self._format:
+            return
+        self._syncing_export_ui = True
+        try:
+            fmt = getattr(self.project, "export_format", "MP4 (H.264)")
+            idx = self._format.findText(fmt)
+            self._format.setCurrentIndex(idx if idx >= 0 else 0)
+
+            saved = getattr(self.project, "export_tracks", {}) or {}
+            for key, cb in self._track_checks.items():
+                cb.setChecked(bool(saved.get(key, True)))
+        finally:
+            self._syncing_export_ui = False
+        self._update_estimate()
+
+    def _persist_export_prefs(self):
+        if self._syncing_export_ui or not self.project:
+            return
+        self.project.export_format = self._format.currentText() if self._format else "MP4 (H.264)"
+        self.project.export_tracks = {key: cb.isChecked() for key, cb in self._track_checks.items()}
+        self.project.save(PROJECTS_DIR)
+
     def get_enabled_tracks(self):
         return [k for k, cb in self._track_checks.items() if cb.isChecked() and k != "video"]
 
@@ -224,7 +250,8 @@ class ExportPanel(QWidget):
             self._status.setText("Nada para exportar")
             return
 
-        self._export_btn.setEnabled(False)
+        if self._export_btn is not None:
+            self._export_btn.setEnabled(False)
         self._status.setText("Exportando...")
         self._status.setStyleSheet(f"color: {C['primary']}; font-size: 9pt;")
         self._progress.setValue(0)
@@ -309,12 +336,13 @@ class ExportPanel(QWidget):
             self._status.setStyleSheet(f"color: {C['red']}; font-size: 9pt;")
             self._progress.setValue(0)
         finally:
-            self._export_btn.setEnabled(True)
+            if self._export_btn is not None:
+                self._export_btn.setEnabled(True)
 
     def _on_project_changed(self, proj):
         self.project = proj
         self._name_entry.setText(proj.name or "")
-        self._update_estimate()
+        self._load_export_prefs_from_project()
 
     def _mix_audio(self, project, total_dur, safe_name):
         """Mixa audio de todas as tracks habilitadas."""

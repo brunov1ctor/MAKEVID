@@ -65,11 +65,11 @@ class TrackGraphicsItem(QGraphicsItem):
     def paint(self, painter: QPainter, option, widget=None):
         state = (self._selected, self._hovered)
         if state != self._last_logged_state:
-            a_top = 255 if self._selected else (220 if self._hovered else 190)
-            a_bot = 200 if self._selected else (170 if self._hovered else 140)
-            bdr_w = 2.5 if self._selected else (1.6 if self._hovered else 1.0)
-            bdr_a = 255 if self._selected else (200 if self._hovered else 140)
-            c_bright = self._color.lighter(130) if self._selected else self._color
+            a_top = 220 if self._selected else (208 if self._hovered else 190)
+            a_bot = 185 if self._selected else (170 if self._hovered else 150)
+            bdr_w = 2.5 if self._selected else (1.8 if self._hovered else 1.0)
+            bdr_a = 255 if self._selected else (220 if self._hovered else 140)
+            c_bright = self._color
             _log.debug(
                 f"style id={self.track_item.id} "
                 f"selected={self._selected} hovered={self._hovered} "
@@ -97,9 +97,9 @@ class TrackGraphicsItem(QGraphicsItem):
         painter.fillPath(path, QBrush(QColor(18, 18, 32)))
 
         # camada de cor da track — sempre visível
-        a_top = 255 if self._selected else (220 if self._hovered else 190)
-        a_bot = 200 if self._selected else (170 if self._hovered else 140)
-        c_bright = c.lighter(130) if self._selected else c
+        a_top = 220 if self._selected else (208 if self._hovered else 190)
+        a_bot = 185 if self._selected else (170 if self._hovered else 150)
+        c_bright = c
         grad = QLinearGradient(x, y, x, y + h)
         grad.setColorAt(0.0, QColor(c_bright.red(), c_bright.green(), c_bright.blue(), a_top))
         grad.setColorAt(1.0, QColor(c.red(), c.green(), c.blue(), a_bot))
@@ -112,8 +112,9 @@ class TrackGraphicsItem(QGraphicsItem):
             bdr.setAlpha(255)
             painter.setPen(QPen(bdr, 2.5))
         elif self._hovered:
-            bdr.setAlpha(200)
-            painter.setPen(QPen(bdr, 1.6))
+            bdr = QColor(c).lighter(120)
+            bdr.setAlpha(230)
+            painter.setPen(QPen(bdr, 1.8))
         else:
             bdr.setAlpha(140)
             painter.setPen(QPen(bdr, 1.0))
@@ -150,7 +151,7 @@ class TrackGraphicsItem(QGraphicsItem):
             peak = max(abs(data.max()), abs(data.min()), 0.01)
             norm = data / peak
             wc = QColor(c)
-            wc.setAlpha(200 if self._hovered else 130)
+            wc.setAlpha(180 if self._hovered else 130)
             painter.setPen(QPen(wc, 1.0))
             pts = min(len(norm) - 1, int(ww))
             for i in range(pts):

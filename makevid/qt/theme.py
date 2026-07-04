@@ -23,7 +23,7 @@ C = {
     "gold":   "#6C63FF",   # substituído por primário
     "cyan":   "#58D8FF",
     "purple": "#8B7DFF",
-    "blue":   "#60A5FA",
+    "blue":   "#EF4444",
 
     # Text
     "text":  "#F3F6FF",
@@ -40,11 +40,11 @@ C = {
     "dark_text": "#0B1220",
 
     # Track colors — cores distintas e vibrantes por faixa
-    "track_voice": "#A78BFA",   # violeta claro
-    "track_sfx":   "#34D399",   # verde esmeralda
-    "track_music": "#F472B6",   # rosa
-    "track_audio": "#38BDF8",   # azul céu
-    "track_fx":    "#FB923C",   # laranja
+    "track_voice": "#FACC15",   # amarelo
+    "track_sfx":   "#22C55E",   # verde
+    "track_music": "#3B82F6",   # azul
+    "track_audio": "#A855F7",   # roxo
+    "track_fx":    "#F97316",   # laranja
 
     # Timeline
     "ruler":       "#111827",
