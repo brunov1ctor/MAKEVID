@@ -1,5 +1,6 @@
 """MAKEVID Qt — Janela principal."""
 
+import logging
 import sys
 
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout
@@ -13,6 +14,9 @@ from makevid.qt.project_controller import ProjectController, load_last_project
 from makevid.qt.actions import ActionsMixin
 from makevid.qt.app_state import AppState
 from makevid.services.generation_service import GenerationService
+
+
+_log = logging.getLogger("timeline")
 
 
 class MakeVidWindow(ActionsMixin, QMainWindow):
@@ -145,26 +149,25 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
     # ── Panel switching ───────────────────────────────────────────────────────
 
     def _show_generator(self):
+        _log.debug(f"_show_generator sel_track={self.timeline._selected_track_item_id}")
         self._left_stack.setCurrentWidget(self.generator)
+        self.timeline._scene.select_track_item(self.timeline._selected_track_item_id)
 
     def _return_to_prev(self):
+        _log.debug(f"_return_to_prev sel_track={self.timeline._selected_track_item_id}")
         self.timeline.redraw()
         prev = getattr(self, "_prev_panel", self.generator)
         self._left_stack.setCurrentWidget(prev)
         if prev is self.audio_browser:
             self.audio_browser.refresh()
 
-    def _show_mixer(self, item):
-        self.mixer.show_item(item)
-        self._left_stack.setCurrentWidget(self.mixer)
+    def _show_track_editor(self, item):
+        self.track_editor.show_item(item, self.project)
+        self._left_stack.setCurrentWidget(self.track_editor)
 
     def _show_fx_editor(self, item):
         self.fx_editor.show_item(item, self.project)
         self._left_stack.setCurrentWidget(self.fx_editor)
-
-    def _show_track_editor(self, item):
-        self.track_editor.show_item(item, self.project)
-        self._left_stack.setCurrentWidget(self.track_editor)
 
     def _show_export(self):
         self._left_stack.setCurrentWidget(self.export_panel)
@@ -194,6 +197,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
             self.preview.show_audio_browser()
 
     def _on_item_clicked(self, track_item):
+        _log.debug(f"_on_item_clicked id={track_item.id} track={track_item.track}")
         if track_item.track == "fx":
             self._show_fx_editor(track_item)
         else:
@@ -206,7 +210,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.preview.show_clip_properties(clip)
 
     def _on_label_clicked(self, track_name):
-        self.timeline._selected_track_item_id = None
+        _log.debug(f"_on_label_clicked track={track_name} sel_track={self.timeline._selected_track_item_id}")
         self.timeline._selected_clip_id = None
         self.track_menu.show_track(track_name, self.project)
         self._left_stack.setCurrentWidget(self.track_menu)

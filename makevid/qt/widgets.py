@@ -60,7 +60,6 @@ class GlassPanel(QWidget):
         super().__init__(parent)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAutoFillBackground(False)
-
         self._radius        = radius
         if tint:
             self._tint = QColor(tint)
@@ -71,7 +70,6 @@ class GlassPanel(QWidget):
         self._border_opacity = border_opacity
         self._shadow        = shadow
         self._shadow_dy     = shadow_dy
-        # sem QGraphicsDropShadowEffect — ele quebra a transparência
 
     def paintEvent(self, event):
         p = QPainter(self)

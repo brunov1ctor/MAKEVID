@@ -92,9 +92,7 @@ class RulerItem(QGraphicsItem):
     def hoverMoveEvent(self, event):
         self._hover_x = event.pos().x()
         self.update()
-        super().hoverMoveEvent(event)
 
     def hoverLeaveEvent(self, event):
         self._hover_x = -100
         self.update()
-        super().hoverLeaveEvent(event)

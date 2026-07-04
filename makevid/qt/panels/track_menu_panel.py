@@ -165,7 +165,7 @@ class TrackMenuPanel(QWidget):
             il.addWidget(n_lbl)
             d_lbl = QLabel(desc)
             d_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
-            d_lbl.setStyleSheet(f"color: {C['bg']}; font-size: 8pt;")
+            d_lbl.setStyleSheet(f"color: rgba(11,18,32,0.75); font-size: 8pt;")
             il.addWidget(d_lbl)
 
             if action_type == "import":
@@ -285,7 +285,7 @@ class TrackMenuPanel(QWidget):
             d_lbl = QLabel(desc)
             d_lbl.setWordWrap(True)
             d_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
-            d_lbl.setStyleSheet(f"color: {C['bg']}; font-size: 8pt;")
+            d_lbl.setStyleSheet(f"color: rgba(11,18,32,0.75); font-size: 8pt;")
             il.addWidget(d_lbl)
             item_frame.setCursor(Qt.PointingHandCursor)
             item_frame.mousePressEvent = lambda e, n=name: self._add_fx(n)

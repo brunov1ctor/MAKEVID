@@ -25,8 +25,12 @@ class AudioActionsMixin:
             dest_dir = AUDIO_DIR / self.project.id
             dest_dir.mkdir(parents=True, exist_ok=True)
             dest = dest_dir / src.name
-            if not dest.exists():
-                shutil.copy2(str(src), str(dest))
+            try:
+                if not dest.exists():
+                    shutil.copy2(str(src), str(dest))
+            except Exception as e:
+                _log.error(f"copy2 falhou: {src} → {dest}: {e}")
+                continue
             dur = 5.0
             try:
                 from makevid.core.audio_utils import get_audio_duration
@@ -40,17 +44,24 @@ class AudioActionsMixin:
                 duration=dur, file_path=str(dest),
                 params={"block_name": f"\U0001f4c2 {src.stem[:12]}"},
             )
-            _log.info(f"Audio importado: {src.name} -> {track_name} dur={dur:.1f}s")
+            _log.info(f"Audio importado: {src.name} -> {track_name} dur={dur:.1f}s start={start:.1f}")
         self.project.save(PROJECTS_DIR)
         self.timeline.redraw()
+        _log.debug(f"_import_audio_to_track track={track_name} sel_track={self.timeline._selected_track_item_id}")
         self._show_generator()
 
     def _clear_track(self, track_name):
         n = len(self.project.get_track_items(track_name))
+        sel = self.timeline._selected_track_item_id
+        removed_sel = any(i.id == sel for i in self.project.get_track_items(track_name))
         for item in self.project.get_track_items(track_name):
             self.project.remove_track_item(item.id)
+        if removed_sel:
+            _log.debug(f"_clear_track track={track_name} removeu sel_track={sel} → zerando")
+            self.timeline._selected_track_item_id = None
         self.project.save(PROJECTS_DIR)
         self.timeline.redraw()
+        _log.debug(f"_clear_track track={track_name} n={n} sel_track={self.timeline._selected_track_item_id}")
         self._show_generator()
         _log.info(f"Track '{track_name}' limpa ({n} itens removidos)")
 
@@ -70,6 +81,7 @@ class AudioActionsMixin:
             self.project.add_track_item(name=fx_name, track="fx", start_time=self.timeline.playhead_pos, duration=2.0)
         self.project.save(PROJECTS_DIR)
         self.timeline.redraw()
+        _log.debug(f"_add_fx_to_timeline fx={fx_name} sel_track={self.timeline._selected_track_item_id}")
         self._show_generator()
 
     def _generate_scene_audio(self):

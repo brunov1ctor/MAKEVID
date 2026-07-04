@@ -1,5 +1,6 @@
 """Timeline Widget Qt - QGraphicsView com zoom, scroll, speed e tracks."""
 
+import logging
 from PySide6.QtWidgets import (
     QGraphicsView, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QSlider, QPushButton, QLineEdit
@@ -10,6 +11,8 @@ from pathlib import Path
 
 from makevid.qt.theme import C
 from makevid.qt.timeline.timeline_scene import TimelineScene
+
+_log = logging.getLogger("timeline")
 
 
 class TimelineWidget(QWidget):
@@ -33,6 +36,7 @@ class TimelineWidget(QWidget):
         self._split_mode = False
         self._audio_split_mode = None
         self._selected_clip_id = None
+        self._selected_track_item_id = None
         self.collapsed_tracks = set()  # tracks colapsadas
 
         self._build_ui()
@@ -58,18 +62,19 @@ class TimelineWidget(QWidget):
         self._view.setDragMode(QGraphicsView.NoDrag)
         self._view.setTransformationAnchor(QGraphicsView.NoAnchor)
         self._view.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
-        self._view.setStyleSheet(
-            "background: transparent; border: none; "
-            "border-bottom-left-radius: 20px; border-bottom-right-radius: 20px;")
+        self._view.setStyleSheet("background: transparent; border: none;")
         self._view.viewport().setStyleSheet("background: transparent;")
+        self._view.setInteractive(True)
         self._view.setAcceptDrops(True)
         self._view.dragEnterEvent = self._on_drag_enter
         self._view.dragMoveEvent = self._on_drag_move
         self._view.dropEvent = self._on_drop
         self._view.resizeEvent = self._on_view_resize
+        self._view.mousePressEvent = self._on_view_mouse_press
+        self._view.mouseReleaseEvent = self._on_view_mouse_release
+        self._view.mouseMoveEvent = self._on_view_mouse_move
+        self._view.leaveEvent = self._on_view_leave
         layout.addWidget(self._view)
-
-        QTimer.singleShot(50, self.redraw)
 
         # Timer global de animação para clips (preview contínuo)
         self._anim_timer = QTimer(self)
@@ -241,10 +246,13 @@ class TimelineWidget(QWidget):
             self._scene.rebuild_empty()
             self._update_time_label()
             return
-        self._scene.rebuild(self.project, self.zoom, self.playhead_pos)
+        _log.debug(f"redraw sel_track={self._selected_track_item_id}")
+        self._scene.rebuild(self.project, self.zoom, self.playhead_pos,
+                            self._selected_track_item_id, self._selected_clip_id)
         self._update_time_label()
 
     def _on_project_changed(self, proj):
+        _log.debug(f"_on_project_changed track_items={len(proj.track_items)} sel_track={self._selected_track_item_id}")
         self.project = proj
         self.playhead_pos = 0.0
         self.redraw()
@@ -357,9 +365,28 @@ class TimelineWidget(QWidget):
         super().resizeEvent(event)
         self._redraw_timer.start()  # reinicia o timer a cada resize, dispara 1x após 50ms
 
+    def _on_view_leave(self, event):
+        self._scene.update_hover(None)
+
     def _on_view_resize(self, event):
         QGraphicsView.resizeEvent(self._view, event)
         self._redraw_timer.start()
+
+    def _on_view_mouse_press(self, event):
+        pos = self._view.mapToScene(event.pos())
+        self._scene.on_mouse_press(pos, event.button())
+        event.accept()
+
+    def _on_view_mouse_release(self, event):
+        pos = self._view.mapToScene(event.pos())
+        self._scene.on_mouse_release(pos)
+        event.accept()
+
+    def _on_view_mouse_move(self, event):
+        pos = self._view.mapToScene(event.pos())
+        self._scene.on_mouse_move(pos)
+        self._scene.update_hover(pos)
+        event.accept()
 
     # ============================================================
     # VOLUME SCROLL (Shift+wheel)

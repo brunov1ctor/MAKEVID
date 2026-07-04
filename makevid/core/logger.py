@@ -52,6 +52,7 @@ def setup_logging():
     # Player: so WARNING+ (evita spam de frames)
     logging.getLogger("player").setLevel(logging.WARNING)
     logging.getLogger("preview").setLevel(logging.WARNING)
+    logging.getLogger("timeline").setLevel(logging.DEBUG)
 
     # Glow: so vai pro arquivo, nao pro console
     glow_log = logging.getLogger("glow")

@@ -37,15 +37,14 @@ class GenerationActionsMixin:
                 import time as _t
                 proj.name = f"Projeto {_t.strftime('%d/%m %H:%M')}"
                 proj.save(PROJECTS_DIR)
+            # preservar track_items que estão só em memória
+            if not proj.track_items and self.project.track_items:
+                proj.track_items = self.project.track_items
+            _log.debug(f"[image_done] sel_track_antes={self.timeline._selected_track_item_id} track_items={[i.id for i in proj.track_items]}")
             self.project = proj
             self.state.project = proj
             self.generator.project = proj
-            self.timeline.project = proj
-            _log.info(f"[image_done] timeline atualizada: clips={len(self.timeline.project.clips)} name='{proj.name}'")
-            self.timeline.redraw()
-            _log.info(f"[image_done] redraw() chamado")
-            self._on_project_opened(proj)
-            _log.info(f"[image_done] concluido")
+            self._ctrl.open(proj)
             return
 
         if action == "empty_clip":

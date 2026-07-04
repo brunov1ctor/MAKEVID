@@ -25,6 +25,7 @@ class ProjectController:
 
     def open(self, proj: Project):
         w = self._window
+        _log.debug(f"[ctrl.open] id={proj.id} track_items={len(proj.track_items)} sel_track={w.timeline._selected_track_item_id}")
         w.project = proj
         w.state.project = proj
         w.project_changed.emit(proj)

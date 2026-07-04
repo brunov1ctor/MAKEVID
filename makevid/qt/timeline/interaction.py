@@ -1,5 +1,6 @@
 """Interaction - Toda interação de mouse na timeline scene."""
 
+import logging
 from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPen, QColor, QFont
@@ -8,6 +9,8 @@ from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsRectItem, QGraphicsTex
 from makevid.qt.timeline.clip_item import ClipGraphicsItem
 from makevid.qt.timeline.track_item import TrackGraphicsItem
 from makevid.qt.theme import C
+
+_log = logging.getLogger("timeline")
 
 
 class SceneInteraction:
@@ -57,7 +60,6 @@ class SceneInteraction:
             if vy <= pos.y() <= vy + vh:
                 item = self._item_at(pos)
                 if isinstance(item, ClipGraphicsItem) and item.clip.video_path:
-                    from pathlib import Path
                     if Path(item.clip.video_path).exists():
                         import os
                         os.startfile(item.clip.video_path)
@@ -90,15 +92,12 @@ class SceneInteraction:
             from makevid.qt.timeline.timeline_scene import _TRACKS
             collapsed = self.tl.collapsed_tracks
 
-            # hit-test no triângulo de cada track (usa _label_pos pois todas aparecem no painel)
             for key, *_ in _TRACKS:
                 if key not in self.scene._label_pos:
                     continue
                 y, h = self.scene._label_pos[key]
                 cy = y + h / 2
-                tri_x1, tri_x2 = 1, 9
-                tri_y1, tri_y2 = cy - 4, cy + 3
-                if tri_x1 <= pos.x() <= tri_x2 and tri_y1 <= pos.y() <= tri_y2:
+                if 1 <= pos.x() <= 9 and cy - 4 <= pos.y() <= cy + 3:
                     if key in collapsed:
                         collapsed.discard(key)
                     else:
@@ -106,7 +105,6 @@ class SceneInteraction:
                     self.tl.redraw()
                     return True
 
-            # clique no label da track → menu (só tracks visíveis)
             for name, (ty, th) in self.scene._track_pos.items():
                 if ty <= pos.y() <= ty + th:
                     cb = self.label_clicked or self.track_empty_clicked
@@ -125,16 +123,18 @@ class SceneInteraction:
             self._drag_start_x = pos.x()
             return True
 
-        # Tracks de audio/fx/voice/sfx/music
+        # Tracks de audio/fx/voice/sfx/music — hit-test direto no item visual
         for name, (ty, th) in self.scene._track_pos.items():
             if name == "video":
                 continue
             if not (ty <= pos.y() <= ty + th):
                 continue
 
-            t = (pos.x() - lbl_w) / zoom
-            found = self._find_item_at_time(t, name)
-            if found:
+            # Tenta achar o item visual diretamente
+            gi = self._track_item_at(pos)
+            _log.debug(f"on_press track={name} pos=({pos.x():.0f},{pos.y():.0f}) gi={'None' if gi is None else gi.track_item.id}")
+            if gi is not None:
+                found = gi.track_item
                 ix1 = lbl_w + int(found.start_time * zoom)
                 iw = int(found.duration * zoom)
                 local_x = pos.x() - ix1
@@ -167,6 +167,7 @@ class SceneInteraction:
                 return True
 
             # Área vazia → menu da track
+            _log.debug(f"on_press track={name} area_vazia → track_empty_clicked sel_track={self.tl._selected_track_item_id}")
             cb = self.track_empty_clicked or self.label_clicked
             if cb:
                 cb(name)
@@ -282,10 +283,18 @@ class SceneInteraction:
 
         if self._drag_mode == "item_move":
             if not moved:
+                item_id = getattr(self._drag_target, 'id', None)
+                _log.debug(f"on_release item_click id={item_id} → select+item_clicked")
+                self.tl._selected_track_item_id = item_id
+                self.scene.select_track_item(item_id)
                 if self.item_clicked and self._drag_target:
                     self.item_clicked(self._drag_target)
-                self.tl._selected_track_item_id = getattr(self._drag_target, 'id', None)
+                self._remove_drag_guide()
+                self._reset_drag()
+                return True
             else:
+                _log.debug(f"on_release item_move drag id={getattr(self._drag_target,'id',None)}")
+                self.tl._selected_track_item_id = getattr(self._drag_target, 'id', None)
                 self._save()
 
         elif self._drag_mode in ("item_trim_left", "item_trim_right"):
@@ -317,6 +326,7 @@ class SceneInteraction:
 
         self._remove_drag_guide()
         self._reset_drag()
+        _log.debug(f"on_release final redraw sel_track={self.tl._selected_track_item_id}")
         self.tl.redraw()
         return True
 
@@ -427,6 +437,15 @@ class SceneInteraction:
         while item and item.parentItem():
             item = item.parentItem()
         return item
+
+    def _track_item_at(self, pos):
+        """Retorna o TrackGraphicsItem sob pos, ou None."""
+        for tid, gi in self.scene._track_items.items():
+            hit = gi._x <= pos.x() <= gi._x + gi._w and gi._y <= pos.y() <= gi._y + gi._h
+            _log.debug(f"hit_test id={tid} pos=({pos.x():.0f},{pos.y():.0f}) item=({gi._x:.0f},{gi._y:.0f},{gi._w:.0f},{gi._h:.0f}) hit={hit}")
+            if hit:
+                return gi
+        return None
 
     def _find_item_at_time(self, t, track_name):
         candidates = [i for i in self.tl.project.get_track_items(track_name)

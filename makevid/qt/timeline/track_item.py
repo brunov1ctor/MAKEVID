@@ -1,5 +1,6 @@
 """Track Item - Item de audio/fx/voice/sfx/music na timeline."""
 
+import logging
 from pathlib import Path
 from PySide6.QtWidgets import QGraphicsItem
 from PySide6.QtCore import Qt, QRectF
@@ -7,6 +8,9 @@ from PySide6.QtGui import (
     QPen, QBrush, QColor, QFont, QPainterPath, QPainter, QLinearGradient
 )
 from makevid.qt.theme import C
+
+
+_log = logging.getLogger("timeline")
 
 
 class TrackGraphicsItem(QGraphicsItem):
@@ -19,6 +23,8 @@ class TrackGraphicsItem(QGraphicsItem):
         self._hovered = False
         self._selected = selected
         self._waveform = None
+        self._last_logged_state = None
+        _log.debug(f"TrackGraphicsItem created id={track_item.id} color={QColor(color).name()} selected={selected} x={x:.0f} y={y:.0f} w={w:.0f} h={h:.0f}")
 
         # Nunca deixar o Qt gerenciar seleção — evita override de cores
         self.setFlags(QGraphicsItem.GraphicsItemFlag(0))
@@ -57,6 +63,22 @@ class TrackGraphicsItem(QGraphicsItem):
         return QRectF(self._x, self._y, self._w, self._h)
 
     def paint(self, painter: QPainter, option, widget=None):
+        state = (self._selected, self._hovered)
+        if state != self._last_logged_state:
+            a_top = 255 if self._selected else (220 if self._hovered else 190)
+            a_bot = 200 if self._selected else (170 if self._hovered else 140)
+            bdr_w = 2.5 if self._selected else (1.6 if self._hovered else 1.0)
+            bdr_a = 255 if self._selected else (200 if self._hovered else 140)
+            c_bright = self._color.lighter(130) if self._selected else self._color
+            _log.debug(
+                f"style id={self.track_item.id} "
+                f"selected={self._selected} hovered={self._hovered} "
+                f"grad_top=({c_bright.name()},a={a_top}) "
+                f"grad_bot=({self._color.name()},a={a_bot}) "
+                f"border=(w={bdr_w},a={bdr_a})"
+            )
+            self._last_logged_state = state
+
         x = self._x + 2
         y = self._y + 3
         w = self._w - 4
@@ -75,10 +97,11 @@ class TrackGraphicsItem(QGraphicsItem):
         painter.fillPath(path, QBrush(QColor(18, 18, 32)))
 
         # camada de cor da track — sempre visível
-        a_top = 180 if self._selected else (150 if self._hovered else 120)
-        a_bot = 120 if self._selected else (100 if self._hovered else 75)
+        a_top = 255 if self._selected else (220 if self._hovered else 190)
+        a_bot = 200 if self._selected else (170 if self._hovered else 140)
+        c_bright = c.lighter(130) if self._selected else c
         grad = QLinearGradient(x, y, x, y + h)
-        grad.setColorAt(0.0, QColor(c.red(), c.green(), c.blue(), a_top))
+        grad.setColorAt(0.0, QColor(c_bright.red(), c_bright.green(), c_bright.blue(), a_top))
         grad.setColorAt(1.0, QColor(c.red(), c.green(), c.blue(), a_bot))
         painter.setPen(Qt.NoPen)
         painter.fillPath(path, QBrush(grad))
@@ -149,6 +172,7 @@ class TrackGraphicsItem(QGraphicsItem):
 
     def hoverEnterEvent(self, event):
         self._hovered = True
+        _log.debug(f"hover_enter id={self.track_item.id}")
         self.update()
         super().hoverEnterEvent(event)
 
@@ -159,6 +183,7 @@ class TrackGraphicsItem(QGraphicsItem):
 
     def hoverLeaveEvent(self, event):
         self._hovered = False
+        _log.debug(f"hover_leave id={self.track_item.id}")
         self.setCursor(Qt.ArrowCursor)
         self.update()
         super().hoverLeaveEvent(event)
