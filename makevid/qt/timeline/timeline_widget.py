@@ -11,6 +11,7 @@ from pathlib import Path
 
 from makevid.qt.theme import C
 from makevid.qt.timeline.timeline_scene import TimelineScene
+from makevid.qt.timeline.selection_state import SelectionState
 
 _log = logging.getLogger("timeline")
 
@@ -35,9 +36,7 @@ class TimelineWidget(QWidget):
         self.scroll_x = 0
         self._split_mode = False
         self._audio_split_mode = None
-        self._selected_clip_id = None
-        self._selected_track_item_id = None
-        self._active_track_key = None
+        self.selection = SelectionState()
         self.collapsed_tracks = set()  # tracks colapsadas
 
         self._build_ui()
@@ -284,22 +283,48 @@ class TimelineWidget(QWidget):
     def loop_enabled(self):
         return self._loop_cb.isChecked()
 
+    # Compatibilidade com código existente.
+    @property
+    def _selected_clip_id(self):
+        return self.selection.selected_clip_id
+
+    @_selected_clip_id.setter
+    def _selected_clip_id(self, value):
+        self.selection.selected_clip_id = value
+
+    @property
+    def _selected_track_item_id(self):
+        return self.selection.selected_track_item_id
+
+    @_selected_track_item_id.setter
+    def _selected_track_item_id(self, value):
+        self.selection.selected_track_item_id = value
+
+    @property
+    def _active_track_key(self):
+        return self.selection.active_track_key
+
+    @_active_track_key.setter
+    def _active_track_key(self, value):
+        self.selection.active_track_key = value
+
     def redraw(self):
         if not self.project:
             self._scene.rebuild_empty()
             self._update_time_label()
             return
         self._scene.rebuild(self.project, self.zoom, self.playhead_pos,
-                            self._selected_track_item_id, self._selected_clip_id,
-                            self._active_track_key)
+                            self.selection.selected_track_item_id,
+                            self.selection.selected_clip_id,
+                            self.selection.active_track_key)
         self._update_time_label()
 
     def set_active_track(self, track_key):
         valid = {"video", "fx", "voice", "sfx", "music", "audio"}
         new_key = track_key if track_key in valid else None
-        if self._active_track_key == new_key:
+        if self.selection.active_track_key == new_key:
             return
-        self._active_track_key = new_key
+        self.selection.active_track_key = new_key
         self.redraw()
 
     def clear_active_track(self):
@@ -440,7 +465,7 @@ class TimelineWidget(QWidget):
 
     def _on_view_mouse_move(self, event):
         pos = self._view.mapToScene(event.pos())
-        self._scene.on_mouse_move(pos)
+        self._scene.on_mouse_move(pos, event.buttons())
         self._scene.update_hover(pos)
         event.accept()
 

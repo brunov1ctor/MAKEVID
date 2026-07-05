@@ -9,6 +9,7 @@ import shiboken6
 
 from makevid.qt.timeline.clip_item import ClipGraphicsItem
 from makevid.qt.timeline.track_item import TrackGraphicsItem
+from makevid.qt.timeline.interaction_state import DragState
 from makevid.qt.theme import C
 
 _log = logging.getLogger("timeline")
@@ -19,6 +20,7 @@ class SceneInteraction:
     def __init__(self, scene):
         self.scene = scene
         self.tl = scene.tl
+        self._drag = DragState()
         self._reset_drag()
         self.item_clicked = None
         self.clip_clicked = None
@@ -27,15 +29,81 @@ class SceneInteraction:
         self._marked_diamonds = set()
         self._last_diamond_toggle = None
 
+    # Compatibilidade: mantém nomes antigos mas delega ao estado separado.
+    @property
+    def _drag_mode(self):
+        return self._drag.mode
+
+    @_drag_mode.setter
+    def _drag_mode(self, value):
+        self._drag.mode = value
+
+    @property
+    def _drag_target(self):
+        return self._drag.target
+
+    @_drag_target.setter
+    def _drag_target(self, value):
+        self._drag.target = value
+
+    @property
+    def _drag_start_x(self):
+        return self._drag.start_x
+
+    @_drag_start_x.setter
+    def _drag_start_x(self, value):
+        self._drag.start_x = value
+
+    @property
+    def _drag_orig(self):
+        return self._drag.orig
+
+    @_drag_orig.setter
+    def _drag_orig(self, value):
+        self._drag.orig = value
+
+    @property
+    def _drag_orig_start(self):
+        return self._drag.orig_start
+
+    @_drag_orig_start.setter
+    def _drag_orig_start(self, value):
+        self._drag.orig_start = value
+
+    @property
+    def _drag_group(self):
+        return self._drag.group
+
+    @_drag_group.setter
+    def _drag_group(self, value):
+        self._drag.group = value
+
+    @property
+    def _drag_ghost_pos(self):
+        return self._drag.ghost_pos
+
+    @_drag_ghost_pos.setter
+    def _drag_ghost_pos(self, value):
+        self._drag.ghost_pos = value
+
+    @property
+    def _drag_clip_item(self):
+        return self._drag.clip_item
+
+    @_drag_clip_item.setter
+    def _drag_clip_item(self, value):
+        self._drag.clip_item = value
+
+    @property
+    def _drag_clip_orig_x(self):
+        return self._drag.clip_orig_x
+
+    @_drag_clip_orig_x.setter
+    def _drag_clip_orig_x(self, value):
+        self._drag.clip_orig_x = value
+
     def _reset_drag(self):
-        self._drag_mode = None
-        self._drag_target = None
-        self._drag_start_x = 0
-        self._drag_orig = 0
-        self._drag_orig_start = 0
-        self._drag_group = None
-        self._drag_ghost_pos = None
-        self._drag_clip_item = None
+        self._drag.reset()
     
     def _is_valid_qobj(self, obj):
         try:
@@ -85,6 +153,9 @@ class SceneInteraction:
 
         if button == Qt.RightButton:
             return True
+
+        if button != Qt.LeftButton:
+            return False
 
         if getattr(self.tl, '_split_mode', False):
             self._do_split_at(pos)
@@ -137,6 +208,21 @@ class SceneInteraction:
                 continue
             if not (ty <= pos.y() <= ty + th):
                 continue
+
+            # Na track FX, prioriza clique no losango para manter o fluxo
+            # de marcação (aplicar efeito em cortes marcados).
+            if name == "fx":
+                item = self._item_at(pos)
+                if item and hasattr(item, '_position'):
+                    did = f"diamond_{item._position}"
+                    was = did in self._marked_diamonds
+                    if was:
+                        self._marked_diamonds.discard(did)
+                    else:
+                        self._marked_diamonds.add(did)
+                    self._last_diamond_toggle = (did, was)
+                    self.tl.redraw()
+                    return True
 
             # Tenta achar o item visual diretamente
             gi = self._track_item_at(pos)
@@ -200,7 +286,7 @@ class SceneInteraction:
                 self._drag_mode = "clip_move"
                 self._drag_orig = clip.position
                 self._drag_clip_item = item
-                item._orig_x = item._x
+                self._drag_clip_orig_x = float(item._x)
                 item._selected = True
                 item.setZValue(10)
             self._drag_target = clip
@@ -216,7 +302,15 @@ class SceneInteraction:
 
     # ── move ──────────────────────────────────────────────────────────────────
 
-    def on_move(self, pos):
+    def on_move(self, pos, buttons=Qt.NoButton):
+        # Evita drag "fantasma" quando o botão não está pressionado.
+        if buttons == Qt.NoButton and self._drag_mode in {
+            "item_move", "item_trim_left", "item_trim_right",
+            "clip_move", "clip_trim_left", "clip_trim_right", "playhead"
+        }:
+            self._cancel_stale_drag()
+            return False
+
         if not self._drag_mode:
             return False
 
@@ -231,13 +325,12 @@ class SceneInteraction:
 
         if self._drag_mode == "clip_move":
             if not self._is_valid_qobj(self._drag_clip_item):
-                self._remove_drag_guide()
-                self._reset_drag()
+                self._cancel_stale_drag(redraw=False)
                 return False
 
             if self._drag_clip_item:
                 item = self._drag_clip_item
-                item._x = item._orig_x + dx
+                item._x = self._drag_clip_orig_x + dx
                 item.prepareGeometryChange()
                 item.update()
             self._drag_ghost_pos = self._clip_drop_index(pos, self._drag_clip_item)
@@ -279,6 +372,36 @@ class SceneInteraction:
             return True
 
         return False
+
+    def _cancel_stale_drag(self, redraw=True):
+        """Cancela drag pendente e restaura estado visual temporário."""
+        if self._drag_mode == "item_move" and self._drag_target:
+            if self._drag_group:
+                for gi, offset in self._drag_group:
+                    gi.start_time = max(0.0, round(self._drag_orig + offset, 2))
+            else:
+                self._drag_target.start_time = max(0.0, round(self._drag_orig, 2))
+
+        elif self._drag_mode == "item_trim_right" and self._drag_target:
+            self._drag_target.duration = max(0.5, float(self._drag_orig))
+
+        elif self._drag_mode == "item_trim_left" and self._drag_target:
+            self._drag_target.start_time = max(0.0, round(self._drag_orig_start, 2))
+            self._drag_target.duration = max(0.5, float(self._drag_orig))
+
+        elif self._drag_mode in ("clip_trim_left", "clip_trim_right") and self._drag_target:
+            self._drag_target.duration = max(1.0, float(self._drag_orig))
+
+        if self._drag_mode == "clip_move" and self._drag_clip_item and self._is_valid_qobj(self._drag_clip_item):
+            self._drag_clip_item._x = self._drag_clip_orig_x
+            self._drag_clip_item._selected = False
+            self._drag_clip_item.setZValue(1)
+            self._drag_clip_item.update()
+
+        self._remove_drag_guide()
+        self._reset_drag()
+        if redraw:
+            self.tl.redraw()
 
     # ── release ───────────────────────────────────────────────────────────────
 
@@ -324,8 +447,8 @@ class SceneInteraction:
                 if self._drag_ghost_pos is None:
                     self.tl._selected_clip_id = getattr(self._drag_target, 'id', None)
 
-            if self._drag_clip_item:
-                self._drag_clip_item._x = self._drag_clip_item._orig_x
+            if self._drag_clip_item and self._is_valid_qobj(self._drag_clip_item):
+                self._drag_clip_item._x = self._drag_clip_orig_x
                 self._drag_clip_item.setZValue(1)
                 self._drag_clip_item._selected = False
 

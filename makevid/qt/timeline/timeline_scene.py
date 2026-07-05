@@ -5,7 +5,6 @@ import math
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsItem
 from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import QPen, QBrush, QColor, QFont, QPolygonF, QPainterPath, QPainter, QLinearGradient
-import shiboken6
 
 from makevid.qt.theme import C
 from makevid.qt.timeline.clip_item import ClipGraphicsItem
@@ -13,6 +12,7 @@ from makevid.qt.timeline.track_item import TrackGraphicsItem
 from makevid.qt.timeline.ruler import RulerItem
 from makevid.qt.timeline.playhead import PlayheadItem
 from makevid.qt.timeline.interaction import SceneInteraction
+from makevid.qt.timeline.hover_controller import HoverController
 
 _TRACKS = [
     ("video", "VIDEO", C["blue"],        3.0, "Track"),
@@ -209,6 +209,7 @@ class _FxItem(QGraphicsItem):
         self.track_item = track_item
         self._x, self._y, self._w, self._h = x, y, w, h
         self._color = QColor(color)
+        self._selected = False
         self._hovered = False
         self.setFlags(QGraphicsItem.GraphicsItemFlag(0))
         self.setAcceptHoverEvents(True)
@@ -222,7 +223,10 @@ class _FxItem(QGraphicsItem):
         c = self._color
         hover_pen = QColor(c)
         hover_pen = hover_pen.lighter(115)
-        painter.setPen(QPen(hover_pen if self._hovered else c, 2 if self._hovered else 1))
+        if self._selected:
+            painter.setPen(QPen(QColor("#00ffee"), 2))
+        else:
+            painter.setPen(QPen(hover_pen if self._hovered else c, 2 if self._hovered else 1))
         painter.setBrush(QBrush(QColor("#1a0a2a")))
         painter.drawRect(QRectF(x, y, w, h))
 
@@ -336,8 +340,7 @@ class TimelineScene(QGraphicsScene):
         self._track_items = {}
         self._bg_items = {}
         self._interaction = SceneInteraction(self)
-        self._hovered_item = None
-        self._hovered_track_key = None
+        self._hover = HoverController(self)
         self.setBackgroundBrush(QColor(8, 12, 22, 235))
         self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
 
@@ -348,8 +351,7 @@ class TimelineScene(QGraphicsScene):
         self._playhead = None
         self._track_items = {}
         self._bg_items = {}
-        self._hovered_item = None
-        self._hovered_track_key = None
+        self._hover.reset()
 
         lw = self.tl.LBL_W
         rh = self.tl.RULER_H
@@ -379,8 +381,7 @@ class TimelineScene(QGraphicsScene):
         self._playhead = None
         self._track_items = {}
         self._bg_items = {}
-        self._hovered_item = None
-        self._hovered_track_key = None
+        self._hover.reset()
 
         lw = self.tl.LBL_W
         rh = self.tl.RULER_H
@@ -559,7 +560,11 @@ class TimelineScene(QGraphicsScene):
                 x = lw + int(ti.start_time * zoom)
                 w = max(4, int(ti.duration * zoom))
                 if name == "fx":
-                    self.addItem(_FxItem(ti, x, ty, w, th, color))
+                    selected = ti.id == sel_track_id
+                    gi = _FxItem(ti, x, ty, w, th, color)
+                    gi._selected = selected
+                    self._track_items[ti.id] = gi
+                    self.addItem(gi)
                 else:
                     selected = ti.id == sel_track_id
                     gi = TrackGraphicsItem(ti, x, ty, w, th, color, selected=selected)
@@ -579,66 +584,11 @@ class TimelineScene(QGraphicsScene):
     def on_mouse_release(self, pos):
         self._interaction.on_release(pos)
 
-    def on_mouse_move(self, pos):
-        self._interaction.on_move(pos)
+    def on_mouse_move(self, pos, buttons=Qt.NoButton):
+        self._interaction.on_move(pos, buttons)
 
     def update_hover(self, pos):
-        def _is_valid_qobj(obj):
-            try:
-                return obj is not None and shiboken6.isValid(obj)
-            except Exception:
-                return False
-
-        # A coluna de labels fica estática; não aplicar destaque de hover nela.
-        if pos is not None and pos.x() < self.tl.LBL_W:
-            self._set_hovered_track(None)
-            prev = self._hovered_item
-            if prev is not None and not _is_valid_qobj(prev):
-                self._hovered_item = None
-            if prev and hasattr(prev, '_hovered'):
-                prev._hovered = False
-                if _is_valid_qobj(prev):
-                    prev.setCursor(Qt.ArrowCursor)
-                    prev.update()
-            self._hovered_item = None
-            return
-
-        item = None
-        if pos is not None:
-            item = self.itemAt(pos, self.tl._view.transform())
-            while item and item.parentItem():
-                item = item.parentItem()
-            if item and not item.acceptHoverEvents():
-                item = None
-
-        if item is not None and not _is_valid_qobj(item):
-            item = None
-
-        hovering_rect_item = isinstance(item, (TrackGraphicsItem, _FxItem, ClipGraphicsItem))
-        hovered_track = None if hovering_rect_item else self._track_key_at_pos(pos)
-        self._set_hovered_track(hovered_track)
-
-        prev = self._hovered_item
-        if prev is not None and not _is_valid_qobj(prev):
-            prev = None
-            self._hovered_item = None
-
-        if item is prev:
-            if item is not None and pos is not None:
-                self._update_item_cursor(item, pos)
-            return
-        if prev and hasattr(prev, '_hovered'):
-            prev._hovered = False
-            if _is_valid_qobj(prev):
-                prev.setCursor(Qt.ArrowCursor)
-                prev.update()
-        self._hovered_item = item
-        if item and hasattr(item, '_hovered'):
-            item._hovered = True
-            if pos is not None:
-                self._update_item_cursor(item, pos)
-            if _is_valid_qobj(item):
-                item.update()
+        self._hover.update(pos)
 
     def _track_key_at_pos(self, pos):
         if pos is None:
@@ -647,13 +597,6 @@ class TimelineScene(QGraphicsScene):
             if ty <= pos.y() <= ty + th:
                 return key
         return None
-
-    def _set_hovered_track(self, track_key):
-        if self._hovered_track_key == track_key:
-            return
-        self._hovered_track_key = track_key
-        for key, item in self._bg_items.items():
-            item.set_hovered(key == track_key)
 
     def _update_item_cursor(self, item, pos):
         if isinstance(item, (TrackGraphicsItem, ClipGraphicsItem, _FxItem)):

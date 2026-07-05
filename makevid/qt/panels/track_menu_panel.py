@@ -78,19 +78,32 @@ class TrackMenuPanel(QWidget):
         )
 
     def _reset_content_host(self):
-        if self._content_host is not None:
-            self._outer.removeWidget(self._content_host)
-            self._content_host.hide()
-            self._content_host.deleteLater()
+        # Limpa imediatamente o conteúdo para evitar sobreposição visual
+        # quando o usuário troca de track rapidamente.
+        if self._content_host is None:
+            from PySide6.QtWidgets import QWidget
+            self._content_host = QWidget(self)
+            self._content_host.setAttribute(Qt.WA_TranslucentBackground)
+            self._content_host.setAutoFillBackground(False)
+            self._content_layout = QVBoxLayout(self._content_host)
+            self._content_layout.setContentsMargins(0, 0, 0, 0)
+            self._content_layout.setSpacing(0)
+            self._outer.addWidget(self._content_host)
+            return
 
-        from PySide6.QtWidgets import QWidget
-        self._content_host = QWidget(self)
-        self._content_host.setAttribute(Qt.WA_TranslucentBackground)
-        self._content_host.setAutoFillBackground(False)
-        self._content_layout = QVBoxLayout(self._content_host)
-        self._content_layout.setContentsMargins(0, 0, 0, 0)
-        self._content_layout.setSpacing(0)
-        self._outer.addWidget(self._content_host)
+        self._clear_layout(self._content_layout)
+
+    def _clear_layout(self, layout):
+        while layout and layout.count():
+            child = layout.takeAt(0)
+            w = child.widget()
+            l = child.layout()
+            if l is not None:
+                self._clear_layout(l)
+            if w is not None:
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
 
     def show_track(self, track_name, project):
         # Se já está mostrando a mesma track, não reconstrói
@@ -107,7 +120,7 @@ class TrackMenuPanel(QWidget):
         if cfg:
             self._apply_bg(cfg[0]())
         elif track_name == "fx":
-            self._apply_bg(C["purple"])
+            self._apply_bg(C["track_fx"])
         elif track_name == "video":
             self._apply_bg(C["blue"])
         else:
@@ -194,7 +207,7 @@ class TrackMenuPanel(QWidget):
         L.addWidget(clear_btn)
 
     def _build_fx_menu(self):
-        color = C["purple"]
+        color = C["track_fx"]
         L = self._content_layout
 
         hdr = QWidget()
@@ -252,7 +265,7 @@ class TrackMenuPanel(QWidget):
         self._select_fx_tab(tab_keys[0])
 
     def _select_fx_tab(self, selected_key):
-        color = C["purple"]
+        color = C["track_fx"]
         for key, btn in self._fx_tab_buttons:
             if key == selected_key:
                 btn.setStyleSheet(
@@ -265,6 +278,8 @@ class TrackMenuPanel(QWidget):
                     f"QPushButton:hover {{ background: {C['card_hover']}; }}")
 
         tab = FX_TABS[selected_key]
+        tab_icon = tab.get("icon", "")
+        tab_badge = tab.get("label", "FX").upper()
         content = QWidget()
         cl = QVBoxLayout(content)
         cl.setContentsMargins(6, 6, 6, 6)
@@ -280,10 +295,26 @@ class TrackMenuPanel(QWidget):
                 f"QFrame#fxItem:hover {{ background: {C['secondary']}; border-color: {C['secondary']}; }}")
             il = QVBoxLayout(item_frame)
             il.setContentsMargins(8, 5, 8, 5)
-            n_lbl = QLabel(name)
+
+            head = QHBoxLayout()
+            head.setContentsMargins(0, 0, 0, 0)
+            head.setSpacing(6)
+
+            n_lbl = QLabel(f"{tab_icon} {name}" if tab_icon else name)
             n_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
             n_lbl.setStyleSheet(f"color: {C['dark_text']}; font-size: 9pt; font-weight: bold;")
-            il.addWidget(n_lbl)
+            head.addWidget(n_lbl)
+            head.addStretch()
+
+            badge_lbl = QLabel(tab_badge)
+            badge_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
+            badge_lbl.setStyleSheet(
+                "color: rgba(11,18,32,0.88); font-size: 7pt; font-weight: bold; "
+                "background: rgba(255,255,255,0.42); border-radius: 6px; padding: 1px 6px;"
+            )
+            head.addWidget(badge_lbl)
+
+            il.addLayout(head)
             d_lbl = QLabel(desc)
             d_lbl.setWordWrap(True)
             d_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)

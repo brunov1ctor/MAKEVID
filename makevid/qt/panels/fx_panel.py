@@ -427,7 +427,7 @@ class FxPanel(QWidget):
                         int(item.params.get("intensity", 100)), "%", C['purple'])
 
         # Easing (botoes visuais)
-        ease_lbl = QLabel("TRANSIÇÃO")
+        ease_lbl = QLabel("CURVA DE TRANSIÇÃO")
         ease_lbl.setStyleSheet(f"color: {C['text2']}; font-size: 9pt; font-weight: bold;")
         self._content_layout.addWidget(ease_lbl)
 
@@ -439,34 +439,32 @@ class FxPanel(QWidget):
 
         current_easing = item.params.get("easing", "linear")
         easing_options = [
-            ("linear", "━━━", "Constante"),
-            ("ease-in", "╭━━", "Suave entrada"),
-            ("ease-out", "━━╮", "Suave saída"),
-            ("ease-in-out", "╭━╮", "Suave ambos"),
+            ("linear", "━━━", "Linear", "Intensidade constante durante todo o efeito."),
+            ("ease-in", "╭━━", "Entrada", "Começa suave e acelera no decorrer do efeito."),
+            ("ease-out", "━━╮", "Saída", "Começa forte e suaviza no final do efeito."),
+            ("ease-in-out", "╭━╮", "Suave", "Suave no início e no fim, mais intenso no meio."),
         ]
         self._ease_buttons = []
-        for val, icon, tip in easing_options:
-            btn = QPushButton(icon)
-            btn.setFixedSize(48, 28)
+        self._ease_hint_map = {val: hint for val, _icon, _label, hint in easing_options}
+        for val, icon, label, tip in easing_options:
+            btn = QPushButton(f"{icon} {label}")
+            btn.setFixedSize(84, 28)
             btn.setToolTip(tip)
             btn.setCursor(Qt.PointingHandCursor)
             is_active = (val == current_easing)
-            if is_active:
-                btn.setStyleSheet(
-                    f"QPushButton {{ background: {C['secondary']}; color: {C['text']}; "
-                    f"font-family: Consolas; font-size: 11pt; font-weight: bold; "
-                    f"border: 2px solid {C['accent']}; border-radius: 4px; }}")
-            else:
-                btn.setStyleSheet(
-                    f"QPushButton {{ background: {C['glass']}; color: {C['text3']}; "
-                    f"font-family: Consolas; font-size: 11pt; "
-                    f"border: 1px solid {C['glass_border']}; border-radius: 4px; }}"
-                    f"QPushButton:hover {{ border: 1px solid {C['secondary']}; color: {C['text']}; }}")
+            btn.setStyleSheet(self._ease_btn_style(is_active))
             btn.clicked.connect(lambda ck=False, v=val: self._set_easing(item, v))
             ease_layout.addWidget(btn)
             self._ease_buttons.append((btn, val))
 
         self._content_layout.addWidget(ease_frame)
+
+        self._ease_hint = QLabel(self._ease_hint_map.get(current_easing, ""))
+        self._ease_hint.setWordWrap(True)
+        self._ease_hint.setStyleSheet(
+            f"color: {C['text3']}; font-size: 8pt; border: none; padding: 0 2px;"
+        )
+        self._content_layout.addWidget(self._ease_hint)
 
         # Parametros especificos por efeito
         self._build_fx_params(item)
@@ -496,17 +494,23 @@ class FxPanel(QWidget):
         item.params["easing"] = value
         self._auto_save()
         for btn, val in self._ease_buttons:
-            if val == value:
-                btn.setStyleSheet(
-                    f"QPushButton {{ background: {C['secondary']}; color: {C['text']}; "
-                    f"font-family: Consolas; font-size: 11pt; font-weight: bold; "
-                    f"border: 2px solid {C['accent']}; border-radius: 4px; }}")
-            else:
-                btn.setStyleSheet(
-                    f"QPushButton {{ background: {C['glass']}; color: {C['text3']}; "
-                    f"font-family: Consolas; font-size: 11pt; "
-                    f"border: 1px solid {C['glass_border']}; border-radius: 4px; }}"
-                    f"QPushButton:hover {{ border: 1px solid {C['secondary']}; color: {C['text']}; }}")
+            btn.setStyleSheet(self._ease_btn_style(val == value))
+        if hasattr(self, "_ease_hint") and self._ease_hint is not None:
+            self._ease_hint.setText(self._ease_hint_map.get(value, ""))
+
+    def _ease_btn_style(self, is_active):
+        if is_active:
+            return (
+                f"QPushButton {{ background: {C['secondary']}; color: {C['text']}; "
+                f"font-family: Segoe UI; font-size: 8pt; font-weight: bold; "
+                f"border: 2px solid {C['accent']}; border-radius: 4px; padding: 0 6px; }}"
+            )
+        return (
+            f"QPushButton {{ background: {C['glass']}; color: {C['text3']}; "
+            f"font-family: Segoe UI; font-size: 8pt; font-weight: bold; "
+            f"border: 1px solid {C['glass_border']}; border-radius: 4px; padding: 0 6px; }}"
+            f"QPushButton:hover {{ border: 1px solid {C['secondary']}; color: {C['text']}; }}"
+        )
 
     def _save_fx(self):
         self._auto_save()
@@ -540,18 +544,64 @@ class FxPanel(QWidget):
         # Remover emojis para comparar nome
         name = ''.join(c for c in item.name.lower() if c.isascii())
 
+        sec = QLabel("MENU DO EFEITO")
+        sec.setStyleSheet(
+            f"color: {C['text3']}; font-size: 8pt; font-weight: bold; letter-spacing: 1px;"
+        )
+        L.addWidget(sec)
+
         if "flash" in name or "fade" in name:
+            self._preset_row(
+                L,
+                "PRESETS RAPIDOS",
+                item,
+                [
+                    ("Noir", {"intensity": 70, "color": "0,0,0"}),
+                    ("Flash", {"intensity": 100, "color": "255,255,255"}),
+                    ("Warm", {"intensity": 85, "color": "255,200,120"}),
+                ],
+            )
             # Color picker visual
             self._build_color_picker(L, item)
         elif "glitch" in name:
+            self._preset_row(
+                L,
+                "PRESETS GLITCH",
+                item,
+                [
+                    ("Suave", {"frequency": 6, "rgb_shift": 2}),
+                    ("Medio", {"frequency": 12, "rgb_shift": 6}),
+                    ("Caos", {"frequency": 22, "rgb_shift": 12}),
+                ],
+            )
             self._fx_slider(L, item, "frequency", "FREQUÊNCIA GLITCH", 1, 30, int(item.params.get("frequency", 10)), "", "#aa44ff")
             self._fx_slider(L, item, "rgb_shift", "RGB SHIFT", 0, 20, int(item.params.get("rgb_shift", 5)), "px", "#ff44aa")
         elif "blur" in name:
             self._fx_slider(L, item, "radius", "RAIO DO BLUR", 1, 30, int(item.params.get("radius", 5)), "px", "#4488ff")
         elif "shake" in name:
+            self._preset_row(
+                L,
+                "PRESETS SHAKE",
+                item,
+                [
+                    ("Handheld", {"amplitude": 5, "speed": 8}),
+                    ("Impacto", {"amplitude": 14, "speed": 13}),
+                    ("Frenetico", {"amplitude": 22, "speed": 18}),
+                ],
+            )
             self._fx_slider(L, item, "amplitude", "AMPLITUDE", 1, 30, int(item.params.get("amplitude", 8)), "px", "#ff8844")
             self._fx_slider(L, item, "speed", "VELOCIDADE", 1, 20, int(item.params.get("speed", 10)), "x", "#ffaa44")
         elif "color shift" in name or "rgb split" in name or "chromatic" in name:
+            self._preset_row(
+                L,
+                "PRESETS RGB",
+                item,
+                [
+                    ("Clean", {"red_shift": 0, "green_shift": 0, "blue_shift": 0}),
+                    ("Split", {"red_shift": 4, "green_shift": -2, "blue_shift": 3}),
+                    ("Extreme", {"red_shift": 10, "green_shift": -8, "blue_shift": 12}),
+                ],
+            )
             self._fx_slider(L, item, "red_shift", "RED SHIFT", -20, 20, int(item.params.get("red_shift", 0)), "px", "#ff4444")
             self._fx_slider(L, item, "green_shift", "GREEN SHIFT", -20, 20, int(item.params.get("green_shift", 0)), "px", "#44ff44")
             self._fx_slider(L, item, "blue_shift", "BLUE SHIFT", -20, 20, int(item.params.get("blue_shift", 0)), "px", "#4444ff")
@@ -569,18 +619,63 @@ class FxPanel(QWidget):
         elif "wipe" in name:
             self._fx_slider(L, item, "edge_softness", "SUAVIDADE BORDA", 0, 50, int(item.params.get("edge_softness", 0)), "px", "#8855bb")
 
+    def _preset_row(self, layout, title, item, presets):
+        """Linha de presets rápidos para efeitos com menu próprio."""
+        frame = QFrame()
+        frame.setStyleSheet(
+            f"background: {C['card']}; border: 1px solid {C['border']}; border-radius: 8px;"
+        )
+        fl = QVBoxLayout(frame)
+        fl.setContentsMargins(8, 8, 8, 8)
+        fl.setSpacing(6)
+
+        lbl = QLabel(title)
+        lbl.setStyleSheet(f"color: {C['text2']}; font-size: 8pt; font-weight: bold;")
+        fl.addWidget(lbl)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        for text, values in presets:
+            btn = QPushButton(text)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setFixedHeight(24)
+            btn.setStyleSheet(
+                f"QPushButton {{ background: {C['glass']}; color: {C['text2']}; font-size: 8pt; font-weight: bold; "
+                f"border: 1px solid {C['glass_border']}; border-radius: 6px; padding: 2px 8px; }}"
+                f"QPushButton:hover {{ border: 1px solid {C['secondary']}; color: {C['text']}; }}"
+            )
+            btn.clicked.connect(lambda checked=False, vals=values, it=item: self._apply_preset(it, vals))
+            row.addWidget(btn)
+        row.addStretch()
+        fl.addLayout(row)
+        layout.addWidget(frame)
+
+    def _apply_preset(self, item, values):
+        for key, value in values.items():
+            item.params[key] = str(value)
+        self._auto_save()
+        self.show_item(item, self._project)
+
     def _build_color_picker(self, layout, item):
         """Color picker com espectro HSV visual."""
-        from PySide6.QtGui import QImage, QPixmap
+        from PySide6.QtGui import QImage, QPixmap, QPainter, QLinearGradient
         import colorsys
 
         lbl = QLabel("COR")
         lbl.setStyleSheet(f"color: {C['text2']}; font-size: 9pt; font-weight: bold;")
-        layout.addWidget(lbl)
-
         frame = QFrame()
-        frame.setStyleSheet(f"background: {C['card']}; border: 1px solid {C['border']}; border-radius: 4px;")
-        fl = QVBoxLayout(frame)
+        frame.setStyleSheet(f"background: {C['card']}; border: 1px solid {C['border']}; border-radius: 8px;")
+        layout.addWidget(frame)
+
+        outer = QVBoxLayout(frame)
+        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setSpacing(6)
+        outer.addWidget(lbl)
+
+        inner = QFrame()
+        inner.setStyleSheet(f"background: transparent; border: none;")
+        fl = QVBoxLayout(inner)
         fl.setContentsMargins(8, 8, 8, 8)
         fl.setSpacing(4)
 
@@ -603,6 +698,7 @@ class FxPanel(QWidget):
         # Cor atual
         saved_color = item.params.get("color", "255,255,255" if "flash" in item.name.lower() else "0,0,0")
         rgb = [int(x) for x in saved_color.split(",")]
+        alpha_default = int(item.params.get("color_opacity", 100))
 
         color_row = QHBoxLayout()
         self._color_swatch = QLabel()
@@ -617,6 +713,65 @@ class FxPanel(QWidget):
         color_row.addStretch()
         fl.addLayout(color_row)
 
+        alpha_row = QHBoxLayout()
+        alpha_row.setContentsMargins(0, 2, 0, 0)
+        alpha_row.setSpacing(6)
+        alpha_lbl = QLabel("OPACIDADE")
+        alpha_lbl.setStyleSheet(f"color: {C['text2']}; font-size: 8pt; font-weight: bold;")
+        alpha_row.addWidget(alpha_lbl)
+
+        alpha_slider = QSlider(Qt.Horizontal)
+        alpha_slider.setRange(0, 100)
+        alpha_slider.setValue(alpha_default)
+        alpha_slider.setStyleSheet(
+            f"QSlider::groove:horizontal {{ background: {C['input']}; height: 6px; border-radius: 3px; }}"
+            f"QSlider::handle:horizontal {{ background: {C['accent']}; width: 14px; margin: -4px 0; border-radius: 7px; }}"
+            f"QSlider::sub-page:horizontal {{ background: {C['accent']}; border-radius: 3px; }}"
+        )
+        alpha_row.addWidget(alpha_slider)
+
+        alpha_val = QLabel(f"{alpha_default}%")
+        alpha_val.setFixedWidth(44)
+        alpha_val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        alpha_val.setStyleSheet(f"color: {C['accent']}; font-size: 8pt; font-weight: bold;")
+        alpha_row.addWidget(alpha_val)
+        fl.addLayout(alpha_row)
+
+        alpha_preview = QLabel()
+        alpha_preview.setFixedHeight(12)
+        alpha_preview.setStyleSheet(f"border: 1px solid {C['border']}; border-radius: 3px;")
+        fl.addWidget(alpha_preview)
+
+        def _update_alpha_visual(rr, gg, bb):
+            w, h = 200, 12
+            img = QImage(w, h, QImage.Format_ARGB32)
+            p = QPainter(img)
+
+            # Fundo xadrez para indicar transparência.
+            s = 4
+            c1 = QColor(42, 48, 62)
+            c2 = QColor(78, 86, 104)
+            for yy in range(0, h, s):
+                for xx in range(0, w, s):
+                    p.fillRect(xx, yy, s, s, c1 if ((xx // s) + (yy // s)) % 2 == 0 else c2)
+
+            # Gradiente da própria cor: transparente -> opaco.
+            g = QLinearGradient(0, 0, w, 0)
+            g.setColorAt(0.0, QColor(rr, gg, bb, 0))
+            g.setColorAt(1.0, QColor(rr, gg, bb, 255))
+            p.fillRect(0, 0, w, h, g)
+            p.end()
+
+            alpha_preview.setPixmap(QPixmap.fromImage(img))
+            alpha_slider.setStyleSheet(
+                f"QSlider::groove:horizontal {{ background: {C['input']}; height: 6px; border-radius: 3px; }}"
+                f"QSlider::handle:horizontal {{ background: rgb({rr},{gg},{bb}); width: 14px; margin: -4px 0; border-radius: 7px; }}"
+                f"QSlider::sub-page:horizontal {{ background: rgb({rr},{gg},{bb}); border-radius: 3px; }}"
+            )
+            alpha_val.setStyleSheet(f"color: rgb({rr},{gg},{bb}); font-size: 8pt; font-weight: bold;")
+
+        _update_alpha_visual(rgb[0], rgb[1], rgb[2])
+
         # Click no espectro
         def on_spectrum_click(event, it=item):
             x = max(0, min(pw-1, int(event.position().x())))
@@ -629,20 +784,49 @@ class FxPanel(QWidget):
             self._color_swatch.setStyleSheet(
                 f"background: rgb({ri},{gi},{bi}); border: 2px solid {C['border']}; border-radius: 4px;")
             self._color_info.setText(f"R:{ri} G:{gi} B:{bi}")
+            _update_alpha_visual(ri, gi, bi)
             self._auto_save()
 
         spectrum_lbl.mousePressEvent = on_spectrum_click
         spectrum_lbl.mouseMoveEvent = on_spectrum_click
 
-        layout.addWidget(frame)
+        def on_alpha_change(v, it=item):
+            alpha_val.setText(f"{v}%")
+            it.params["color_opacity"] = str(v)
+            self._auto_save()
+
+        alpha_slider.valueChanged.connect(on_alpha_change)
+
+        outer.addWidget(inner)
 
     def _fx_slider(self, layout, item, param_key, label, mn, mx, default, unit, color):
         """Cria slider para parametro de FX com salvamento automatico."""
+        frame = QFrame()
+        frame.setStyleSheet(
+            f"background: {C['card']}; border: 1px solid {C['border']}; border-radius: 8px;"
+        )
+        fl = QVBoxLayout(frame)
+        fl.setContentsMargins(8, 7, 8, 7)
+        fl.setSpacing(4)
+
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(6)
         lbl = QLabel(label)
-        lbl.setStyleSheet(f"color: {C['text2']}; font-size: 9pt; font-weight: bold;")
-        layout.addWidget(lbl)
+        lbl.setStyleSheet(f"color: {C['text2']}; font-size: 8pt; font-weight: bold;")
+        head.addWidget(lbl)
+        head.addStretch()
+
+        val_lbl = QLabel(f"{default}{unit}")
+        val_lbl.setFixedWidth(56)
+        val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        val_lbl.setStyleSheet(f"color: {color}; font-size: 9pt; font-weight: bold;")
+        head.addWidget(val_lbl)
+        fl.addLayout(head)
 
         row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
         sl = QSlider(Qt.Horizontal)
         sl.setRange(mn, mx)
         sl.setValue(default)
@@ -651,16 +835,13 @@ class FxPanel(QWidget):
             f"QSlider::handle:horizontal {{ background: {color}; width: 14px; margin: -4px 0; border-radius: 7px; }}"
             f"QSlider::sub-page:horizontal {{ background: {color}; border-radius: 3px; }}")
         row.addWidget(sl)
-        val_lbl = QLabel(f"{default}{unit}")
-        val_lbl.setFixedWidth(45)
-        val_lbl.setStyleSheet(f"color: {color}; font-size: 9pt; font-weight: bold;")
         sl.valueChanged.connect(lambda v, l=val_lbl, u=unit, k=param_key, it=item: [
             l.setText(f"{v}{u}"),
             it.params.__setitem__(k, str(v)),
             self._auto_save(),
         ])
-        row.addWidget(val_lbl)
-        layout.addLayout(row)
+        fl.addLayout(row)
+        layout.addWidget(frame)
 
     def _auto_save(self):
         """Salva projeto automaticamente ao mudar parametro."""
