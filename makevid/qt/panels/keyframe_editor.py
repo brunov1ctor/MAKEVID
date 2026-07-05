@@ -10,7 +10,7 @@ from makevid.qt.theme import C
 class KeyframeEditorWidget(QWidget):
     """Canvas interativo para editar keyframes de volume (estilo CapCut)."""
 
-    changed = Signal()
+    changed = Signal(bool)
 
     def __init__(self, item, parent=None):
         super().__init__(parent)
@@ -20,13 +20,8 @@ class KeyframeEditorWidget(QWidget):
         self.setMinimumHeight(120)
         self.setMaximumHeight(140)
         self.setMouseTracking(True)
-
-        # Init keyframes se vazio
-        if not self._item.volume_keyframes:
-            self._item.volume_keyframes = [
-                {"time": 0.0, "value": 1.0},
-                {"time": self._item.duration, "value": 1.0},
-            ]
+        if self._item.volume_keyframes:
+            self._item.volume_keyframes.sort(key=lambda k: k.get("time", 0.0))
 
         self._build_ui()
 
@@ -163,9 +158,10 @@ class KeyframeEditorWidget(QWidget):
         elif event.button() == Qt.RightButton:
             # Remover ponto
             idx = self._find_nearest(event.position(), threshold=15)
-            if idx is not None and len(self._item.volume_keyframes) > 2:
+            if idx is not None:
                 self._item.volume_keyframes.pop(idx)
-                self.changed.emit()
+                self._normalize_keyframes()
+                self.changed.emit(True)
                 self.update()
             event.accept()
 
@@ -173,23 +169,18 @@ class KeyframeEditorWidget(QWidget):
         if self._dragging is not None:
             t, v = self._pos_to_tv(event.position())
             kf = self._item.volume_keyframes[self._dragging]
-            # Lock primeiro e último
-            kfs_sorted = sorted(range(len(self._item.volume_keyframes)),
-                               key=lambda i: self._item.volume_keyframes[i]["time"])
-            pos_in_sorted = kfs_sorted.index(self._dragging)
-            if pos_in_sorted == 0:
-                t = 0.0
-            elif pos_in_sorted == len(kfs_sorted) - 1:
-                t = self._item.duration
             kf["time"] = round(t, 2)
             kf["value"] = round(v, 3)
+            self._normalize_keyframes()
+            self._dragging = self._item.volume_keyframes.index(kf)
+            self.changed.emit(False)
             self.update()
             event.accept()
 
     def mouseReleaseEvent(self, event):
         if self._dragging is not None:
             self._dragging = None
-            self.changed.emit()
+            self.changed.emit(True)
             self.update()
             event.accept()
 
@@ -198,7 +189,8 @@ class KeyframeEditorWidget(QWidget):
         if event.button() == Qt.LeftButton:
             t, v = self._pos_to_tv(event.position())
             self._item.volume_keyframes.append({"time": round(t, 2), "value": round(v, 3)})
-            self.changed.emit()
+            self._normalize_keyframes()
+            self.changed.emit(True)
             self.update()
             event.accept()
 
@@ -235,10 +227,14 @@ class KeyframeEditorWidget(QWidget):
                 best_i, best_dist = i, dist
         return best_i
 
+    def _normalize_keyframes(self):
+        self._item.volume_keyframes.sort(key=lambda k: k.get("time", 0.0))
+
     def _add_mid(self):
         dur = self._item.duration
         self._item.volume_keyframes.append({"time": round(dur / 2, 2), "value": 1.0})
-        self.changed.emit()
+        self._normalize_keyframes()
+        self.changed.emit(True)
         self.update()
 
     def _reset(self):
@@ -246,5 +242,6 @@ class KeyframeEditorWidget(QWidget):
             {"time": 0.0, "value": 1.0},
             {"time": self._item.duration, "value": 1.0},
         ]
-        self.changed.emit()
+        self._normalize_keyframes()
+        self.changed.emit(True)
         self.update()

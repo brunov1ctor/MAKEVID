@@ -27,7 +27,7 @@ class MaskCanvas(QWidget):
         self._eraser = False
         self._painting = False
         self._last_pos = None
-        self.setMinimumSize(320, 200)
+        self.setMinimumSize(0, 0)
         self.setCursor(Qt.CrossCursor)
 
     def set_frame(self, frame: np.ndarray):

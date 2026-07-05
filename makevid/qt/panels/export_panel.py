@@ -25,7 +25,7 @@ class ExportPanel(QWidget):
         self.project = project
         from PySide6.QtWidgets import QSizePolicy
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setMinimumWidth(250)
+        self.setMinimumWidth(0)
         self._format = None
         self._track_checks = {}
         self._syncing_export_ui = False

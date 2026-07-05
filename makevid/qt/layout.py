@@ -27,17 +27,17 @@ def build_layout(window, main_layout):
     # ── Splitters ─────────────────────────────────────────────────────────────
     window._v_splitter = QSplitter(Qt.Vertical)
     window._v_splitter.setHandleWidth(10)
-    window._v_splitter.setChildrenCollapsible(False)
+    window._v_splitter.setChildrenCollapsible(True)
     window._v_splitter.setStyleSheet("QSplitter { background: transparent; } QSplitter::handle { background: transparent; }")
 
     window._h_splitter = QSplitter(Qt.Horizontal)
     window._h_splitter.setHandleWidth(10)
-    window._h_splitter.setChildrenCollapsible(False)
+    window._h_splitter.setChildrenCollapsible(True)
     window._h_splitter.setStyleSheet("QSplitter { background: transparent; } QSplitter::handle { background: transparent; }")
 
     # ── Left stack ────────────────────────────────────────────────────────────
     window._left_stack = QStackedWidget()
-    window._left_stack.setMinimumWidth(160)
+    window._left_stack.setMinimumWidth(0)
     window._left_stack.setMinimumHeight(0)
     window._left_stack.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Ignored)
     window._left_stack.setStyleSheet("background: transparent;")
@@ -84,6 +84,10 @@ def build_layout(window, main_layout):
 
     window._v_splitter.setSizes([560, 260])
     window._h_splitter.setSizes([300, 900])
+    window._h_splitter.setCollapsible(0, True)
+    window._h_splitter.setCollapsible(1, True)
+    window._v_splitter.setCollapsible(0, True)
+    window._v_splitter.setCollapsible(1, True)
     window._h_splitter.setStretchFactor(0, 0)
     window._h_splitter.setStretchFactor(1, 1)
 

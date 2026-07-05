@@ -43,7 +43,7 @@ class GeneratorPanel(QWidget):
         super().__init__(parent)
         self.project = project
         self._ref_images = []
-        self.setMinimumWidth(220)
+        self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         self._img_cancelled = False
         self._img_progress_timer = None
@@ -803,11 +803,9 @@ class GeneratorPanel(QWidget):
                     out_dir.mkdir(parents=True, exist_ok=True)
                     img_path = out_dir / f"img_{int(__import__('time').time())}.png"
                     img.save(str(img_path))
-                    _log.debug(f"[IMG] imagem salva: {img_path}")
 
                     mp4_path = img_path.with_suffix(".mp4")
                     self._image_to_static_video(str(img_path), str(mp4_path), duration, 16, w, h)
-                    _log.debug(f"[IMG] mp4 criado: {mp4_path}")
 
                     clip = self.project.add_clip(prompt=prompt, position=len(self.project.clips))
                     clip.video_path = str(mp4_path)

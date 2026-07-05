@@ -54,16 +54,19 @@ class TrackMenuPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumWidth(250)
+        self.setMinimumWidth(0)
         self.setObjectName("trackMenuPanel")
         from PySide6.QtWidgets import QSizePolicy
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._outer = QVBoxLayout(self)
         self._outer.setContentsMargins(0, 0, 0, 0)
         self._outer.setSpacing(0)
+        self._content_host = None
+        self._content_layout = None
         self._fx_tab_buttons = []
         self._fx_content_area = None
         self._apply_bg(C["glass"])
+        self._reset_content_host()
 
     def _apply_bg(self, color_hex: str):
         """Aplica cor de fundo via stylesheet — garante repaint imediato."""
@@ -74,6 +77,21 @@ class TrackMenuPanel(QWidget):
             f"QWidget {{ background: transparent; }}"
         )
 
+    def _reset_content_host(self):
+        if self._content_host is not None:
+            self._outer.removeWidget(self._content_host)
+            self._content_host.hide()
+            self._content_host.deleteLater()
+
+        from PySide6.QtWidgets import QWidget
+        self._content_host = QWidget(self)
+        self._content_host.setAttribute(Qt.WA_TranslucentBackground)
+        self._content_host.setAutoFillBackground(False)
+        self._content_layout = QVBoxLayout(self._content_host)
+        self._content_layout.setContentsMargins(0, 0, 0, 0)
+        self._content_layout.setSpacing(0)
+        self._outer.addWidget(self._content_host)
+
     def show_track(self, track_name, project):
         # Se já está mostrando a mesma track, não reconstrói
         if getattr(self, '_track', None) == track_name and getattr(self, '_project', None) is project:
@@ -82,23 +100,7 @@ class TrackMenuPanel(QWidget):
         self._track = track_name
         self._project = project
 
-        # Destruir e recriar o layout interno para limpar tudo (layouts + widgets)
-        old_layout = self._outer
-        # Remover todos os itens do layout antigo
-        while old_layout.count():
-            item = old_layout.takeAt(0)
-            w = item.widget()
-            if w:
-                w.hide()
-                w.deleteLater()
-            sub = item.layout()
-            if sub:
-                while sub.count():
-                    si = sub.takeAt(0)
-                    sw = si.widget()
-                    if sw:
-                        sw.hide()
-                        sw.deleteLater()
+        self._reset_content_host()
 
         # Aplicar cor de fundo
         cfg = TRACK_CONFIG.get(track_name)
@@ -122,7 +124,7 @@ class TrackMenuPanel(QWidget):
             return
         color_fn, title, items = config
         color = color_fn()
-        L = self._outer
+        L = self._content_layout
 
         hdr = QWidget()
         hdr_l = QHBoxLayout(hdr)
@@ -193,7 +195,7 @@ class TrackMenuPanel(QWidget):
 
     def _build_fx_menu(self):
         color = C["purple"]
-        L = self._outer
+        L = self._content_layout
 
         hdr = QWidget()
         hdr_l = QHBoxLayout(hdr)
@@ -234,7 +236,7 @@ class TrackMenuPanel(QWidget):
                 btn.setToolTip(tip)
         L.addWidget(tabs_bar)
 
-        self._fx_content_area = QScrollArea(self)
+        self._fx_content_area = QScrollArea()
         self._fx_content_area.setWidgetResizable(True)
         L.addWidget(self._fx_content_area)
 

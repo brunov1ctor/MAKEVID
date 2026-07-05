@@ -5,6 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPen, QColor, QFont
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsRectItem, QGraphicsTextItem
+import shiboken6
 
 from makevid.qt.timeline.clip_item import ClipGraphicsItem
 from makevid.qt.timeline.track_item import TrackGraphicsItem
@@ -35,6 +36,12 @@ class SceneInteraction:
         self._drag_group = None
         self._drag_ghost_pos = None
         self._drag_clip_item = None
+    
+    def _is_valid_qobj(self, obj):
+        try:
+            return obj is not None and shiboken6.isValid(obj)
+        except Exception:
+            return False
 
     # ── double-click ──────────────────────────────────────────────────────────
 
@@ -133,7 +140,6 @@ class SceneInteraction:
 
             # Tenta achar o item visual diretamente
             gi = self._track_item_at(pos)
-            _log.debug(f"on_press track={name} pos=({pos.x():.0f},{pos.y():.0f}) gi={'None' if gi is None else gi.track_item.id}")
             if gi is not None:
                 self.tl.set_active_track(name)
                 found = gi.track_item
@@ -169,7 +175,6 @@ class SceneInteraction:
                 return True
 
             # Área vazia → menu da track
-            _log.debug(f"on_press track={name} area_vazia → track_empty_clicked sel_track={self.tl._selected_track_item_id}")
             self.tl.set_active_track(name)
             cb = self.track_empty_clicked or self.label_clicked
             if cb:
@@ -179,6 +184,8 @@ class SceneInteraction:
         # Clip de video
         item = self._item_at(pos)
         if isinstance(item, ClipGraphicsItem):
+            if not self._is_valid_qobj(item):
+                return False
             self.tl.set_active_track("video")
             clip = item.clip
             local_x = pos.x() - item._x
@@ -223,21 +230,17 @@ class SceneInteraction:
             return True
 
         if self._drag_mode == "clip_move":
+            if not self._is_valid_qobj(self._drag_clip_item):
+                self._remove_drag_guide()
+                self._reset_drag()
+                return False
+
             if self._drag_clip_item:
                 item = self._drag_clip_item
                 item._x = item._orig_x + dx
                 item.prepareGeometryChange()
                 item.update()
-            t = max(0, (pos.x() - lbl_w) / zoom)
-            clips = sorted(self.tl.project.clips, key=lambda c: c.position)
-            cur = 0.0
-            new_pos = len(clips) - 1
-            for i, c in enumerate(clips):
-                if t < cur + c.duration:
-                    new_pos = i
-                    break
-                cur += c.duration
-            self._drag_ghost_pos = max(0, min(len(clips) - 1, new_pos))
+            self._drag_ghost_pos = self._clip_drop_index(pos, self._drag_clip_item)
             return True
 
         if self._drag_mode == "clip_trim_right":
@@ -288,7 +291,6 @@ class SceneInteraction:
         if self._drag_mode == "item_move":
             if not moved:
                 item_id = getattr(self._drag_target, 'id', None)
-                _log.debug(f"on_release item_click id={item_id} → select+item_clicked")
                 self.tl._selected_track_item_id = item_id
                 self.scene.select_track_item(item_id)
                 if self.item_clicked and self._drag_target:
@@ -297,7 +299,6 @@ class SceneInteraction:
                 self._reset_drag()
                 return True
             else:
-                _log.debug(f"on_release item_move drag id={getattr(self._drag_target,'id',None)}")
                 self.tl._selected_track_item_id = getattr(self._drag_target, 'id', None)
                 self._save()
 
@@ -316,8 +317,12 @@ class SceneInteraction:
                 new_pos = self._drag_ghost_pos if self._drag_ghost_pos is not None else orig_pos
                 if new_pos != orig_pos:
                     self.tl.project.move_clip(clip.id, new_pos)
-                self._save()
-                self.tl._selected_clip_id = None
+                    self._save()
+                else:
+                    self.tl._selected_clip_id = getattr(self._drag_target, 'id', None)
+
+                if self._drag_ghost_pos is None:
+                    self.tl._selected_clip_id = getattr(self._drag_target, 'id', None)
 
             if self._drag_clip_item:
                 self._drag_clip_item._x = self._drag_clip_item._orig_x
@@ -328,11 +333,34 @@ class SceneInteraction:
             if moved:
                 self._save()
 
+        if self._drag_mode == "clip_move" and not self._is_valid_qobj(self._drag_clip_item):
+            self._remove_drag_guide()
+            self._reset_drag()
+            return False
+
         self._remove_drag_guide()
         self._reset_drag()
-        _log.debug(f"on_release final redraw sel_track={self.tl._selected_track_item_id}")
         self.tl.redraw()
         return True
+
+    def _clip_drop_index(self, pos, drag_item):
+        """Calcula o indice de insercao do clip de video pelo alvo sob o cursor.
+
+        Retorna None quando o cursor nao esta sobre um alvo valido.
+        """
+        item = self._item_at(pos)
+        if not isinstance(item, ClipGraphicsItem):
+            return None
+        if item is drag_item:
+            return int(getattr(item.clip, 'position', 0))
+
+        clips = sorted(self.tl.project.clips, key=lambda c: c.position)
+        target_pos = next((i for i, c in enumerate(clips) if c.id == item.clip.id), None)
+        if target_pos is None:
+            return None
+
+        center_x = item._x + (item._w / 2)
+        return target_pos if pos.x() < center_x else target_pos + 1
 
     # ── split ─────────────────────────────────────────────────────────────────
 
@@ -446,7 +474,6 @@ class SceneInteraction:
         """Retorna o TrackGraphicsItem sob pos, ou None."""
         for tid, gi in self.scene._track_items.items():
             hit = gi._x <= pos.x() <= gi._x + gi._w and gi._y <= pos.y() <= gi._y + gi._h
-            _log.debug(f"hit_test id={tid} pos=({pos.x():.0f},{pos.y():.0f}) item=({gi._x:.0f},{gi._y:.0f},{gi._w:.0f},{gi._h:.0f}) hit={hit}")
             if hit:
                 return gi
         return None

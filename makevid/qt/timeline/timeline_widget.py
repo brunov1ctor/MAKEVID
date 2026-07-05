@@ -289,7 +289,6 @@ class TimelineWidget(QWidget):
             self._scene.rebuild_empty()
             self._update_time_label()
             return
-        _log.debug(f"redraw sel_track={self._selected_track_item_id}")
         self._scene.rebuild(self.project, self.zoom, self.playhead_pos,
                             self._selected_track_item_id, self._selected_clip_id,
                             self._active_track_key)
@@ -307,7 +306,6 @@ class TimelineWidget(QWidget):
         self.set_active_track(None)
 
     def _on_project_changed(self, proj):
-        _log.debug(f"_on_project_changed track_items={len(proj.track_items)} sel_track={self._selected_track_item_id}")
         self.project = proj
         self.playhead_pos = 0.0
         self.redraw()
@@ -548,13 +546,15 @@ class TimelineWidget(QWidget):
         return len(clips)
 
     def _on_drag_enter(self, event):
-        if event.mimeData().hasUrls():
+        md = event.mimeData()
+        if md.hasUrls() or md.hasFormat("application/x-makevid-track-item"):
             pos = self._drop_scene_pos(event)
             self._scene.update_hover(pos)
             event.acceptProposedAction()
 
     def _on_drag_move(self, event):
-        if event.mimeData().hasUrls():
+        md = event.mimeData()
+        if md.hasUrls() or md.hasFormat("application/x-makevid-track-item"):
             pos = self._drop_scene_pos(event)
             self._scene.update_hover(pos)
             event.acceptProposedAction()
@@ -568,14 +568,28 @@ class TimelineWidget(QWidget):
         import shutil
         from makevid.config import AUDIO_DIR, OUTPUTS_DIR
 
-        urls = event.mimeData().urls()
-        if not urls:
-            return
-
+        md = event.mimeData()
         pos = self._drop_scene_pos(event)
         drop_track = self._track_at_scene_pos(pos)
         drop_time = self._time_at_scene_pos(pos)
         self._scene.update_hover(None)
+
+        if md.hasFormat("application/x-makevid-track-item"):
+            item_id = bytes(md.data("application/x-makevid-track-item")).decode("utf-8", errors="ignore").strip()
+            item = next((i for i in self.project.track_items if i.id == item_id), None)
+            if item is not None:
+                if drop_track in {"voice", "sfx", "music", "audio"}:
+                    item.track = drop_track
+                item.start_time = round(max(0.0, drop_time), 3)
+                from makevid.config import PROJECTS_DIR
+                self.project.save(PROJECTS_DIR)
+                self.redraw()
+                event.acceptProposedAction()
+                return
+
+        urls = md.urls()
+        if not urls:
+            return
 
         audio_exts = {'.wav', '.mp3', '.ogg', '.flac'}
         video_exts = {'.mp4', '.avi', '.mov', '.mkv', '.webm'}

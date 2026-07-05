@@ -18,18 +18,14 @@ class GenerationActionsMixin:
         # Primeira geração: persiste o projeto em disco
         if not (PROJECTS_DIR / f"{self.project.id}.json").exists():
             self.project.save(PROJECTS_DIR)
-            _log.debug(f"[ensure] projeto salvo id={self.project.id}")
             self._on_project_opened(self.project)
 
         if action == "ensure_project":
-            _log.debug(f"[ensure_project] project.id={self.project.id} clips={len(self.project.clips)}")
             return
 
         if action == "image_done":
-            _log.info(f"[image_done] recebido: project.id={self.project.id} clips_memoria={len(self.project.clips)}")
             try:
                 proj = Project.load(PROJECTS_DIR / f"{self.project.id}.json")
-                _log.info(f"[image_done] disco: clips={len(proj.clips)} name='{proj.name}'")
             except Exception as e:
                 log_error("image_done", f"erro ao carregar projeto: {e}")
                 proj = self.project
@@ -40,7 +36,7 @@ class GenerationActionsMixin:
             # preservar track_items que estão só em memória
             if not proj.track_items and self.project.track_items:
                 proj.track_items = self.project.track_items
-            _log.debug(f"[image_done] sel_track_antes={self.timeline._selected_track_item_id} track_items={[i.id for i in proj.track_items]}")
+            _log.info(f"[image_done] projeto sincronizado: id={proj.id} clips={len(proj.clips)}")
             self.project = proj
             self.state.project = proj
             self.generator.project = proj

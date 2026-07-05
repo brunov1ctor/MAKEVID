@@ -315,7 +315,6 @@ class _EyeItem(QGraphicsItem):
             event.accept()
 
     def _toggle_collapsed(self):
-        _log.debug(f"EyeItem.mousePressEvent track={self._track_key}")
         collapsed = self._tl.collapsed_tracks
         if self._track_key in collapsed:
             collapsed.discard(self._track_key)
@@ -345,7 +344,6 @@ class TimelineScene(QGraphicsScene):
     # ── public ────────────────────────────────────────────────────────────────
 
     def rebuild(self, project, zoom, ph_pos, sel_track_id=None, sel_clip_id=None, active_track_key=None):
-        _log.debug(f"rebuild sel_track_id={sel_track_id}")
         self.clear()
         self._playhead = None
         self._track_items = {}
@@ -400,7 +398,6 @@ class TimelineScene(QGraphicsScene):
             self._playhead.set_position(pos, zoom, self.tl.LBL_W)
 
     def select_track_item(self, item_id):
-        _log.debug(f"select_track_item id={item_id} track_items={list(self._track_items.keys())}")
         for tid, gi in self._track_items.items():
             selected = tid == item_id
             if gi._selected != selected:
@@ -558,7 +555,6 @@ class TimelineScene(QGraphicsScene):
             ty, th = self._track_pos[name]
             color = color_map[name]
             items = sorted(project.get_track_items(name), key=lambda i: i.start_time)
-            _log.debug(f"draw_track_items track={name} count={len(items)} sel_track_id={sel_track_id}")
             for ti in items:
                 x = lw + int(ti.start_time * zoom)
                 w = max(4, int(ti.duration * zoom))
@@ -573,17 +569,14 @@ class TimelineScene(QGraphicsScene):
     # ── mouse direto (chamado pela view, sem processamento Qt de seleção) ──────
 
     def on_mouse_press(self, pos, button):
-        _log.debug(f"press pos=({pos.x():.0f},{pos.y():.0f}) btn={button}")
         # EyeItem precisa receber o press via Qt normal
         item = self.itemAt(pos, self.tl._view.transform())
-        _log.debug(f"press item_at={type(item).__name__ if item else None}")
         if isinstance(item, _EyeItem):
             item._toggle_collapsed()
             return
         self._interaction.on_press(pos, button)
 
     def on_mouse_release(self, pos):
-        _log.debug(f"release pos=({pos.x():.0f},{pos.y():.0f})")
         self._interaction.on_release(pos)
 
     def on_mouse_move(self, pos):
@@ -595,6 +588,20 @@ class TimelineScene(QGraphicsScene):
                 return obj is not None and shiboken6.isValid(obj)
             except Exception:
                 return False
+
+        # A coluna de labels fica estática; não aplicar destaque de hover nela.
+        if pos is not None and pos.x() < self.tl.LBL_W:
+            self._set_hovered_track(None)
+            prev = self._hovered_item
+            if prev is not None and not _is_valid_qobj(prev):
+                self._hovered_item = None
+            if prev and hasattr(prev, '_hovered'):
+                prev._hovered = False
+                if _is_valid_qobj(prev):
+                    prev.setCursor(Qt.ArrowCursor)
+                    prev.update()
+            self._hovered_item = None
+            return
 
         item = None
         if pos is not None:

@@ -51,8 +51,8 @@ async def _generate_edge_tts(
     _mp3_to_wav(mp3_path, output_path)
     try:
         mp3_path.unlink(missing_ok=True)
-    except OSError as _e:
-        logger.debug(f"Suppressed: {_e}")
+    except OSError as e:
+        logger.warning(f"Nao foi possivel remover temporario MP3 ({mp3_path.name}): {e}")
     return output_path
 
 
@@ -497,6 +497,7 @@ def get_available_voices(language: str = "pt-BR") -> List[Dict]:
     try:
         return asyncio.run(list_voices(language))
     except Exception:
+        logger.exception("Falha ao listar vozes do edge-tts")
         return []
 
 

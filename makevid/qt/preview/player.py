@@ -290,7 +290,7 @@ class TimelinePlayerQt(QObject):
         try:
             import sounddevice as sd
         except ImportError:
-            print("[AUDIO] sounddevice nao instalado — sem som")
+            log.debug("sounddevice nao instalado - sem som")
             return
 
         try:
@@ -317,7 +317,7 @@ class TimelinePlayerQt(QObject):
                     continue
                 p = Path(item.file_path)
                 if not p.exists():
-                    print(f"[AUDIO] arquivo nao encontrado: {p}")
+                    log.warning(f"Arquivo de audio nao encontrado: {p}")
                     continue
                 track_vol = self._project.track_volumes.get(item.track, 1.0)
                 try:
@@ -355,7 +355,7 @@ class TimelinePlayerQt(QObject):
                         from makevid.core.audio_utils import apply_volume_keyframes
                         raw = apply_volume_keyframes(raw, sr, item.volume_keyframes, item.duration)
                 except Exception as e:
-                    print(f"[AUDIO] erro ao ler {p.name}: {e}")
+                    log.warning(f"Erro ao ler {p.name}: {e}")
                     continue
 
                 start_s = int(item.start_time * sr)
@@ -382,7 +382,7 @@ class TimelinePlayerQt(QObject):
             try:
                 sd.query_devices(kind='output')
             except Exception as e:
-                print(f"[AUDIO] nenhum dispositivo de saida: {e}")
+                log.warning(f"Nenhum dispositivo de saida disponivel: {e}")
                 return
 
             play_sr = int(sr / max(self._speed, 0.1))
@@ -403,11 +403,12 @@ class TimelinePlayerQt(QObject):
                         break
 
             sd.play(np.ascontiguousarray(remaining), samplerate=play_sr, device=out_device)
-            print(f"[AUDIO] tocando {loaded} item(s), offset={self._start_offset:.1f}s, sr={play_sr}, device={out_device}")
+            log.debug(
+                f"Audio play iniciado: {loaded} item(s), offset={self._start_offset:.1f}s, sr={play_sr}, device={out_device}"
+            )
 
         except Exception as e:
-            print(f"[AUDIO] _start_audio erro: {e}")
-            import traceback; traceback.print_exc()
+            log.exception(f"_start_audio erro: {e}")
 
     def _stop_audio(self):
         try:

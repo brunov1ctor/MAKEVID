@@ -10,19 +10,22 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 
 from makevid.qt.theme import C
+from makevid.config import PROJECTS_DIR
 
 
 class MixerPanel(QWidget):
     """Painel de mixagem para um TrackItem de audio."""
 
     closed = Signal()
+    changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._item = None
+        self._project = None
         self._sliders = {}
         self.setObjectName("mixerPanel")
-        self.setMinimumWidth(250)
+        self.setMinimumWidth(0)
         self._build_ui()
 
     def _build_ui(self):
@@ -60,9 +63,10 @@ class MixerPanel(QWidget):
         scroll.setWidget(self._content)
         outer.addWidget(scroll)
 
-    def show_item(self, item):
+    def show_item(self, item, project=None):
         """Popula o mixer com controles para o item."""
         self._item = item
+        self._project = project or getattr(self.window(), "project", None)
         self._sliders = {}
         self._info_label.setText(f"  {item.name} | {item.duration:.1f}s | Inicio: {item.start_time:.1f}s")
 
@@ -119,13 +123,11 @@ class MixerPanel(QWidget):
         L.addStretch()
         self.show()
 
-    def _on_keyframe_change(self):
-        """Salva keyframes automaticamente."""
-        from makevid.config import PROJECTS_DIR
-        # item.volume_keyframes ja foi modificado in-place pelo editor
-        # Precisamos salvar o projeto
-        # Nota: o mixer nao tem referencia direta ao projeto aqui,
-        # mas o item e compartilhado - sera salvo quando o painel fechar
+    def _on_keyframe_change(self, commit=False):
+        """Propaga mudanças do editor e salva o projeto quando a edicao termina."""
+        if commit and self._project is not None:
+            self._project.save(PROJECTS_DIR)
+        self.changed.emit()
 
     def get_values(self):
         """Retorna valores atuais do mixer."""

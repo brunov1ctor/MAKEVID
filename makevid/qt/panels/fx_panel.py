@@ -234,7 +234,7 @@ class FxPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumWidth(250)
+        self.setMinimumWidth(0)
         self.setObjectName("fxPanel")
         self._current_tab = None
         self._project = None

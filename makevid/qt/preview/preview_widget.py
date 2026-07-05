@@ -74,7 +74,7 @@ class _VideoDisplay(QLabel):
         self._fade_timer.setInterval(14)
         self._fade_timer.timeout.connect(self._tick_fade)
         self.setAlignment(Qt.AlignCenter)
-        self.setMinimumSize(200, 80)
+        self.setMinimumSize(0, 0)
         self.setStyleSheet("border: none; border-radius: 20px; background: transparent;")
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setCursor(QCursor(Qt.PointingHandCursor))

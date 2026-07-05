@@ -85,6 +85,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
     def _connect_signals(self):
         self.generator.generation_requested.connect(self._on_generation_requested)
         self.mixer.closed.connect(self._show_generator)
+        self.mixer.changed.connect(lambda: self.timeline.redraw())
         self.fx_editor.closed.connect(self._show_generator)
         self.track_editor.closed.connect(self._show_generator)
         self.export_panel.closed.connect(self._show_generator)
@@ -106,6 +107,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.track_menu.action_add_fx.connect(self._add_fx_to_timeline)
         self.inpaint_panel.closed.connect(self._show_generator)
         self.inpaint_panel.inpaint_requested.connect(self._do_inpaint)
+        self.track_editor.changed.connect(lambda: self.timeline.redraw())
 
         self.project_changed.connect(self.generator._on_project_changed)
         self.project_changed.connect(self.export_panel._on_project_changed)
@@ -149,13 +151,11 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
     # ── Panel switching ───────────────────────────────────────────────────────
 
     def _show_generator(self):
-        _log.debug(f"_show_generator sel_track={self.timeline._selected_track_item_id}")
         self.timeline.clear_active_track()
         self._left_stack.setCurrentWidget(self.generator)
         self.timeline._scene.select_track_item(self.timeline._selected_track_item_id)
 
     def _return_to_prev(self):
-        _log.debug(f"_return_to_prev sel_track={self.timeline._selected_track_item_id}")
         self.timeline.redraw()
         prev = getattr(self, "_prev_panel", self.generator)
         self._left_stack.setCurrentWidget(prev)
@@ -200,11 +200,14 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
             self.preview.show_audio_browser()
 
     def _on_item_clicked(self, track_item):
-        _log.debug(f"_on_item_clicked id={track_item.id} track={track_item.track}")
         if track_item.track == "fx":
             self._show_fx_editor(track_item)
         else:
             self._show_track_editor(track_item)
+
+    def _show_mixer(self, item):
+        self.mixer.show_item(item, self.project)
+        self._left_stack.setCurrentWidget(self.mixer)
 
     def _on_clip_clicked(self, clip):
         self.generator.set_clip_data(clip)
@@ -213,7 +216,6 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.preview.show_clip_properties(clip)
 
     def _on_label_clicked(self, track_name):
-        _log.debug(f"_on_label_clicked track={track_name} sel_track={self.timeline._selected_track_item_id}")
         self.timeline._selected_clip_id = None
         self.timeline.set_active_track(track_name)
         self.track_menu.show_track(track_name, self.project)

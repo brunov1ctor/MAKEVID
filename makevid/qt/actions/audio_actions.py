@@ -47,7 +47,6 @@ class AudioActionsMixin:
             _log.info(f"Audio importado: {src.name} -> {track_name} dur={dur:.1f}s start={start:.1f}")
         self.project.save(PROJECTS_DIR)
         self.timeline.redraw()
-        _log.debug(f"_import_audio_to_track track={track_name} sel_track={self.timeline._selected_track_item_id}")
         self._show_generator()
 
     def _clear_track(self, track_name):
@@ -57,11 +56,9 @@ class AudioActionsMixin:
         for item in self.project.get_track_items(track_name):
             self.project.remove_track_item(item.id)
         if removed_sel:
-            _log.debug(f"_clear_track track={track_name} removeu sel_track={sel} → zerando")
             self.timeline._selected_track_item_id = None
         self.project.save(PROJECTS_DIR)
         self.timeline.redraw()
-        _log.debug(f"_clear_track track={track_name} n={n} sel_track={self.timeline._selected_track_item_id}")
         self._show_generator()
         _log.info(f"Track '{track_name}' limpa ({n} itens removidos)")
 
@@ -81,7 +78,6 @@ class AudioActionsMixin:
             self.project.add_track_item(name=fx_name, track="fx", start_time=self.timeline.playhead_pos, duration=2.0)
         self.project.save(PROJECTS_DIR)
         self.timeline.redraw()
-        _log.debug(f"_add_fx_to_timeline fx={fx_name} sel_track={self.timeline._selected_track_item_id}")
         self._show_generator()
 
     def _generate_scene_audio(self):

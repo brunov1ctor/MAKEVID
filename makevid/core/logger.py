@@ -1,6 +1,7 @@
 """Logger - Sistema de logs compacto para MAKEVID."""
 
 import logging
+import os
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
@@ -15,8 +16,29 @@ MAX_LOG_SIZE = 500 * 1024
 BACKUP_COUNT = 2
 
 
+def _resolve_log_level() -> int:
+    """Resolve nivel de log a partir de variaveis de ambiente.
+
+    Prioridade:
+    1) MAKEVID_LOG_LEVEL: DEBUG/INFO/WARNING/ERROR/CRITICAL
+    2) MAKEVID_DEBUG=1/true/on/yes -> DEBUG
+    3) padrao -> INFO
+    """
+    level_name = os.getenv("MAKEVID_LOG_LEVEL", "").strip().upper()
+    if level_name:
+        return getattr(logging, level_name, logging.INFO)
+
+    debug_flag = os.getenv("MAKEVID_DEBUG", "").strip().lower()
+    if debug_flag in {"1", "true", "on", "yes"}:
+        return logging.DEBUG
+
+    return logging.INFO
+
+
 def setup_logging():
     """Configura logging global com rotacao automatica (arquivo apenas)."""
+    log_level = _resolve_log_level()
+
     formatter = logging.Formatter(
         fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%H:%M:%S",
@@ -25,11 +47,11 @@ def setup_logging():
     file_handler = RotatingFileHandler(
         str(LOG_FILE), maxBytes=MAX_LOG_SIZE, backupCount=BACKUP_COUNT, encoding="utf-8"
     )
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(log_level)
     file_handler.setFormatter(formatter)
 
     root = logging.getLogger()
-    root.setLevel(logging.DEBUG)
+    root.setLevel(log_level)
     root.handlers.clear()
     root.addHandler(file_handler)
 
@@ -45,16 +67,18 @@ def setup_logging():
     # Player: so WARNING+ (evita spam de frames)
     logging.getLogger("player").setLevel(logging.WARNING)
     logging.getLogger("preview").setLevel(logging.WARNING)
-    logging.getLogger("timeline").setLevel(logging.DEBUG)
+    # Timeline: INFO em producao; DEBUG quando modo debug esta ativo.
+    timeline_level = logging.DEBUG if log_level <= logging.DEBUG else logging.INFO
+    logging.getLogger("timeline").setLevel(timeline_level)
 
     # Glow: so vai pro arquivo, nao pro console
     glow_log = logging.getLogger("glow")
     glow_log.propagate = False
     glow_log.handlers.clear()
-    glow_log.setLevel(logging.DEBUG)
+    glow_log.setLevel(log_level)
     glow_log.addHandler(file_handler)
 
-    logging.info("MAKEVID iniciado")
+    logging.info(f"MAKEVID iniciado | log_level={logging.getLevelName(log_level)}")
 
 
 def get_log_content(max_lines: int = 200) -> str:

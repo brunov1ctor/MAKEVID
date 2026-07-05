@@ -186,8 +186,8 @@ class GenerationService:
                 for char in proj.characters:
                     if char.reference_image and Path(char.reference_image).exists():
                         refs.append(Image.open(char.reference_image).convert("RGB"))
-        except Exception as _e:
-            logger.debug(f"Suppressed: {_e}")
+        except Exception:
+            logger.exception("VACE: falha ao carregar imagens de referencia de personagens")
 
         if not refs:
             if on_progress:
@@ -280,8 +280,8 @@ class GenerationService:
 
                 if char_descriptions:
                     return f"{'; '.join(char_descriptions)}, {prompt}"
-        except Exception as _e:
-            logger.debug(f"Suppressed: {_e}")
+        except Exception:
+            logger.exception("Falha ao aplicar descricoes de personagens no prompt")
         return prompt
 
     def _get_character_ref_images(self, prompt: str) -> Optional[List[str]]:
@@ -298,8 +298,8 @@ class GenerationService:
                             refs.append(char.reference_image)
                 if refs:
                     return refs
-        except Exception as _e:
-            logger.debug(f"Suppressed: {_e}")
+        except Exception:
+            logger.exception("Falha ao detectar imagens de referencia de personagens")
         return None
 
     def _load_active_project(self):
@@ -329,8 +329,8 @@ class GenerationService:
                 match = find_best_match(prompt, project_id=pid)
                 if match:
                     return [match]
-        except Exception as _e:
-            logger.debug(f"Suppressed: {_e}")
+        except Exception:
+            logger.exception("Falha ao buscar referencias de ambience")
         return None
 
     def _generate_controlnet(self, prompt, motion_ref_path, motion_mode,
@@ -486,8 +486,8 @@ class GenerationService:
         for p in paths:
             try:
                 images.append(Image.open(p).convert("RGB"))
-            except Exception as _e:
-                logger.debug(f"Suppressed: {_e}")
+            except Exception:
+                logger.exception(f"Falha ao abrir imagem de referencia: {p}")
 
         if not images:
             return Image.new("RGB", (512, 512), (0, 0, 0))

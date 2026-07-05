@@ -23,8 +23,6 @@ class TrackGraphicsItem(QGraphicsItem):
         self._hovered = False
         self._selected = selected
         self._waveform = None
-        self._last_logged_state = None
-        _log.debug(f"TrackGraphicsItem created id={track_item.id} color={QColor(color).name()} selected={selected} x={x:.0f} y={y:.0f} w={w:.0f} h={h:.0f}")
 
         # Nunca deixar o Qt gerenciar seleção — evita override de cores
         self.setFlags(QGraphicsItem.GraphicsItemFlag(0))
@@ -63,22 +61,6 @@ class TrackGraphicsItem(QGraphicsItem):
         return QRectF(self._x, self._y, self._w, self._h)
 
     def paint(self, painter: QPainter, option, widget=None):
-        state = (self._selected, self._hovered)
-        if state != self._last_logged_state:
-            a_top = 220 if self._selected else (208 if self._hovered else 190)
-            a_bot = 185 if self._selected else (170 if self._hovered else 150)
-            bdr_w = 2.5 if self._selected else (1.8 if self._hovered else 1.0)
-            bdr_a = 255 if self._selected else (220 if self._hovered else 140)
-            c_bright = self._color
-            _log.debug(
-                f"style id={self.track_item.id} "
-                f"selected={self._selected} hovered={self._hovered} "
-                f"grad_top=({c_bright.name()},a={a_top}) "
-                f"grad_bot=({self._color.name()},a={a_bot}) "
-                f"border=(w={bdr_w},a={bdr_a})"
-            )
-            self._last_logged_state = state
-
         x = self._x + 2
         y = self._y + 3
         w = self._w - 4
@@ -165,15 +147,70 @@ class TrackGraphicsItem(QGraphicsItem):
             painter.setPen(QPen(dc, 1, Qt.DashLine))
             painter.drawLine(int(wx), int(mid), int(wx + ww), int(mid))
 
+        # --- keyframes de volume ---
+        self._draw_volume_keyframes(painter, x, y, w, h)
+
         # --- label ---
         painter.setPen(QPen(QColor(255, 255, 255, 215)))
         painter.setFont(QFont("Segoe UI", 7, QFont.Bold))
         name = self.track_item.params.get("block_name", self.track_item.name)[:22]
         painter.drawText(QRectF(x + 6, y, w - 12, h), Qt.AlignVCenter | Qt.AlignLeft, name)
 
+    def _draw_volume_keyframes(self, painter: QPainter, x, y, w, h):
+        kfs = getattr(self.track_item, "volume_keyframes", None)
+        if not kfs or len(kfs) < 2:
+            return
+
+        dur = max(0.001, float(getattr(self.track_item, "duration", 1.0) or 1.0))
+        pad_x = 6
+        top = y + 6
+        bottom = y + h - 6
+        band_h = max(8, bottom - top)
+        draw_w = max(1, w - pad_x * 2)
+
+        pts = []
+        for kf in sorted(kfs, key=lambda k: k.get("time", 0.0)):
+            ratio = max(0.0, min(1.0, float(kf.get("time", 0.0)) / dur))
+            value = max(0.0, min(2.0, float(kf.get("value", 1.0)))) / 2.0
+            px = x + pad_x + ratio * draw_w
+            py = bottom - value * band_h
+            pts.append((px, py, value))
+
+        if len(pts) < 2:
+            return
+
+        path = QPainterPath()
+        path.moveTo(pts[0][0], pts[0][1])
+        for px, py, _ in pts[1:]:
+            path.lineTo(px, py)
+
+        fill_path = QPainterPath(path)
+        fill_path.lineTo(pts[-1][0], bottom)
+        fill_path.lineTo(pts[0][0], bottom)
+        fill_path.closeSubpath()
+
+        accent = QColor(self._color)
+        accent.setAlpha(70 if not self._hovered else 95)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(accent))
+        painter.drawPath(fill_path)
+
+        line = QColor(C["cyan"])
+        line.setAlpha(230 if self._selected else 200)
+        painter.setPen(QPen(line, 1.6))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPath(path)
+
+        painter.setFont(QFont("Consolas", 6, QFont.Bold))
+        for px, py, value in pts:
+            active = abs(px - (x + w / 2)) < 1e-6 and False
+            r = 4
+            painter.setPen(QPen(QColor(255, 255, 255, 200), 1))
+            painter.setBrush(QBrush(QColor("#00ffee") if active else QColor(self._color).lighter(120)))
+            painter.drawEllipse(QRectF(px - r, py - r, r * 2, r * 2))
+
     def hoverEnterEvent(self, event):
         self._hovered = True
-        _log.debug(f"hover_enter id={self.track_item.id}")
         self.update()
         super().hoverEnterEvent(event)
 
@@ -184,7 +221,6 @@ class TrackGraphicsItem(QGraphicsItem):
 
     def hoverLeaveEvent(self, event):
         self._hovered = False
-        _log.debug(f"hover_leave id={self.track_item.id}")
         self.setCursor(Qt.ArrowCursor)
         self.update()
         super().hoverLeaveEvent(event)

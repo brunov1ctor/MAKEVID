@@ -120,7 +120,7 @@ class RecorderPanel(QWidget):
         self._ui_timer.setInterval(50)
         self._ui_timer.timeout.connect(self._tick)
 
-        self.setMinimumWidth(250)
+        self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._build_ui()
 
@@ -337,7 +337,7 @@ class TTSPanel(QWidget):
         super().__init__(parent)
         self._project = None
         self._timeline = None
-        self.setMinimumWidth(250)
+        self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._build_ui()
 
