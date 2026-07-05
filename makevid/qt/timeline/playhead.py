@@ -8,11 +8,10 @@ from PySide6.QtGui import QPen, QBrush, QColor, QPainter, QPolygonF, QFont
 class PlayheadItem(QGraphicsItem):
     """Playhead vertical com cabeça triangular e hover glow."""
 
-    def __init__(self, time_pos, zoom, lbl_w, scene_h):
+    def __init__(self, time_pos, zoom, scene_h):
         super().__init__()
         self._time_pos = time_pos
         self._zoom = zoom
-        self._lbl_w = lbl_w
         self._scene_h = scene_h
         self._hovered = False
         self.setZValue(100)
@@ -21,32 +20,32 @@ class PlayheadItem(QGraphicsItem):
         self.setFlag(QGraphicsItem.ItemIsMovable, False)
         self._dragging = False
         self._press_pos = None
-        self._tl = None  # set externally
-        self._update_x()
+        self._tl = None
+        self.setPos(int(time_pos * zoom), 0)
 
-    def set_position(self, time_pos, zoom, lbl_w):
-        self.prepareGeometryChange()
+    def set_position(self, time_pos, zoom):
         self._time_pos = time_pos
         self._zoom = zoom
-        self._lbl_w = lbl_w
-        self._update_x()
+        new_x = int(time_pos * zoom)
+        if new_x != int(self.pos().x()):
+            self.prepareGeometryChange()
+            self.setPos(new_x, 0)
         self.update()
 
     def _update_x(self):
-        self._px = self._lbl_w + int(self._time_pos * self._zoom)
+        pass  # posicionamento via setPos
 
     def boundingRect(self) -> QRectF:
-        return QRectF(self._px - 14, 0, 28, self._scene_h)
+        return QRectF(-14, 0, 28, self._scene_h)
 
     def shape(self):
-        """Hitbox cobrindo toda a faixa vermelha para facilitar grab."""
         from PySide6.QtGui import QPainterPath
         path = QPainterPath()
-        path.addRect(QRectF(self._px - 10, 0, 20, self._scene_h))
+        path.addRect(QRectF(-10, 0, 20, self._scene_h))
         return path
 
     def paint(self, painter: QPainter, option, widget=None):
-        px = self._px
+        px = 0  # coordenada local
         h = self._scene_h
         hovered = self._hovered
 
@@ -166,7 +165,7 @@ class PlayheadItem(QGraphicsItem):
                     return
                 self._dragging = True
             x = event.scenePos().x()
-            t = max(0, (x - self._lbl_w) / self._zoom)
+            t = max(0, x / self._zoom)
             self._tl.set_playhead(t)
             event.accept()
 

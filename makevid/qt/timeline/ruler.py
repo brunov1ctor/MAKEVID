@@ -5,40 +5,36 @@ from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import QPen, QBrush, QColor, QFont, QPainter
 
 from makevid.qt.theme import C
+from makevid.qt.timeline.clip_item import Z_OVERLAY
 
 
 class RulerItem(QGraphicsItem):
     """Régua de tempo com marcas adaptativas e hover highlight."""
 
-    def __init__(self, lbl_w, scene_w, ruler_h, zoom, total_dur):
+    def __init__(self, scene_w, ruler_h, zoom, total_dur):
         super().__init__()
-        self._lbl_w = lbl_w
-        self._scene_w = scene_w
+        self._w = scene_w
         self._ruler_h = ruler_h
         self._zoom = zoom
         self._total_dur = total_dur
         self._hover_x = -100
-        self.setZValue(4)
+        self.setZValue(Z_OVERLAY - 10)
         self.setAcceptHoverEvents(True)
-        self.setAcceptedMouseButtons(Qt.NoButton)  # nao captura clicks
+        self.setAcceptedMouseButtons(Qt.NoButton)
+        self.setPos(0, 0)
 
     def boundingRect(self) -> QRectF:
-        return QRectF(self._lbl_w, 0, self._scene_w - self._lbl_w, self._ruler_h)
+        return QRectF(0, 0, self._w, self._ruler_h)
 
     def paint(self, painter: QPainter, option, widget=None):
-        lbl_w = self._lbl_w
-        w = self._scene_w
+        w = self._w
         h = self._ruler_h
         pps = self._zoom
 
-        # Fundo uniforme discreto
-        painter.fillRect(QRectF(lbl_w, 0, w - lbl_w, h), QColor("#0d1020"))
-
-        # Linha inferior sutil (não mais borda dourada grossa)
+        painter.fillRect(QRectF(0, 0, w, h), QColor("#0d1020"))
         painter.setPen(QPen(QColor(255, 255, 255, 45), 1))
-        painter.drawLine(lbl_w, h - 1, w, h - 1)
+        painter.drawLine(0, h - 1, w, h - 1)
 
-        # Step adaptativo
         if pps >= 80:
             step = 1.0
         elif pps >= 40:
@@ -56,9 +52,8 @@ class RulerItem(QGraphicsItem):
 
         t = 0.0
         while t <= self._total_dur + step:
-            x = lbl_w + int(t * pps)
-            if lbl_w <= x <= w:
-                # Marca principal
+            x = int(t * pps)
+            if 0 <= x <= w:
                 painter.setPen(QPen(QColor(C["primary"]), 1))
                 painter.drawLine(x, h - 12, x, h - 1)
 
@@ -79,18 +74,16 @@ class RulerItem(QGraphicsItem):
 
                 painter.drawText(QPointF(x + 3, 13), txt)
 
-                # Sub-marcas
                 for si in range(1, subdivs):
-                    sx = lbl_w + int((t + sub_step * si) * pps)
-                    if lbl_w <= sx <= w:
-                        alpha = 80 if si == subdivs // 2 else 45
+                    sx = int((t + sub_step * si) * pps)
+                    if 0 <= sx <= w:
                         painter.setPen(QPen(QColor(255, 255, 255, 45), 1))
                         painter.drawLine(sx, h - (7 if si == subdivs // 2 else 4), sx, h - 1)
 
             t += step
 
     def hoverMoveEvent(self, event):
-        self._hover_x = event.pos().x()
+        self._hover_x = event.pos().x()  # já é local
         self.update()
 
     def hoverLeaveEvent(self, event):

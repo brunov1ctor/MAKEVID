@@ -119,6 +119,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.project_changed.connect(lambda proj: self._project_badge.set_text(proj.name) if hasattr(self, "_project_badge") else None)
 
         self.timeline._scene._interaction.item_clicked        = self._on_item_clicked
+        self.timeline._scene._interaction.item_moved         = self._on_item_moved
         self.timeline._scene._interaction.clip_clicked        = self._on_clip_clicked
         self.timeline._scene._interaction.label_clicked       = self._on_label_clicked
         self.timeline._scene._interaction.track_empty_clicked = self._on_label_clicked
@@ -204,6 +205,13 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
             self._show_fx_editor(track_item)
         else:
             self._show_track_editor(track_item)
+
+    def _on_item_moved(self, track_item):
+        """Atualiza o painel aberto após drag/trim na timeline."""
+        if track_item.track == "fx" and self._left_stack.currentWidget() is self.fx_editor:
+            self.fx_editor.show_item(track_item, self.project)
+        elif track_item.track != "fx" and self._left_stack.currentWidget() is self.track_editor:
+            self.track_editor.show_item(track_item, self.project)
 
     def _show_mixer(self, item):
         self.mixer.show_item(item, self.project)

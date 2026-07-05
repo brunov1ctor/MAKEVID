@@ -66,12 +66,13 @@ class TimelinePlayerQt(QObject):
         if not self._project:
             return
         clips = sorted(self._project.clips, key=lambda x: x.position)
-        if not clips:
-            return
 
         self._clips = clips
         self._total_dur = self._project.total_duration()
         self._speed = speed
+
+        if self._total_dur <= 0:
+            return
 
         # Calcular inicio de cada clip
         self._clip_starts = []
@@ -101,12 +102,13 @@ class TimelinePlayerQt(QObject):
         if not self._project:
             return
         clips = sorted(self._project.clips, key=lambda x: x.position)
-        if not clips:
-            return
 
         self._clips = clips
         self._total_dur = float(self._project.total_duration() or 0.0)
         self._speed = speed
+
+        if self._total_dur <= 0:
+            return
 
         self._clip_starts = []
         t = 0.0
@@ -207,8 +209,7 @@ class TimelinePlayerQt(QObject):
         self.time_updated.emit(current_time)
 
         clip, time_in_clip = self._get_clip_at_time(current_time)
-        if clip:
-            self._render_frame(clip, time_in_clip)
+        self._render_frame(clip, time_in_clip)
 
     def _get_clip_at_time(self, t):
         for i, clip in enumerate(self._clips):

@@ -156,17 +156,15 @@ class TrackEditorPanel(QWidget):
         play_all_btn.clicked.connect(lambda: self._play_all(group, color))
         action_grid.add_widget(play_all_btn)
 
-        # Renomear
-        rename_btn = QPushButton("\u270f RENOMEAR")
-        rename_btn.setFixedHeight(26)
+        rename_btn = QPushButton("✏ RENOMEAR")
+        rename_btn.setFixedHeight(28)
         rename_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         rename_btn.setStyleSheet(
-            f"background: rgba(255,255,255,0.05); color: {C['text']}; font-weight: bold; "
-            f"border: 1px solid rgba(255,255,255,0.10); border-radius: 10px; padding: 2px 10px;")
-        rename_btn.clicked.connect(lambda: self._rename_item(item, L))
+            f"background: rgba(255,255,255,0.07); color: {color}; font-weight: bold; font-size: 10pt; "
+            f"border: 1px solid {color}; border-radius: 10px; padding: 2px 10px;")
+        rename_btn.clicked.connect(lambda: self._rename_block(item, color))
         action_grid.add_widget(rename_btn)
 
-        # Salvar
         save_btn = QPushButton("SALVAR")
         save_btn.setFixedHeight(28)
         save_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -694,29 +692,95 @@ class TrackEditorPanel(QWidget):
         }
         return banks.get(track, banks["audio"])
 
-    def _inline_rename_layer(self, item, name_lbl, hdr_frame, color):
-        """Double-click no nome: substitui label por entry inline para renomear o layer."""
-        name_lbl.hide()
-        entry = QLineEdit(item.name)
-        entry.setFixedHeight(20)
+    def _rename_block(self, item, color):
+        """Substitui o botão RENOMEAR por um campo inline no próprio painel."""
+        if getattr(self, '_rename_block_widget', None):
+            self._rename_block_widget.deleteLater()
+            self._rename_block_widget = None
+
+        current = item.params.get("block_name", item.name)
+        entry = QLineEdit(current)
+        entry.setFixedHeight(28)
         entry.setStyleSheet(
-            f"background: {C['text']}; color: {C['dark_text']}; font-weight: bold; font-size: 9pt; "
-            f"border: 1px solid {color}; border-radius: 3px; padding: 0 4px;")
-        hdr_frame.layout().insertWidget(1, entry)
+            f"background: {C['input']}; color: {C['text']}; font-weight: bold; font-size: 10pt; "
+            f"border: 1px solid {color}; border-radius: 6px; padding: 0 8px;")
+
+        ok_btn = QPushButton("\u2713")
+        ok_btn.setFixedSize(28, 28)
+        ok_btn.setStyleSheet(
+            f"QPushButton {{ background: {color}; color: #000; font-weight: bold; font-size: 12pt; border: none; border-radius: 6px; }}"
+            f"QPushButton:hover {{ background: {C['secondary']}; }}")
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        row.addWidget(entry)
+        row.addWidget(ok_btn)
+
+        container = QWidget()
+        container.setLayout(row)
+        self._rename_block_widget = container
+
+        # Insere logo abaixo do summary (índice 3)
+        self._outer.insertWidget(3, container)
         entry.setFocus()
         entry.selectAll()
 
         def _confirm():
             new_name = entry.text().strip()
             if new_name:
-                item.name = new_name
-                self._project.save(PROJECTS_DIR)
-            entry.deleteLater()
-            name_lbl.setText(f"\u266b {item.name[:20]}")
+                group = self._get_group(item)
+                for gi in group:
+                    gi.params["block_name"] = new_name
+                if self._project:
+                    self._project.save(PROJECTS_DIR)
+                self.changed.emit()
+            container.deleteLater()
+            self._rename_block_widget = None
+
+        ok_btn.clicked.connect(_confirm)
+        entry.returnPressed.connect(_confirm)
+
+    def _inline_rename_layer(self, item, name_lbl, hdr_frame, color):
+        """Double-click no nome: substitui label por entry inline para renomear o layer."""
+        name_lbl.hide()
+        entry = QLineEdit(item.name)
+        entry.setFixedHeight(24)
+        entry.setStyleSheet(
+            f"background: {C['input']}; color: {C['text']}; font-weight: bold; font-size: 9pt; "
+            f"border: 1px solid {color}; border-radius: 4px; padding: 0 6px;")
+
+        ok_btn = QPushButton("\u2713")
+        ok_btn.setFixedSize(28, 24)
+        ok_btn.setStyleSheet(
+            f"QPushButton {{ background: {color}; color: #000000; font-weight: bold; font-size: 11pt; "
+            f"border: none; border-radius: 4px; }}"
+            f"QPushButton:hover {{ background: {C['secondary']}; }}")
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        row.addWidget(entry)
+        row.addWidget(ok_btn)
+
+        container = QWidget()
+        container.setLayout(row)
+        hdr_frame.layout().insertWidget(1, container)
+        entry.setFocus()
+        entry.selectAll()
+
+        def _confirm():
+            new_name = entry.text().strip()
+            if new_name:
+                item.name = new_name  # só renomeia o layer, não o block_name da timeline
+                if self._project:
+                    self._project.save(PROJECTS_DIR)
+            container.deleteLater()
+            name_lbl.setText(f"\u266b {item.name[:24]}")
             name_lbl.show()
 
+        ok_btn.clicked.connect(_confirm)
         entry.returnPressed.connect(_confirm)
-        entry.editingFinished.connect(_confirm)
 
     # ============================================================
     # ACTIONS

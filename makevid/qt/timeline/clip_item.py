@@ -3,9 +3,24 @@
 from PySide6.QtWidgets import QGraphicsItem
 from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import (
-    QPen, QBrush, QColor, QFont, QPainter, QPainterPath, QLinearGradient
+    QPen, QBrush, QColor, QFont, QPainter, QPainterPath, QLinearGradient,
+    QConicalGradient, QPainterPathStroker
 )
 from makevid.qt.theme import C
+
+# ── Z-Values canônicos ────────────────────────────────────────────────────────
+Z_BACKGROUND  = -100
+Z_GRID        =  -50
+Z_TRACK_LAYER =    0
+Z_CLIP        =   10
+Z_AUDIO_ITEM  =   20
+Z_MARKER      =   30
+Z_PLAYHEAD    =  100
+Z_OVERLAY     =  200
+
+# ── Layout de item ────────────────────────────────────────────────────────────
+ITEM_PAD_X = 6   # padding horizontal (cada lado)
+ITEM_PAD_Y = 5   # padding vertical (cada lado)
 
 
 class ClipGraphicsItem(QGraphicsItem):
@@ -13,18 +28,23 @@ class ClipGraphicsItem(QGraphicsItem):
     _thumb_cache = None
     _global_frame = 0
     _anim_timer = None
+    _beam_angle = 0.0
 
     def __init__(self, clip, x, y, w, h, selected=False):
         super().__init__()
         self.clip = clip
-        self._x, self._y, self._w, self._h = x, y, w, h
+        self._w = w
+        self._h = h
         self._hovered = False
         self._selected = selected
 
-        # Nunca deixar o Qt gerenciar seleção
+        import random
+        self._beam_phase = random.uniform(0, 360)
+
         self.setFlags(QGraphicsItem.GraphicsItemFlag(0))
-        self.setAcceptHoverEvents(True)
-        self.setZValue(1)
+        self.setAcceptHoverEvents(False)   # hover gerenciado pelo HoverController
+        self.setZValue(Z_CLIP)
+        self.setPos(x, y)
 
         if ClipGraphicsItem._thumb_cache is None:
             from makevid.qt.timeline.thumbnails import ThumbnailCache
@@ -49,17 +69,24 @@ class ClipGraphicsItem(QGraphicsItem):
             self._bdr   = QColor("#2a2a50")
 
     def boundingRect(self):
-        return QRectF(self._x, self._y, self._w, self._h)
+        return QRectF(-4, -4, self._w + 8, self._h + 8)
+
+    def set_size(self, w, h):
+        if self._w == w and self._h == h:
+            return
+        self.prepareGeometryChange()
+        self._w = w
+        self._h = h
+        self.update()
 
     def paint(self, painter: QPainter, option, widget=None):
-        x = self._x + 2
-        y = self._y + 3
+        x = 2
+        y = 3
         w = self._w - 4
         h = self._h - 6
         hw = 7
         r = 8.0
 
-        # --- fundo ---
         path = QPainterPath()
         path.addRoundedRect(QRectF(x, y, w, h), r, r)
 
@@ -71,24 +98,20 @@ class ClipGraphicsItem(QGraphicsItem):
         painter.setPen(Qt.NoPen)
         painter.fillPath(path, QBrush(grad))
 
-        # --- overlay seleção ---
         if self._selected:
             painter.fillPath(path, QBrush(QColor(255, 255, 255, 18)))
 
-        # --- borda ---
-        bdr = QColor(self._bdr)
         if self._selected:
-            bdr.setAlpha(220)
-            painter.setPen(QPen(bdr, 2.0))
+            self._paint_beam_border(painter, path, x, y, w, h, r)
         elif self._hovered:
             bdr = QColor(C["accent"]); bdr.setAlpha(220)
             painter.setPen(QPen(bdr, 1.8))
+            painter.drawPath(path)
         else:
-            bdr.setAlpha(110)
+            bdr = QColor(self._bdr); bdr.setAlpha(110)
             painter.setPen(QPen(bdr, 0.8))
-        painter.drawPath(path)
+            painter.drawPath(path)
 
-        # --- reflexo topo ---
         rp = QPainterPath()
         rp.addRoundedRect(QRectF(x + r, y + 1, w - r * 2, h * 0.28), r * 0.4, r * 0.4)
         rg = QLinearGradient(0, y, 0, y + h * 0.28)
@@ -97,7 +120,6 @@ class ClipGraphicsItem(QGraphicsItem):
         painter.setPen(Qt.NoPen)
         painter.fillPath(rp, QBrush(rg))
 
-        # --- thumbnail ---
         try:
             if self.clip.status == "done" and self.clip.video_path and w > 20:
                 from pathlib import Path
@@ -116,22 +138,20 @@ class ClipGraphicsItem(QGraphicsItem):
         except Exception:
             pass
 
-        # --- handles ---
         hc = QColor(C["primary"]); hc.setAlpha(200)
         painter.setPen(Qt.NoPen)
         lh = QPainterPath()
         lh.addRoundedRect(QRectF(x, y, hw, h), r, 2)
         painter.fillPath(lh, hc)
-        rh = QPainterPath()
-        rh.addRoundedRect(QRectF(x + w - hw, y, hw, h), 2, r)
-        painter.fillPath(rh, hc)
+        rh_path = QPainterPath()
+        rh_path.addRoundedRect(QRectF(x + w - hw, y, hw, h), 2, r)
+        painter.fillPath(rh_path, hc)
 
         painter.setPen(QPen(QColor(0, 0, 0, 80), 1))
         for gy in range(int(y + 10), int(y + h - 10), 5):
             painter.drawLine(QPointF(x + 2, gy), QPointF(x + hw - 1, gy))
             painter.drawLine(QPointF(x + w - hw + 1, gy), QPointF(x + w - 2, gy))
 
-        # --- labels ---
         painter.setPen(QPen(QColor(255, 255, 255, 220)))
         painter.setFont(QFont("Segoe UI", 9, QFont.Bold))
         label = self.clip.prompt[:18] if self.clip.prompt else "(vazio)"
@@ -147,21 +167,36 @@ class ClipGraphicsItem(QGraphicsItem):
             painter.setFont(QFont("Consolas", 7, QFont.Bold))
             painter.drawText(QPointF(x + w - 22, y + 13), "OK")
 
-    def hoverEnterEvent(self, event):
-        self._hovered = True
-        self.update()
-        super().hoverEnterEvent(event)
+    def _paint_beam_border(self, painter, path, x, y, w, h, r):
+        angle = (ClipGraphicsItem._beam_angle + self._beam_phase) % 360
 
-    def hoverMoveEvent(self, event):
-        lx = event.pos().x() - self._x
-        self.setCursor(Qt.SizeHorCursor if lx <= 8 or (self._w - lx) <= 8 else Qt.ArrowCursor)
-        super().hoverMoveEvent(event)
+        stroker = QPainterPathStroker()
+        stroker.setWidth(2.5)
+        border_area = stroker.createStroke(path)
 
-    def hoverLeaveEvent(self, event):
-        self._hovered = False
-        self.update()
-        super().hoverLeaveEvent(event)
+        stroker_glow = QPainterPathStroker()
+        stroker_glow.setWidth(7.0)
+        glow_area = stroker_glow.createStroke(path)
+
+        cg = QConicalGradient(0.5, 0.5, angle)
+        cg.setCoordinateMode(QConicalGradient.CoordinateMode.ObjectMode)
+        cg.setColorAt(0.00, QColor(0,   220, 255, 255))
+        cg.setColorAt(0.15, QColor(180,  80, 255, 255))
+        cg.setColorAt(0.35, QColor(0,   120, 255, 255))
+        cg.setColorAt(0.50, QColor(0,   220, 255, 255))
+        cg.setColorAt(0.65, QColor(180,  80, 255, 255))
+        cg.setColorAt(0.85, QColor(0,   120, 255, 255))
+        cg.setColorAt(1.00, QColor(0,   220, 255, 255))
+
+        painter.save()
+        painter.setPen(Qt.NoPen)
+        painter.setOpacity(0.35)
+        painter.fillPath(glow_area, QBrush(cg))
+        painter.setOpacity(1.0)
+        painter.fillPath(border_area, QBrush(cg))
+        painter.restore()
 
     @classmethod
     def tick_animation(cls):
         cls._global_frame += 1
+        cls._beam_angle = (cls._beam_angle + 8.0) % 360

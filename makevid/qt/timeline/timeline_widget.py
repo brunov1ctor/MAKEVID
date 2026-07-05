@@ -11,17 +11,18 @@ from pathlib import Path
 
 from makevid.qt.theme import C
 from makevid.qt.timeline.timeline_scene import TimelineScene
+from makevid.qt.timeline.track_header import TrackHeaderWidget
 from makevid.qt.timeline.selection_state import SelectionState
 
 _log = logging.getLogger("timeline")
 
 
 class TimelineWidget(QWidget):
-    """Widget completo da timeline: toolbar + QGraphicsView."""
+    """Widget completo da timeline: toolbar + header fixo + QGraphicsView."""
 
     playhead_moved = Signal(float)
-    export_requested = Signal()       # botão EXPORTAR direto
-    export_config_requested = Signal() # botão ▲ config
+    export_requested = Signal()
+    export_config_requested = Signal()
 
     LBL_W = 62
     RULER_H = 28
@@ -37,14 +38,10 @@ class TimelineWidget(QWidget):
         self._split_mode = False
         self._audio_split_mode = None
         self.selection = SelectionState()
-        self.collapsed_tracks = set()  # tracks colapsadas
+        self.collapsed_tracks = set()
 
         self._build_ui()
         self.setFocusPolicy(Qt.StrongFocus)
-        self._redraw_timer = QTimer(self)
-        self._redraw_timer.setSingleShot(True)
-        self._redraw_timer.setInterval(50)
-        self._redraw_timer.timeout.connect(self.redraw)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -54,6 +51,16 @@ class TimelineWidget(QWidget):
         self._toolbar = self._build_toolbar()
         layout.addWidget(self._toolbar)
 
+        # Linha com header fixo + canvas da timeline
+        canvas_row = QWidget()
+        canvas_row.setStyleSheet("background: transparent;")
+        row_layout = QHBoxLayout(canvas_row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(0)
+
+        self._header = TrackHeaderWidget(self, canvas_row)
+        row_layout.addWidget(self._header)
+
         self._scene = TimelineScene(self)
         self._view = QGraphicsView(self._scene)
         self._view.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
@@ -61,7 +68,7 @@ class TimelineWidget(QWidget):
         self._view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._view.setDragMode(QGraphicsView.NoDrag)
         self._view.setTransformationAnchor(QGraphicsView.NoAnchor)
-        self._view.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
+        self._view.setViewportUpdateMode(QGraphicsView.MinimalViewportUpdate)
         self._view.setStyleSheet("background: rgba(8,12,22,0.92); border: none;")
         self._view.viewport().setStyleSheet("background: rgba(8,12,22,0.92);")
         self._view.setInteractive(True)
@@ -75,18 +82,27 @@ class TimelineWidget(QWidget):
         self._view.mouseReleaseEvent = self._on_view_mouse_release
         self._view.mouseMoveEvent = self._on_view_mouse_move
         self._view.leaveEvent = self._on_view_leave
-        layout.addWidget(self._view)
+        row_layout.addWidget(self._view)
 
-        # Timer global de animação para clips (preview contínuo)
+        layout.addWidget(canvas_row)
+
+        # Timer de animação: atualiza apenas clips com thumbnail animada
         self._anim_timer = QTimer(self)
-        self._anim_timer.setInterval(200)
+        self._anim_timer.setInterval(50)
         self._anim_timer.timeout.connect(self._tick_clip_animation)
         self._anim_timer.start()
 
     def _tick_clip_animation(self):
         from makevid.qt.timeline.clip_item import ClipGraphicsItem
         ClipGraphicsItem.tick_animation()
-        self._scene.update()  # repinta a scene inteira de uma vez, não item por item
+        sel_clip_id = self.selection.selected_clip_id
+        sel_track_id = self.selection.selected_track_item_id
+        for cid, item in self._scene._clip_items.items():
+            if cid == sel_clip_id or (item.clip.status == "done" and item.clip.video_path):
+                item.update()
+        for tid, item in self._scene._track_items.items():
+            if tid == sel_track_id:
+                item.update()
 
     def _build_toolbar(self) -> QWidget:
         tb = QWidget()
@@ -114,7 +130,6 @@ class TimelineWidget(QWidget):
         h.setContentsMargins(12, 4, 12, 4)
         h.setSpacing(6)
 
-        # Title
         lbl = QLabel("TIMELINE")
         lbl.setStyleSheet(f"color: {C['primary']}; font-weight: bold; font-size: 9pt; letter-spacing: 1px;")
         lbl.setToolTip("Timeline principal")
@@ -122,7 +137,6 @@ class TimelineWidget(QWidget):
 
         self._sep(h)
 
-        # Zoom
         lbl_z = QLabel("Zoom")
         lbl_z.setStyleSheet(f"color: {C['text3']}; font-size: 8pt;")
         h.addWidget(lbl_z)
@@ -174,7 +188,6 @@ class TimelineWidget(QWidget):
 
         self._sep(h)
 
-        # Scroll horizontal
         lbl_s = QLabel("Scroll")
         lbl_s.setStyleSheet(f"color: {C['text3']}; font-size: 8pt;")
         h.addWidget(lbl_s)
@@ -188,7 +201,6 @@ class TimelineWidget(QWidget):
 
         self._sep(h)
 
-        # Speed
         lbl_sp = QLabel("Speed")
         lbl_sp.setStyleSheet(f"color: {C['text3']}; font-size: 8pt;")
         h.addWidget(lbl_sp)
@@ -223,7 +235,6 @@ class TimelineWidget(QWidget):
 
         self._sep(h)
 
-        # Loop
         from PySide6.QtWidgets import QCheckBox
         self._loop_cb = QCheckBox("Loop")
         self._loop_cb.setStyleSheet(
@@ -236,7 +247,6 @@ class TimelineWidget(QWidget):
 
         h.addStretch()
 
-        # Time label
         self._time_label = QLabel("00:00.0 / 00:00.0")
         self._time_label.setStyleSheet(
             f"color: {C['text']}; font-family: Consolas; font-size: 10pt; font-weight: bold;")
@@ -244,7 +254,6 @@ class TimelineWidget(QWidget):
 
         self._sep(h)
 
-        # Export: seta config + botao EXPORTAR com hover
         btn_exp_cfg = QPushButton("\u25b2")
         btn_exp_cfg.setFixedSize(22, 20)
         btn_exp_cfg.setToolTip("Configuracao de export")
@@ -269,7 +278,6 @@ class TimelineWidget(QWidget):
         return tb
 
     def _sep(self, layout):
-        """Separador vertical na toolbar."""
         sep = QLabel()
         sep.setFixedSize(1, 16)
         sep.setStyleSheet(f"background: {C['border']};")
@@ -283,7 +291,6 @@ class TimelineWidget(QWidget):
     def loop_enabled(self):
         return self._loop_cb.isChecked()
 
-    # Compatibilidade com código existente.
     @property
     def _selected_clip_id(self):
         return self.selection.selected_clip_id
@@ -308,15 +315,31 @@ class TimelineWidget(QWidget):
     def _active_track_key(self, value):
         self.selection.active_track_key = value
 
-    def redraw(self):
+    def rebuild_scene(self):
+        """Reconstrução completa — para mudanças estruturais."""
         if not self.project:
             self._scene.rebuild_empty()
             self._update_time_label()
             return
-        self._scene.rebuild(self.project, self.zoom, self.playhead_pos,
-                            self.selection.selected_track_item_id,
-                            self.selection.selected_clip_id,
-                            self.selection.active_track_key)
+        self._scene.rebuild_scene(
+            self.project, self.zoom, self.playhead_pos,
+            self.selection.selected_track_item_id,
+            self.selection.selected_clip_id,
+            self.selection.active_track_key,
+        )
+        self._update_time_label()
+
+    # Compatibilidade com código externo que chama tl.redraw()
+    def redraw(self):
+        self.rebuild_scene()
+
+    def refresh_visual_state(self):
+        """Atualiza apenas estado visual sem rebuild."""
+        self._scene.refresh_visual_state(
+            sel_track_id=self.selection.selected_track_item_id,
+            sel_clip_id=self.selection.selected_clip_id,
+            active_track_key=self.selection.active_track_key,
+        )
         self._update_time_label()
 
     def set_active_track(self, track_key):
@@ -325,7 +348,13 @@ class TimelineWidget(QWidget):
         if self.selection.active_track_key == new_key:
             return
         self.selection.active_track_key = new_key
-        self.redraw()
+        # Apenas atualiza visual dos backgrounds — sem rebuild
+        self._scene.refresh_visual_state(
+            sel_track_id=self.selection.selected_track_item_id,
+            sel_clip_id=self.selection.selected_clip_id,
+            active_track_key=new_key,
+        )
+        self._header.update()
 
     def clear_active_track(self):
         self.set_active_track(None)
@@ -333,7 +362,7 @@ class TimelineWidget(QWidget):
     def _on_project_changed(self, proj):
         self.project = proj
         self.playhead_pos = 0.0
-        self.redraw()
+        self.rebuild_scene()
 
     def set_playhead(self, time_pos: float):
         self.playhead_pos = max(0, time_pos)
@@ -348,20 +377,21 @@ class TimelineWidget(QWidget):
     def _adjust_zoom(self, delta):
         self.zoom = max(5, min(300, self.zoom + delta))
         self._zoom_slider.setValue(self.zoom)
-        self.redraw()
+        self.rebuild_scene()
 
     def _on_zoom_changed(self, value):
         self.zoom = value
-        self.redraw()
+        self.rebuild_scene()
 
     def _on_scroll_changed(self, value):
+        if not self.project:
+            return
         total_dur = max(self.project.total_duration(), 10)
         total_w = total_dur * self.zoom
         canvas_w = self._view.viewport().width() or 800
         max_scroll = max(0, total_w - canvas_w + 100)
         self.scroll_x = int((value / 1000) * max_scroll)
         self._view.horizontalScrollBar().setValue(self.scroll_x)
-        self.redraw()
 
     def _adjust_speed(self, delta):
         self.playback_speed = max(0.25, min(4.0, self.playback_speed + delta))
@@ -407,7 +437,6 @@ class TimelineWidget(QWidget):
     # ============================================================
 
     def wheelEvent(self, event):
-        """Ctrl+scroll=zoom, Shift+scroll=volume, normal=scroll horizontal."""
         if event.modifiers() & Qt.ControlModifier:
             delta = 5 if event.angleDelta().y() > 0 else -5
             self._adjust_zoom(delta)
@@ -417,32 +446,20 @@ class TimelineWidget(QWidget):
             delta = event.angleDelta().y()
             self.scroll_x = max(0, self.scroll_x - delta // 2)
             self._view.horizontalScrollBar().setValue(self.scroll_x)
-            self.redraw()
         event.accept()
 
     def keyPressEvent(self, event):
-        """Space=play/pause, Delete=remove selecionado, Escape=sai de split mode."""
         key = event.key()
-        if key == Qt.Key_Space:
-            # Futuro: play/pause via player
-            pass
-        elif key == Qt.Key_Delete:
+        if key == Qt.Key_Delete:
             self._on_delete()
         elif key == Qt.Key_Escape:
             self._exit_split_mode()
         else:
             super().keyPressEvent(event)
 
-    def mouseDoubleClickEvent(self, event):
-        """Double-click no widget: delegado para a scene via view."""
-        # O evento de double-click dentro da view é tratado pela QGraphicsScene
-        # Este handler só pega clicks fora da view (toolbar area)
-        super().mouseDoubleClickEvent(event)
-
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # Redesenha em tempo real durante o arraste de resize.
-        self.redraw()
+        self.rebuild_scene()
 
     def _on_view_leave(self, event):
         self._scene.update_hover(None)
@@ -450,8 +467,7 @@ class TimelineWidget(QWidget):
 
     def _on_view_resize(self, event):
         QGraphicsView.resizeEvent(self._view, event)
-        # Atualiza imediatamente enquanto a view é redimensionada.
-        self.redraw()
+        self.rebuild_scene()
 
     def _on_view_mouse_press(self, event):
         pos = self._view.mapToScene(event.pos())
@@ -470,11 +486,10 @@ class TimelineWidget(QWidget):
         event.accept()
 
     # ============================================================
-    # VOLUME SCROLL (Shift+wheel)
+    # VOLUME SCROLL
     # ============================================================
 
     def _on_volume_scroll(self, event):
-        """Shift+Scroll ajusta volume da track sob o mouse."""
         pos = self._view.mapToScene(event.position().toPoint())
         y = pos.y()
         track_positions = self._scene._track_pos
@@ -497,50 +512,43 @@ class TimelineWidget(QWidget):
 
         from makevid.config import PROJECTS_DIR
         self.project.save(PROJECTS_DIR)
-        self.redraw()
+        self.rebuild_scene()
 
     # ============================================================
     # DELETE
     # ============================================================
 
     def _on_delete(self):
-        """Remove track item selecionado (clicado)."""
         from makevid.config import PROJECTS_DIR
-
-        # Só apaga se tem um track item selecionado via interação
         selected_id = getattr(self, '_selected_track_item_id', None)
         if not selected_id:
             return
-
         item = next((i for i in self.project.track_items if i.id == selected_id), None)
         if item:
             self.project.remove_track_item(item.id)
             self._selected_track_item_id = None
             self.project.save(PROJECTS_DIR)
-            self.redraw()
+            self.rebuild_scene()
 
     # ============================================================
     # SPLIT MODE
     # ============================================================
 
     def enter_split_mode(self):
-        """Ativa modo de corte: proximo click divide clip/item."""
         self._split_mode = True
         self._view.setCursor(Qt.CrossCursor)
 
     def enter_audio_split_mode(self, track):
-        """Ativa modo de corte para faixa de audio especifica."""
         self._audio_split_mode = track
         self._view.setCursor(Qt.CrossCursor)
 
     def _exit_split_mode(self):
-        """Sai de qualquer modo de split."""
         self._split_mode = False
         self._audio_split_mode = None
         self._view.setCursor(Qt.ArrowCursor)
 
     # ============================================================
-    # DRAG-AND-DROP (arquivos do SO)
+    # DRAG-AND-DROP
     # ============================================================
 
     def _drop_scene_pos(self, event):
@@ -557,7 +565,7 @@ class TimelineWidget(QWidget):
         return None
 
     def _time_at_scene_pos(self, pos):
-        return max(0.0, (pos.x() - self.LBL_W) / max(1, self.zoom))
+        return max(0.0, pos.x() / max(1, self.zoom))
 
     def _clip_position_at_time(self, t):
         clips = sorted(self.project.clips, key=lambda c: c.position)
@@ -589,7 +597,6 @@ class TimelineWidget(QWidget):
         event.accept()
 
     def _on_drop(self, event):
-        """Arquivos soltos na timeline: audio → track audio, video → clip."""
         import shutil
         from makevid.config import AUDIO_DIR, OUTPUTS_DIR
 
@@ -608,7 +615,7 @@ class TimelineWidget(QWidget):
                 item.start_time = round(max(0.0, drop_time), 3)
                 from makevid.config import PROJECTS_DIR
                 self.project.save(PROJECTS_DIR)
-                self.redraw()
+                self.rebuild_scene()
                 event.acceptProposedAction()
                 return
 
@@ -623,11 +630,9 @@ class TimelineWidget(QWidget):
             path = Path(url.toLocalFile())
             if not path.exists():
                 continue
-
             ext = path.suffix.lower()
 
             if ext in audio_exts:
-                # Importar como item de track no ponto solto.
                 dest_dir = AUDIO_DIR / self.project.id
                 dest_dir.mkdir(parents=True, exist_ok=True)
                 dest = dest_dir / path.name
@@ -639,7 +644,6 @@ class TimelineWidget(QWidget):
                     dur = get_audio_duration(str(dest)) or 5.0
                 except Exception:
                     pass
-
                 target_track = drop_track if drop_track in {"voice", "sfx", "music", "audio"} else "audio"
                 self.project.add_track_item(
                     name=path.stem[:20],
@@ -647,11 +651,10 @@ class TimelineWidget(QWidget):
                     start_time=drop_time,
                     duration=dur,
                     file_path=str(dest),
-                    params={"block_name": f"\U0001f4c2 {path.stem[:12]}"},
+                    params={"block_name": path.stem[:20], "source_type": "import"},
                 )
 
             elif ext in video_exts:
-                # Importar como clip de video no ponto solto da timeline.
                 dest_dir = OUTPUTS_DIR / self.project.id
                 dest_dir.mkdir(parents=True, exist_ok=True)
                 dest = dest_dir / path.name
@@ -667,5 +670,5 @@ class TimelineWidget(QWidget):
 
         from makevid.config import PROJECTS_DIR
         self.project.save(PROJECTS_DIR)
-        self.redraw()
+        self.rebuild_scene()
         event.acceptProposedAction()

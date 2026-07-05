@@ -42,7 +42,7 @@ class AudioActionsMixin:
             self.project.add_track_item(
                 name=src.stem[:20], track=track_name, start_time=start,
                 duration=dur, file_path=str(dest),
-                params={"block_name": f"\U0001f4c2 {src.stem[:12]}"},
+                params={"block_name": src.stem[:20], "source_type": "import"},
             )
             _log.info(f"Audio importado: {src.name} -> {track_name} dur={dur:.1f}s start={start:.1f}")
         self.project.save(PROJECTS_DIR)
@@ -127,7 +127,7 @@ class AudioActionsMixin:
                         self.project.add_track_item(
                             name=key[:8], track=track, start_time=clip_start,
                             duration=dur, file_path=path, clip_index=idx,
-                            params={"block_name": f"{icons.get(key,'')} {key[:8]}"},
+                            params={"block_name": key[:8], "source_type": key},
                         )
             self.project.save(PROJECTS_DIR)
             _log.info(f"Audio cena {idx} gerado: {list(results.keys())}")
@@ -199,7 +199,7 @@ class AudioActionsMixin:
                             self.project.add_track_item(
                                 name=key[:8], track=track, start_time=t,
                                 duration=dur, file_path=path, clip_index=si,
-                                params={"block_name": f"{icons.get(key,'')} {key[:8]}"},
+                                params={"block_name": key[:8], "source_type": key},
                             )
                 t += plan.scene_duration
             self.project.save(PROJECTS_DIR)

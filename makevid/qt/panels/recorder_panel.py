@@ -302,7 +302,7 @@ class RecorderPanel(QWidget):
         self._project.add_track_item(
             name=f"Gravacao ({duration:.1f}s)", track=self._target_track,
             start_time=start, duration=duration, file_path=str(filepath),
-            params={"block_name": f"\U0001f3a7 Gravacao"})
+            params={"block_name": "Gravacao", "source_type": "rec"})
         self._project.save(PROJECTS_DIR)
 
         self._status.setText(f"\u2714 Salvo! {duration:.1f}s \u2192 {self._target_track.upper()} | {filepath.name}")
@@ -433,7 +433,7 @@ class TTSPanel(QWidget):
                     self._project.add_track_item(
                         name=text[:20], track="voice",
                         start_time=start, duration=dur, file_path=str(path),
-                        params={"text": text, "block_name": f"\U0001f5e3 {text[:15]}"})
+                        params={"text": text, "block_name": text[:20], "source_type": "tts"})
                     self._project.save(PROJECTS_DIR)
                     QTimer.singleShot(0, lambda: self._on_done(dur))
                 else:

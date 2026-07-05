@@ -19,7 +19,7 @@ SITE_PKG    = PYTHON_DIR / "Lib" / "site-packages"
 READY_FLAG  = BASE_DIR / "data" / ".setup_done"
 
 PACKAGES = [
-    "PySide6>=6.6.0",
+    "PySide6>=6.7.0",
     "pillow>=10.4.0",
     "opencv-python-headless>=4.10.0",
     "requests>=2.32.0",
@@ -32,16 +32,49 @@ PACKAGES = [
     "psutil>=6.0.0",
 ]
 
-# Pacotes pesados opcionais (GPU) — instalados separadamente
+# torch >= 2.6 requerido para Python 3.13
+# index-url escolhido automaticamente em _detect_torch_index()
 PACKAGES_TORCH = [
-    "torch>=2.4.0",
-    "torchvision>=0.19.0",
+    "torch>=2.6.0",
+    "torchvision>=0.21.0",
     "diffusers>=0.31.0",
     "transformers>=4.44.0",
     "accelerate>=0.34.0",
     "safetensors>=0.4.5",
     "peft>=0.13.0",
 ]
+
+# Mapa CUDA driver version -> whl index
+_CUDA_INDEX = {
+    "12.4": "https://download.pytorch.org/whl/cu124",
+    "12.1": "https://download.pytorch.org/whl/cu121",
+    "11.8": "https://download.pytorch.org/whl/cu118",
+}
+_CPU_INDEX = "https://download.pytorch.org/whl/cpu"
+
+
+def _detect_torch_index() -> str:
+    """Detecta CUDA disponivel e retorna o index-url correto do PyTorch."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode != 0:
+            return _CPU_INDEX
+        # Pega versao do driver e mapeia para CUDA toolkit
+        driver = result.stdout.strip().split("\n")[0].strip()
+        major = int(driver.split(".")[0]) if driver else 0
+        # Driver >= 525 suporta CUDA 12.1+, >= 550 suporta CUDA 12.4
+        if major >= 550:
+            return _CUDA_INDEX["12.4"]
+        if major >= 525:
+            return _CUDA_INDEX["12.1"]
+        if major >= 450:
+            return _CUDA_INDEX["11.8"]
+        return _CPU_INDEX
+    except Exception:
+        return _CPU_INDEX
 
 
 def _already_setup() -> bool:
@@ -53,8 +86,11 @@ def _mark_done():
     READY_FLAG.write_text("ok")
 
 
-def _pip_install(packages: list, log_fn=None):
-    pip_cmd = [str(PYTHON_EXE), "-m", "pip", "install", "--quiet", "--no-warn-script-location"] + packages
+def _pip_install(packages: list, log_fn=None, index_url: str = None):
+    pip_cmd = [str(PYTHON_EXE), "-m", "pip", "install", "--quiet", "--no-warn-script-location"]
+    if index_url:
+        pip_cmd += ["--index-url", index_url]
+    pip_cmd += packages
     proc = subprocess.Popen(
         pip_cmd,
         stdout=subprocess.PIPE,
@@ -173,8 +209,11 @@ def run_setup_gui(on_done, on_error):
                     if not _pip_install(PACKAGES, self.progress.emit):
                         self.finished.emit(False, "Falha ao instalar pacotes.")
                         return
-                    self.progress.emit("Instalando PyTorch (pode demorar)...")
-                    _pip_install(PACKAGES_TORCH, self.progress.emit)  # opcional, nao falha
+                    self.progress.emit("Detectando GPU...")
+                    torch_index = _detect_torch_index()
+                    backend = "CPU" if torch_index == _CPU_INDEX else f"CUDA ({torch_index.split('/')[-1]})"
+                    self.progress.emit(f"Instalando PyTorch [{backend}] (pode demorar)...")
+                    _pip_install(PACKAGES_TORCH, self.progress.emit, index_url=torch_index)
                     _mark_done()
                     self.finished.emit(True, "")
                 except Exception as e:
@@ -204,8 +243,11 @@ def run_setup_console(on_done, on_error):
     if not _pip_install(PACKAGES, print):
         on_error("Falha ao instalar pacotes.")
         return
-    print("Instalando PyTorch (pode demorar)...")
-    _pip_install(PACKAGES_TORCH, print)
+    print("Detectando GPU...")
+    torch_index = _detect_torch_index()
+    backend = "CPU" if torch_index == _CPU_INDEX else f"CUDA ({torch_index.split('/')[-1]})"
+    print(f"Instalando PyTorch [{backend}] (pode demorar)...")
+    _pip_install(PACKAGES_TORCH, print, index_url=torch_index)
     _mark_done()
     on_done()
 

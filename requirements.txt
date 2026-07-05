@@ -1,11 +1,16 @@
 # MAKEVID — Qt UI
+# Python 3.13+ compatible
 
 # Qt
-PySide6>=6.6.0
+PySide6>=6.7.0
 
-# Deep Learning
-torch>=2.4.0
-torchvision>=0.19.0
+# Deep Learning (Python 3.13 requer torch>=2.6)
+# Instalar manualmente com o index correto:
+#   CPU:       pip install torch>=2.6.0 torchvision>=0.21.0 --index-url https://download.pytorch.org/whl/cpu
+#   CUDA 12.1: pip install torch>=2.6.0 torchvision>=0.21.0 --index-url https://download.pytorch.org/whl/cu121
+#   CUDA 12.4: pip install torch>=2.6.0 torchvision>=0.21.0 --index-url https://download.pytorch.org/whl/cu124
+torch>=2.6.0
+torchvision>=0.21.0
 transformers>=4.44.0
 diffusers>=0.31.0
 accelerate>=0.34.0
@@ -14,7 +19,7 @@ peft>=0.13.0
 
 # Image / Video
 pillow>=10.4.0
-opencv-python>=4.10.0
+opencv-python-headless>=4.10.0
 
 # Audio
 sounddevice>=0.4.6

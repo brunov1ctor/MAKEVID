@@ -4,10 +4,14 @@ import logging
 import math
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsItem
 from PySide6.QtCore import Qt, QRectF, QPointF
-from PySide6.QtGui import QPen, QBrush, QColor, QFont, QPolygonF, QPainterPath, QPainter, QLinearGradient
+from PySide6.QtGui import QPen, QBrush, QColor, QFont, QPolygonF, QPainterPath, QPainter
 
 from makevid.qt.theme import C
-from makevid.qt.timeline.clip_item import ClipGraphicsItem
+from makevid.qt.timeline.clip_item import (
+    ClipGraphicsItem,
+    Z_BACKGROUND, Z_GRID, Z_TRACK_LAYER, Z_CLIP, Z_AUDIO_ITEM, Z_MARKER, Z_PLAYHEAD, Z_OVERLAY,
+    ITEM_PAD_X, ITEM_PAD_Y,
+)
 from makevid.qt.timeline.track_item import TrackGraphicsItem
 from makevid.qt.timeline.ruler import RulerItem
 from makevid.qt.timeline.playhead import PlayheadItem
@@ -26,14 +30,14 @@ _TRACKS = [
 _log = logging.getLogger("timeline")
 
 
-# ── itens de background (sem QGraphicsRectItem nativo) ────────────────────────
+# ── Background ────────────────────────────────────────────────────────────────
 
 class _BgItem(QGraphicsItem):
-    """Fundo de uma faixa — nunca selecionável pelo Qt."""
 
     def __init__(self, x, y, w, h, color_even, tint_color, active=False):
         super().__init__()
-        self._x, self._y, self._w, self._h = x, y, w, h
+        self._w = w
+        self._h = h
         self._bg = QColor(color_even)
         self._tint = QColor(tint_color)
         self._active = active
@@ -41,7 +45,8 @@ class _BgItem(QGraphicsItem):
         self.setFlags(QGraphicsItem.GraphicsItemFlag(0))
         self.setAcceptedMouseButtons(Qt.NoButton)
         self.setAcceptHoverEvents(False)
-        self.setZValue(-10)
+        self.setZValue(Z_BACKGROUND)
+        self.setPos(x, y)
 
     def set_hovered(self, hovered: bool):
         if self._hovered != hovered:
@@ -49,10 +54,10 @@ class _BgItem(QGraphicsItem):
             self.update()
 
     def boundingRect(self):
-        return QRectF(self._x, self._y, self._w, self._h)
+        return QRectF(0, 0, self._w, self._h)
 
     def paint(self, painter: QPainter, option, widget=None):
-        r = QRectF(self._x, self._y, self._w, self._h)
+        r = QRectF(0, 0, self._w, self._h)
         painter.setPen(Qt.NoPen)
         bg = QColor(self._bg)
         tint = QColor(self._tint)
@@ -68,7 +73,6 @@ class _BgItem(QGraphicsItem):
             hv = QColor(tint)
             hv.setAlpha(min(255, tint.alpha() + 36))
             painter.fillRect(r, hv)
-
             edge = QColor(tint).lighter(130)
             edge.setAlpha(230)
             painter.setPen(QPen(edge, 1.6))
@@ -76,41 +80,21 @@ class _BgItem(QGraphicsItem):
 
 
 class _SepItem(QGraphicsItem):
-    """Linha separadora entre faixas."""
 
     def __init__(self, x1, y, x2):
         super().__init__()
-        self._x1, self._y, self._x2 = x1, y, x2
+        self._len = x2 - x1
         self.setFlags(QGraphicsItem.GraphicsItemFlag(0))
         self.setAcceptedMouseButtons(Qt.NoButton)
-        self.setZValue(-8)
+        self.setZValue(Z_GRID)
+        self.setPos(x1, y)
 
     def boundingRect(self):
-        return QRectF(self._x1, self._y - 1, self._x2 - self._x1, 2)
+        return QRectF(0, -1, self._len, 2)
 
     def paint(self, painter: QPainter, option, widget=None):
         painter.setPen(QPen(QColor(255, 255, 255, 5), 1))
-        painter.drawLine(QPointF(self._x1, self._y), QPointF(self._x2, self._y))
-
-
-class _LabelBgItem(QGraphicsItem):
-    """Painel esquerdo dos labels."""
-
-    def __init__(self, w, h):
-        super().__init__()
-        self._w, self._h = w, h
-        self.setFlags(QGraphicsItem.GraphicsItemFlag(0))
-        self.setAcceptedMouseButtons(Qt.NoButton)
-        self.setZValue(5)
-
-    def boundingRect(self):
-        return QRectF(0, 0, self._w, self._h)
-
-    def paint(self, painter: QPainter, option, widget=None):
-        painter.setPen(Qt.NoPen)
-        painter.fillRect(QRectF(0, 0, self._w, self._h), QColor(28, 46, 74, 70))
-        painter.setPen(QPen(QColor(255, 255, 255, 45), 1))
-        painter.drawLine(QPointF(self._w - 1, 0), QPointF(self._w - 1, self._h))
+        painter.drawLine(QPointF(0, 0), QPointF(self._len, 0))
 
 
 # ── Diamond ───────────────────────────────────────────────────────────────────
@@ -119,20 +103,21 @@ class _DiamondItem(QGraphicsItem):
 
     def __init__(self, x, cy, sz, position, marked=False):
         super().__init__()
-        self._x, self._cy, self._sz = x, cy, sz
+        self._sz = sz
         self._position = position
         self._marked = marked
         self._hovered = False
         self.setFlags(QGraphicsItem.GraphicsItemFlag(0))
         self.setAcceptHoverEvents(True)
-        self.setZValue(3)
+        self.setZValue(Z_MARKER)
+        self.setPos(x, cy)
 
     def boundingRect(self):
         s = self._sz + 6
-        return QRectF(self._x - s, self._cy - s, s * 2, s * 2)
+        return QRectF(-s, -s, s * 2, s * 2)
 
     def paint(self, painter: QPainter, option, widget=None):
-        x, cy, sz = self._x, self._cy, self._sz
+        sz = self._sz
         if self._hovered:
             sz = min(12, sz + 4)
             painter.setPen(QPen(QColor("#bb77ff"), 2))
@@ -142,20 +127,20 @@ class _DiamondItem(QGraphicsItem):
             painter.setPen(QPen(QColor("#00ffee"), 1))
             painter.setBrush(Qt.NoBrush)
             painter.drawPolygon(QPolygonF([
-                QPointF(x - sz - 2, cy), QPointF(x, cy - sz - 2),
-                QPointF(x + sz + 2, cy), QPointF(x, cy + sz + 2)]))
+                QPointF(-sz - 2, 0), QPointF(0, -sz - 2),
+                QPointF(sz + 2, 0), QPointF(0, sz + 2)]))
             painter.setPen(QPen(QColor("#bb77ff"), 2))
             painter.setBrush(QBrush(QColor("#6b3fa0")))
         else:
             painter.setPen(QPen(QColor("#6b3fa0"), 2))
             painter.setBrush(QBrush(QColor("#2a1a4a")))
         painter.drawPolygon(QPolygonF([
-            QPointF(x - sz, cy), QPointF(x, cy - sz),
-            QPointF(x + sz, cy), QPointF(x, cy + sz)]))
+            QPointF(-sz, 0), QPointF(0, -sz),
+            QPointF(sz, 0), QPointF(0, sz)]))
         if self._marked:
             painter.setPen(QPen(QColor("#00ffee")))
             painter.setFont(QFont("Segoe UI", 7, QFont.Bold))
-            painter.drawText(QPointF(x - 4, cy + 4), "✓")
+            painter.drawText(QPointF(-4, 4), "✓")
 
     def hoverEnterEvent(self, event): self._hovered = True;  self.update()
     def hoverLeaveEvent(self, event): self._hovered = False; self.update()
@@ -165,36 +150,37 @@ class _DiamondItem(QGraphicsItem):
 
 class _StoryboardBadge(QGraphicsItem):
 
-    def __init__(self, x, rh, index, scene):
+    def __init__(self, x, rh, index, scene_data):
         super().__init__()
-        self._x, self._r, self._cy = x, 8, rh - 10
+        self._r = 8
         self._index = index
-        self._scene_data = scene
+        self._scene_data = scene_data
         self._hovered = False
         self.setFlags(QGraphicsItem.GraphicsItemFlag(0))
         self.setAcceptHoverEvents(True)
-        self.setZValue(8)
-        self.setToolTip(f"Cena {index + 1}: {scene.get('visual', '')[:40]}")
+        self.setZValue(Z_MARKER - 5)
+        self.setPos(x, rh - 10)
+        self.setToolTip(f"Cena {index + 1}: {scene_data.get('visual', '')[:40]}")
 
     def boundingRect(self):
         r = self._r + 4
-        return QRectF(self._x - r, self._cy - r, r * 2, r * 2)
+        return QRectF(-r, -r, r * 2, r * 2)
 
     def paint(self, painter: QPainter, option, widget=None):
-        x, cy, r = self._x, self._cy, self._r
+        r = self._r
         if self._hovered:
             painter.setPen(QPen(QColor("#00ffee"), 2)); painter.setBrush(Qt.NoBrush)
-            painter.drawEllipse(QPointF(x, cy), r + 3, r + 3)
+            painter.drawEllipse(QPointF(0, 0), r + 3, r + 3)
             painter.setPen(QPen(QColor("#00ffee"), 2))
             painter.setBrush(QBrush(QColor("#ffd700")))
-            painter.drawEllipse(QPointF(x, cy), r + 1, r + 1)
+            painter.drawEllipse(QPointF(0, 0), r + 1, r + 1)
         else:
             painter.setPen(QPen(QColor("#ffd700"), 1))
             painter.setBrush(QBrush(QColor("#c89b3c")))
-            painter.drawEllipse(QPointF(x, cy), r, r)
+            painter.drawEllipse(QPointF(0, 0), r, r)
         painter.setPen(QPen(QColor("#0a0a0f")))
         painter.setFont(QFont("Consolas", 8 if not self._hovered else 9, QFont.Bold))
-        painter.drawText(QPointF(x - 4, cy + 4), str(self._index + 1))
+        painter.drawText(QPointF(-4, 4), str(self._index + 1))
 
     def hoverEnterEvent(self, event): self._hovered = True;  self.setCursor(Qt.PointingHandCursor); self.update()
     def hoverLeaveEvent(self, event): self._hovered = False; self.setCursor(Qt.ArrowCursor);        self.update()
@@ -207,28 +193,41 @@ class _FxItem(QGraphicsItem):
     def __init__(self, track_item, x, y, w, h, color):
         super().__init__()
         self.track_item = track_item
-        self._x, self._y, self._w, self._h = x, y, w, h
+        self._w = w
+        self._h = h
         self._color = QColor(color)
         self._selected = False
         self._hovered = False
+        import random
+        self._beam_phase = random.uniform(0, 360)
         self.setFlags(QGraphicsItem.GraphicsItemFlag(0))
-        self.setAcceptHoverEvents(True)
-        self.setZValue(2)
+        self.setAcceptHoverEvents(False)
+        self.setZValue(Z_AUDIO_ITEM)
+        self.setPos(x, y)
 
     def boundingRect(self):
-        return QRectF(self._x, self._y, self._w, self._h)
+        return QRectF(-4, -4, self._w + 8, self._h + 8)
 
     def paint(self, painter: QPainter, option, widget=None):
-        x, y, w, h = self._x, self._y + 3, self._w, self._h - 6
+        x, y, w, h = ITEM_PAD_X, ITEM_PAD_Y, self._w - ITEM_PAD_X * 2, self._h - ITEM_PAD_Y * 2
+        if w < 2 or h < 2:
+            return
         c = self._color
-        hover_pen = QColor(c)
-        hover_pen = hover_pen.lighter(115)
+        r = 4.0
+
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(x, y, w, h), r, r)
+
+        painter.setPen(Qt.NoPen)
+        painter.fillPath(path, QBrush(QColor("#1a0a2a")))
+
         if self._selected:
-            painter.setPen(QPen(QColor("#00ffee"), 2))
+            self._paint_beam_border(painter, path)
         else:
+            hover_pen = QColor(c).lighter(115)
             painter.setPen(QPen(hover_pen if self._hovered else c, 2 if self._hovered else 1))
-        painter.setBrush(QBrush(QColor("#1a0a2a")))
-        painter.drawRect(QRectF(x, y, w, h))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawPath(path)
 
         name = self.track_item.name.lower()
         ix1, ix2, mid = x + 4, x + w - 4, y + h / 2
@@ -268,63 +267,57 @@ class _FxItem(QGraphicsItem):
         painter.drawRect(QRectF(x, y, 4, h))
         painter.drawRect(QRectF(x + w - 4, y, 4, h))
 
-    def hoverEnterEvent(self, event): self._hovered = True;  self.update()
-    def hoverLeaveEvent(self, event): self._hovered = False; self.update()
-    def hoverMoveEvent(self, event):
-        lx = event.scenePos().x() - self._x
-        self.setCursor(Qt.SizeHorCursor if lx <= 6 or (self._w - lx) <= 6 else Qt.ArrowCursor)
+    def _paint_beam_border(self, painter, path):
+        from makevid.qt.timeline.clip_item import ClipGraphicsItem
+        from PySide6.QtGui import QConicalGradient, QPainterPathStroker
+        angle = (ClipGraphicsItem._beam_angle + self._beam_phase) % 360
+
+        stroker = QPainterPathStroker()
+        stroker.setWidth(2.5)
+        border_area = stroker.createStroke(path)
+
+        stroker_glow = QPainterPathStroker()
+        stroker_glow.setWidth(7.0)
+        glow_area = stroker_glow.createStroke(path)
+
+        cg = QConicalGradient(0.5, 0.5, angle)
+        cg.setCoordinateMode(QConicalGradient.CoordinateMode.ObjectMode)
+        cg.setColorAt(0.00, QColor(0,   220, 255, 255))
+        cg.setColorAt(0.15, QColor(180,  80, 255, 255))
+        cg.setColorAt(0.35, QColor(0,   120, 255, 255))
+        cg.setColorAt(0.50, QColor(0,   220, 255, 255))
+        cg.setColorAt(0.65, QColor(180,  80, 255, 255))
+        cg.setColorAt(0.85, QColor(0,   120, 255, 255))
+        cg.setColorAt(1.00, QColor(0,   220, 255, 255))
+
+        painter.save()
+        painter.setPen(Qt.NoPen)
+        painter.setOpacity(0.35)
+        painter.fillPath(glow_area, QBrush(cg))
+        painter.setOpacity(1.0)
+        painter.fillPath(border_area, QBrush(cg))
+        painter.restore()
 
 
-# ── EyeItem ───────────────────────────────────────────────────────────────────
+# ── SbLineItem ────────────────────────────────────────────────────────────────
 
-class _EyeItem(QGraphicsItem):
+class _SbLineItem(QGraphicsItem):
 
-    def __init__(self, track_key, x, y, size, visible, tl):
+    def __init__(self, x, rh, vh):
         super().__init__()
-        self._track_key = track_key
-        self._size = size
-        self._visible = visible
-        self._tl = tl
-        self._hovered = False
+        self._rh = rh
+        self._len = vh - rh
         self.setFlags(QGraphicsItem.GraphicsItemFlag(0))
-        self.setAcceptHoverEvents(True)
-        self.setAcceptedMouseButtons(Qt.LeftButton)
-        self.setEnabled(True)
-        self.setZValue(9)
-        self.setPos(x, y)
-        self.setToolTip("Colapsar track" if visible else "Expandir track")
+        self.setAcceptedMouseButtons(Qt.NoButton)
+        self.setZValue(Z_GRID + 5)
+        self.setPos(x, rh)
 
     def boundingRect(self):
-        s = self._size
-        return QRectF(-1, -1, s + 2, s + 2)
+        return QRectF(-1, 0, 2, self._len)
 
     def paint(self, painter: QPainter, option, widget=None):
-        s = self._size
-        alpha = 220 if self._hovered else 150
-        color = QColor(255, 255, 255, alpha) if self._visible else QColor(180, 180, 200, alpha)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(color))
-        if self._visible:
-            poly = QPolygonF([QPointF(0, 0), QPointF(0, s), QPointF(s, s / 2)])
-        else:
-            poly = QPolygonF([QPointF(0, 0), QPointF(s, 0), QPointF(s / 2, s)])
-        painter.drawPolygon(poly)
-
-    def hoverEnterEvent(self, event): self._hovered = True;  self.setCursor(Qt.PointingHandCursor); self.update()
-    def hoverLeaveEvent(self, event): self._hovered = False; self.setCursor(Qt.ArrowCursor);        self.update()
-
-    def mousePressEvent(self, event):
-        self._toggle_collapsed()
-        if event is not None:
-            event.accept()
-
-    def _toggle_collapsed(self):
-        collapsed = self._tl.collapsed_tracks
-        if self._track_key in collapsed:
-            collapsed.discard(self._track_key)
-        else:
-            collapsed.add(self._track_key)
-        self._tl.redraw()
+        painter.setPen(QPen(QColor(C["gold"]), 1, Qt.DashDotLine))
+        painter.drawLine(QPointF(0, 0), QPointF(0, self._len))
 
 
 # ── TimelineScene ─────────────────────────────────────────────────────────────
@@ -337,8 +330,10 @@ class TimelineScene(QGraphicsScene):
         self._track_pos = {}
         self._label_pos = {}
         self._playhead = None
-        self._track_items = {}
-        self._bg_items = {}
+        self._track_items = {}   # id → QGraphicsItem
+        self._clip_items = {}    # clip.id → ClipGraphicsItem
+        self._bg_items = {}      # key → _BgItem
+        self._track_layers = {}  # key → bounds dict (não mais QGraphicsItem)
         self._interaction = SceneInteraction(self)
         self._hover = HoverController(self)
         self.setBackgroundBrush(QColor(8, 12, 22, 235))
@@ -346,64 +341,95 @@ class TimelineScene(QGraphicsScene):
 
     # ── public ────────────────────────────────────────────────────────────────
 
-    def rebuild(self, project, zoom, ph_pos, sel_track_id=None, sel_clip_id=None, active_track_key=None):
+    def rebuild_scene(self, project, zoom, ph_pos,
+                      sel_track_id=None, sel_clip_id=None, active_track_key=None):
+        """Reconstrução completa — apenas para mudanças estruturais."""
         self.clear()
         self._playhead = None
         self._track_items = {}
+        self._clip_items = {}
         self._bg_items = {}
+        self._track_layers = {}
         self._hover.reset()
 
-        lw = self.tl.LBL_W
         rh = self.tl.RULER_H
         vw = self.tl._view.viewport().width() or 900
         vh = self.tl._view.viewport().height() or 300
 
         total = max(project.total_duration(), 30)
-        sw = max(vw, lw + int(total * zoom) + 100)
+        sw = max(vw, int(total * zoom) + 100)
 
         self.setSceneRect(0, 0, sw, vh)
 
         self._calc_positions(vh, rh)
-        self._draw_backgrounds(lw, sw, active_track_key)
-        self._draw_ruler(lw, sw, rh, zoom, total)
-        self._draw_clips(project, zoom, lw, sel_clip_id)
-        self._draw_diamonds(project, zoom, lw)
-        self._draw_storyboard(project, zoom, lw, vh, rh)
-        self._draw_track_items(project, zoom, lw, sel_track_id)
-        self._draw_labels(lw, vh, rh, project)
+        self._draw_backgrounds(sw, active_track_key)
+        self._draw_ruler(sw, rh, zoom, total)
+        self._draw_clips(project, zoom, sel_clip_id)
+        self._draw_diamonds(project, zoom)
+        self._draw_storyboard(project, zoom, vh, rh)
+        self._draw_track_items(project, zoom, sel_track_id)
 
-        self._playhead = PlayheadItem(ph_pos, zoom, lw, vh)
+        self._playhead = PlayheadItem(ph_pos, zoom, vh)
         self._playhead._tl = self.tl
         self.addItem(self._playhead)
+
+        if hasattr(self.tl, '_header'):
+            self.tl._header.sync(self._track_pos, self._label_pos)
 
     def rebuild_empty(self):
         self.clear()
         self._playhead = None
         self._track_items = {}
+        self._clip_items = {}
         self._bg_items = {}
+        self._track_layers = {}
         self._hover.reset()
 
-        lw = self.tl.LBL_W
         rh = self.tl.RULER_H
         vw = self.tl._view.viewport().width() or 900
         vh = self.tl._view.viewport().height() or 300
 
         self.setSceneRect(0, 0, vw, vh)
         self._calc_positions(vh, rh)
-        self._draw_backgrounds(lw, vw)
-        self._draw_ruler(lw, vw, rh, self.tl.zoom, 30)
-        self._draw_labels(lw, vh, rh, None)
+        self._draw_backgrounds(vw)
+        self._draw_ruler(vw, rh, self.tl.zoom, 30)
 
-    def update_playhead(self, pos, zoom):
-        if self._playhead:
-            self._playhead.set_position(pos, zoom, self.tl.LBL_W)
+        if hasattr(self.tl, '_header'):
+            self.tl._header.sync(self._track_pos, self._label_pos)
 
-    def select_track_item(self, item_id):
-        for tid, gi in self._track_items.items():
-            selected = tid == item_id
+    def refresh_visual_state(self, sel_track_id=None, sel_clip_id=None, active_track_key=None):
+        """Atualiza apenas estado visual (seleção, hover, active track) sem rebuild."""
+        # Atualiza seleção de clips
+        for cid, gi in self._clip_items.items():
+            selected = cid == sel_clip_id
             if gi._selected != selected:
                 gi._selected = selected
                 gi.update()
+
+        # Atualiza seleção de track items
+        for tid, gi in self._track_items.items():
+            selected = tid == sel_track_id
+            if gi._selected != selected:
+                gi._selected = selected
+                gi.update()
+
+        # Atualiza background ativo
+        for key, bg in self._bg_items.items():
+            is_active = key == active_track_key
+            if bg._active != is_active:
+                bg._active = is_active
+                bg.update()
+
+    def update_playhead(self, pos, zoom):
+        if self._playhead:
+            self._playhead.set_position(pos, zoom)
+
+    def select_track_item(self, item_id):
+        self.refresh_visual_state(
+            sel_track_id=item_id,
+            sel_clip_id=self.tl.selection.selected_clip_id,
+            active_track_key=self.tl.selection.active_track_key,
+        )
 
     # ── layout ────────────────────────────────────────────────────────────────
 
@@ -449,7 +475,7 @@ class TimelineScene(QGraphicsScene):
 
     # ── draw ──────────────────────────────────────────────────────────────────
 
-    def _draw_backgrounds(self, lw, sw, active_track_key=None):
+    def _draw_backgrounds(self, sw, active_track_key=None):
         for i, (key, _, color, _, _) in enumerate(_TRACKS):
             if key not in self._track_pos:
                 continue
@@ -460,46 +486,17 @@ class TimelineScene(QGraphicsScene):
             bg = QColor(14, 22, 42, bg_alpha) if i % 2 == 0 else QColor(7, 11, 20, bg_alpha)
             tint = QColor(color)
             tint.setAlpha(tint_alpha)
-            bg_item = _BgItem(lw, y, sw - lw, h, bg, tint, active=is_active)
+            bg_item = _BgItem(0, y, sw, h, bg, tint, active=is_active)
             self._bg_items[key] = bg_item
             self.addItem(bg_item)
-            self.addItem(_SepItem(lw, y, sw))
+            self.addItem(_SepItem(0, y, sw))
+            self._track_layers[key] = {"x": 0, "y": y, "w": sw, "h": h}
 
-    def _draw_ruler(self, lw, sw, rh, zoom, total):
-        self._ruler_item = RulerItem(lw, sw, rh, zoom, total)
+    def _draw_ruler(self, sw, rh, zoom, total):
+        self._ruler_item = RulerItem(sw, rh, zoom, total)
         self.addItem(self._ruler_item)
 
-    def _draw_labels(self, lw, vh, rh, project):
-        self.addItem(_LabelBgItem(lw, vh))
-
-        collapsed = getattr(self.tl, 'collapsed_tracks', set())
-        for key, label, color, _, sub in _TRACKS:
-            if key not in self._label_pos:
-                continue
-            y, h = self._label_pos[key]
-            is_collapsed = key in collapsed
-            cy = y + h / 2
-
-            self.addItem(_EyeItem(key, 1, cy - 4, 7, not is_collapsed, self.tl))
-
-            bar = _BarItem(10, y + 2, 4, h - (2 if is_collapsed else 4), color)
-            self.addItem(bar)
-
-            t1 = _TextItem(label, 16, cy - (12 if not is_collapsed else 6), 7, bold=True,
-                           color=C["text2"] if not is_collapsed else C["text3"])
-            self.addItem(t1)
-
-            if not is_collapsed:
-                vol_map = {"VOICE": "voice", "SFX": "sfx", "MUSIC": "music", "AUDIO": "audio"}
-                tk = vol_map.get(label)
-                if tk and project and hasattr(project, "track_volumes"):
-                    txt2 = f"{int(project.track_volumes.get(tk, 1.0) * 100)}%"
-                    t2 = _TextItem(txt2, 16, cy + 1, 6, bold=True, color=C["text3"], mono=True)
-                else:
-                    t2 = _TextItem(sub, 16, cy + 1, 6, color=C["text3"])
-                self.addItem(t2)
-
-    def _draw_clips(self, project, zoom, lw, sel_clip_id=None):
+    def _draw_clips(self, project, zoom, sel_clip_id=None):
         if "video" not in self._track_pos:
             return
         if "video" in getattr(self.tl, 'collapsed_tracks', set()):
@@ -509,17 +506,19 @@ class TimelineScene(QGraphicsScene):
         ia = self._interaction
         drag_id = ia._drag_target.id if ia._drag_mode == "clip_move" and ia._drag_target else None
         for clip in sorted(project.clips, key=lambda c: c.position):
-            x = lw + int(t * zoom)
+            x = int(t * zoom)
             w = int(clip.duration * zoom)
             is_drag = clip.id == drag_id
-            item = ClipGraphicsItem(clip, x, vy, w, vh, selected=is_drag or clip.id == sel_clip_id)
+            item = ClipGraphicsItem(clip, x, vy, w, vh,
+                                    selected=is_drag or clip.id == sel_clip_id)
+            self._clip_items[clip.id] = item
             self.addItem(item)
             if is_drag:
                 ia._drag_clip_item = item
-                item.setZValue(10)
+                item.setZValue(Z_OVERLAY)
             t += clip.duration
 
-    def _draw_diamonds(self, project, zoom, lw):
+    def _draw_diamonds(self, project, zoom):
         if "fx" not in self._track_pos:
             return
         if "fx" in getattr(self.tl, 'collapsed_tracks', set()):
@@ -531,23 +530,23 @@ class TimelineScene(QGraphicsScene):
         t = 0.0
         for clip in sorted(project.clips, key=lambda c: c.position):
             if clip.position > 0:
-                dx = lw + int(t * zoom)
+                dx = int(t * zoom)
                 did = f"diamond_{clip.position}"
                 self.addItem(_DiamondItem(dx, cy, sz, clip.position, did in marked))
             t += clip.duration
 
-    def _draw_storyboard(self, project, zoom, lw, vh, rh):
+    def _draw_storyboard(self, project, zoom, vh, rh):
         if not getattr(project, "_storyboard_applied", False):
             return
         t = 0.0
         for i, scene in enumerate(getattr(project.world, "scenes", [])):
             dur = float(scene.get("duration", 5))
-            x = lw + int(t * zoom)
+            x = int(t * zoom)
             self.addItem(_SbLineItem(x, rh, vh))
             self.addItem(_StoryboardBadge(x, rh, i, scene))
             t += dur
 
-    def _draw_track_items(self, project, zoom, lw, sel_track_id=None):
+    def _draw_track_items(self, project, zoom, sel_track_id=None):
         collapsed = getattr(self.tl, 'collapsed_tracks', set())
         color_map = {t[0]: t[2] for t in _TRACKS}
         for name in ("fx", "voice", "sfx", "music", "audio"):
@@ -556,29 +555,31 @@ class TimelineScene(QGraphicsScene):
             ty, th = self._track_pos[name]
             color = color_map[name]
             items = sorted(project.get_track_items(name), key=lambda i: i.start_time)
+
+            from collections import defaultdict
+            groups = defaultdict(list)
             for ti in items:
-                x = lw + int(ti.start_time * zoom)
+                key = ti.clip_index if ti.clip_index >= 0 else ti.id
+                groups[key].append(ti)
+
+            for ti in items:
+                x = int(ti.start_time * zoom)
                 w = max(4, int(ti.duration * zoom))
+                selected = ti.id == sel_track_id
                 if name == "fx":
-                    selected = ti.id == sel_track_id
                     gi = _FxItem(ti, x, ty, w, th, color)
                     gi._selected = selected
-                    self._track_items[ti.id] = gi
-                    self.addItem(gi)
                 else:
-                    selected = ti.id == sel_track_id
-                    gi = TrackGraphicsItem(ti, x, ty, w, th, color, selected=selected)
-                    self._track_items[ti.id] = gi
-                    self.addItem(gi)
+                    group_key = ti.clip_index if ti.clip_index >= 0 else ti.id
+                    gi = TrackGraphicsItem(ti, x, ty, w, th, color,
+                                          selected=selected,
+                                          group_names=groups[group_key])
+                self._track_items[ti.id] = gi
+                self.addItem(gi)
 
-    # ── mouse direto (chamado pela view, sem processamento Qt de seleção) ──────
+    # ── mouse (chamado pela view) ──────────────────────────────────────────────
 
     def on_mouse_press(self, pos, button):
-        # EyeItem precisa receber o press via Qt normal
-        item = self.itemAt(pos, self.tl._view.transform())
-        if isinstance(item, _EyeItem):
-            item._toggle_collapsed()
-            return
         self._interaction.on_press(pos, button)
 
     def on_mouse_release(self, pos):
@@ -593,22 +594,16 @@ class TimelineScene(QGraphicsScene):
     def _track_key_at_pos(self, pos):
         if pos is None:
             return None
-        for key, (ty, th) in self._track_pos.items():
-            if ty <= pos.y() <= ty + th:
+        for key, bounds in self._track_layers.items():
+            if bounds["y"] <= pos.y() <= bounds["y"] + bounds["h"]:
                 return key
         return None
 
-    def _update_item_cursor(self, item, pos):
-        if isinstance(item, (TrackGraphicsItem, ClipGraphicsItem, _FxItem)):
-            lx = pos.x() - item._x
-            item.setCursor(Qt.SizeHorCursor if lx <= 6 or (item._w - lx) <= 6 else Qt.ArrowCursor)
-            return
-        if isinstance(item, (_EyeItem, _StoryboardBadge)):
-            item.setCursor(Qt.PointingHandCursor)
-            return
-        item.setCursor(Qt.ArrowCursor)
-
-    # ── double-click ainda via Qt (não causa seleção) ─────────────────────────
+    def _track_layer_contains(self, key, pos):
+        b = self._track_layers.get(key)
+        if not b:
+            return False
+        return b["x"] <= pos.x() <= b["x"] + b["w"] and b["y"] <= pos.y() <= b["y"] + b["h"]
 
     def mouseDoubleClickEvent(self, event):
         self._interaction._undo_last_diamond_toggle()
@@ -616,66 +611,3 @@ class TimelineScene(QGraphicsScene):
             event.accept()
         else:
             super().mouseDoubleClickEvent(event)
-
-
-# ── helpers de texto/barra ────────────────────────────────────────────────────
-
-class _TextItem(QGraphicsItem):
-
-    def __init__(self, text, x, y, size, bold=False, color=None, mono=False):
-        super().__init__()
-        self._text = text
-        self._x, self._y = x, y
-        self._size = size
-        self._bold = bold
-        self._color = QColor(color) if color else QColor(C["text"])
-        self._mono = mono
-        self.setFlags(QGraphicsItem.GraphicsItemFlag(0))
-        self.setAcceptedMouseButtons(Qt.NoButton)
-        self.setZValue(7)
-
-    def boundingRect(self):
-        return QRectF(self._x, self._y, 200, 16)
-
-    def paint(self, painter: QPainter, option, widget=None):
-        weight = QFont.Bold if self._bold else QFont.Normal
-        family = "Consolas" if self._mono else "Segoe UI"
-        painter.setFont(QFont(family, self._size, weight))
-        painter.setPen(self._color)
-        painter.drawText(QPointF(self._x, self._y + self._size + 2), self._text)
-
-
-class _BarItem(QGraphicsItem):
-
-    def __init__(self, x, y, w, h, color):
-        super().__init__()
-        self._x, self._y, self._w, self._h = x, y, w, h
-        self._color = QColor(color)
-        self.setFlags(QGraphicsItem.GraphicsItemFlag(0))
-        self.setAcceptedMouseButtons(Qt.NoButton)
-        self.setZValue(7)
-
-    def boundingRect(self):
-        return QRectF(self._x, self._y, self._w, self._h)
-
-    def paint(self, painter: QPainter, option, widget=None):
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(self._color)
-        painter.drawRect(QRectF(self._x, self._y, self._w, self._h))
-
-
-class _SbLineItem(QGraphicsItem):
-
-    def __init__(self, x, rh, vh):
-        super().__init__()
-        self._x, self._rh, self._vh = x, rh, vh
-        self.setFlags(QGraphicsItem.GraphicsItemFlag(0))
-        self.setAcceptedMouseButtons(Qt.NoButton)
-        self.setZValue(-5)
-
-    def boundingRect(self):
-        return QRectF(self._x - 1, self._rh, 2, self._vh - self._rh)
-
-    def paint(self, painter: QPainter, option, widget=None):
-        painter.setPen(QPen(QColor(C["gold"]), 1, Qt.DashDotLine))
-        painter.drawLine(QPointF(self._x, self._rh), QPointF(self._x, self._vh))

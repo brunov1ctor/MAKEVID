@@ -11,19 +11,81 @@ from makevid.qt.theme import C
 from makevid.data.fx_definitions import FX_TABS, FX_TOOLTIPS, FX_TAB_TOOLTIPS
 
 
-# Icones pixel art 8x8 para cada tipo de FX (1=cor, 0=transparente)
+# Icones pixel art 8x8 para cada FX — um por efeito, intuitivo
 _FX_ICONS = {
-    "fade": [
-        "00011000",
-        "00111100",
-        "01111110",
+    # TRANSICOES
+    "Fade In": [       # retangulo escuro -> claro (esquerda escura, direita clara)
+        "00000001",
+        "00000011",
+        "00000111",
+        "00001111",
+        "00011111",
+        "00111111",
+        "01111111",
         "11111111",
-        "11111111",
-        "01111110",
-        "00111100",
-        "00011000",
     ],
-    "slide": [
+    "Fade Out": [      # retangulo claro -> escuro (inverso do fade in)
+        "11111111",
+        "01111111",
+        "00111111",
+        "00011111",
+        "00001111",
+        "00000111",
+        "00000011",
+        "00000001",
+    ],
+    "Flash": [         # explosao de luz central
+        "00010000",
+        "01010100",
+        "00111000",
+        "11111110",
+        "11111110",
+        "00111000",
+        "01010100",
+        "00010000",
+    ],
+    "Wipe Left": [     # barra vertical varrendo para esquerda
+        "11110000",
+        "11110000",
+        "11110000",
+        "11111000",
+        "11111000",
+        "11110000",
+        "11110000",
+        "11110000",
+    ],
+    "Wipe Right": [    # barra vertical varrendo para direita
+        "00001111",
+        "00001111",
+        "00001111",
+        "00011111",
+        "00011111",
+        "00001111",
+        "00001111",
+        "00001111",
+    ],
+    "Dissolve": [      # pontos espalhados (dissolve)
+        "10100101",
+        "01010010",
+        "10001101",
+        "01110010",
+        "10011101",
+        "01100010",
+        "10010101",
+        "01001010",
+    ],
+    # MOVIMENTO
+    "Shake": [         # linhas deslocadas horizontalmente
+        "11111111",
+        "00000000",
+        "01111111",
+        "00000000",
+        "11111110",
+        "00000000",
+        "01111111",
+        "00000000",
+    ],
+    "Slide": [         # seta apontando para direita
         "00010000",
         "00110000",
         "01111111",
@@ -33,47 +95,48 @@ _FX_ICONS = {
         "00110000",
         "00010000",
     ],
-    "zoom": [
+    "Zoom": [          # lupa / quadrado expandindo
+        "01111110",
+        "10000001",
+        "10000001",
+        "10000001",
+        "10000001",
         "01111100",
-        "10000010",
-        "10000010",
-        "10000010",
-        "10000010",
-        "01111100",
-        "00001010",
-        "00000101",
+        "00001110",
+        "00000111",
     ],
-    "bounce": [
+    "Bounce": [        # bola quicando com sombra
+        "00111100",
+        "01111110",
+        "01111110",
+        "00111100",
         "00011000",
-        "00100100",
         "00011000",
-        "00011000",
-        "00100100",
-        "01000010",
-        "10000001",
-        "11111111",
+        "00000000",
+        "01111110",
     ],
-    "rotate": [
-        "00111100",
-        "01000010",
-        "10000001",
-        "10000001",
-        "10000001",
-        "01000010",
-        "00111100",
+    "Rotate": [        # seta circular
+        "00111000",
+        "01000100",
+        "10000010",
+        "10000110",
+        "10001110",
+        "01000100",
+        "00111000",
         "00001110",
     ],
-    "glitch": [
-        "11111111",
-        "00001111",
-        "11110000",
-        "11111111",
-        "11111111",
-        "00001111",
-        "11110000",
-        "11111111",
+    "Spin": [          # espiral / raios de rotacao
+        "00011000",
+        "01100110",
+        "10011001",
+        "11000011",
+        "11000011",
+        "10011001",
+        "01100110",
+        "00011000",
     ],
-    "blur": [
+    # ESTILO
+    "Blur": [          # bordas difusas / circulo desfocado
         "00111100",
         "01111110",
         "11111111",
@@ -83,115 +146,168 @@ _FX_ICONS = {
         "01111110",
         "00111100",
     ],
-    "flash": [
-        "00010000",
+    "Color Shift": [   # tres colunas RGB deslocadas
+        "11000000",
+        "11001100",
+        "11001100",
+        "00001100",
+        "00001111",
+        "00000011",
+        "00110011",
         "00110000",
-        "01111100",
-        "11111000",
-        "00111110",
-        "01111100",
-        "00011000",
+    ],
+    "Sepia": [         # sol / circulo quente
+        "00111100",
+        "01111110",
+        "11011011",
+        "11100111",
+        "11100111",
+        "11011011",
+        "01111110",
+        "00111100",
+    ],
+    "Vignette": [      # bordas escuras, centro claro
+        "11111111",
+        "10000001",
+        "10011001",
+        "10111101",
+        "10111101",
+        "10011001",
+        "10000001",
+        "11111111",
+    ],
+    "Film Grain": [    # pontos de grao aleatorios
+        "10010010",
+        "01001001",
+        "00100100",
+        "10010010",
+        "01001001",
+        "00100100",
+        "10010010",
+        "01001001",
+    ],
+    "Pixelate": [      # grade de pixels grandes
+        "11001100",
+        "11001100",
+        "00110011",
+        "00110011",
+        "11001100",
+        "11001100",
+        "00110011",
+        "00110011",
+    ],
+    "Letterbox": [     # barras horizontais topo e base
+        "11111111",
+        "11111111",
+        "00000000",
+        "00000000",
+        "00000000",
+        "00000000",
+        "11111111",
+        "11111111",
+    ],
+    "Invert": [        # metade preta metade branca invertida
+        "11110000",
+        "11110000",
+        "11110000",
+        "11110000",
+        "00001111",
+        "00001111",
+        "00001111",
+        "00001111",
+    ],
+    # GLITCH
+    "Glitch": [        # linhas deslocadas irregulares
+        "11111111",
+        "00001111",
+        "11110000",
+        "11111111",
+        "11111111",
+        "00001111",
+        "11110000",
+        "11111111",
+    ],
+    "RGB Split": [     # tres camadas deslocadas R G B
+        "11000000",
+        "11100000",
+        "01110000",
+        "00111000",
+        "00011100",
+        "00001110",
+        "00000111",
+        "00000011",
+    ],
+    "VHS": [           # linhas horizontais de scan
+        "11111111",
+        "00000000",
+        "11111111",
+        "00000000",
+        "11111111",
+        "00000000",
+        "11111111",
+        "00000000",
+    ],
+    "Neon": [          # estrela / brilho irradiando
+        "00010000",
+        "00010000",
+        "11111111",
+        "00111100",
+        "00111100",
+        "11111111",
+        "00010000",
         "00010000",
     ],
-    "shake": [
-        "10000001",
-        "01000010",
-        "10100101",
-        "01000010",
-        "10000001",
-        "01000010",
-        "10100101",
-        "01000010",
-    ],
-    "spin": [
+    "Pulse": [         # ondas concentricas
         "00111100",
         "01000010",
-        "10000001",
-        "10001001",
-        "10010001",
-        "10000001",
-        "01000010",
-        "00111100",
-    ],
-    "pulse": [
-        "00010100",
-        "00101010",
-        "01000001",
-        "10000001",
-        "10000001",
-        "01000001",
-        "00101010",
-        "00010100",
-    ],
-    "camera": [
-        "01111110",
-        "11111111",
         "10011001",
         "10100101",
         "10100101",
         "10011001",
-        "11111111",
-        "01111110",
+        "01000010",
+        "00111100",
     ],
-    "vhs": [
-        "11111111",
+    "Camera": [        # lente de camera
+        "01111110",
         "10000001",
         "10111101",
-        "10100101",
-        "10100101",
+        "11011011",
+        "11011011",
         "10111101",
         "10000001",
-        "11111111",
-    ],
-    "neon": [
-        "00011000",
-        "00100100",
-        "01000010",
-        "10011001",
-        "10011001",
-        "01000010",
-        "00100100",
-        "00011000",
-    ],
-    "default": [
-        "00111100",
-        "01000010",
-        "10011001",
-        "10100101",
-        "10100101",
-        "10011001",
-        "01000010",
-        "00111100",
+        "01111110",
     ],
 }
 
-# Cores por categoria
+# Cores por efeito
 _FX_ICON_COLORS = {
-    "fade":   (C["primary"],      C["secondary"]),
-    "slide":  (C["accent"],       "#0a8a9a"),
-    "zoom":   (C["secondary"],    C["primary"]),
-    "bounce": (C["track_sfx"],    "#1a7a55"),
-    "rotate": (C["track_music"],  "#7a2266"),
-    "glitch": (C["danger"],       "#aa2244"),
-    "blur":   (C["secondary"],    C["primary"]),
-    "flash":  (C["text"],         C["text2"]),
-    "shake":  (C["track_voice"],  "#7a4422"),
-    "spin":   (C["track_music"],  "#7a2266"),
-    "pulse":  (C["danger"],       "#aa2244"),
-    "camera": (C["accent"],       "#0a8a9a"),
-    "vhs":    (C["track_voice"],  "#7a4422"),
-    "neon":   (C["track_sfx"],    "#1a7a55"),
-    "default":(C["primary"],      C["secondary"]),
+    "Fade In":      ("#aaccff", "#224488"),
+    "Fade Out":     ("#224488", "#aaccff"),
+    "Flash":        ("#ffffff", "#ffee88"),
+    "Wipe Left":    ("#88ccff", "#0055aa"),
+    "Wipe Right":   ("#88ccff", "#0055aa"),
+    "Dissolve":     ("#aaaaff", "#334488"),
+    "Shake":        ("#ffaa44", "#884400"),
+    "Slide":        ("#44ddff", "#006688"),
+    "Zoom":         ("#88ffcc", "#006644"),
+    "Bounce":       ("#ffcc44", "#886600"),
+    "Rotate":       ("#cc88ff", "#550088"),
+    "Spin":         ("#ff88cc", "#880044"),
+    "Blur":         ("#88aaff", "#2233aa"),
+    "Color Shift":  ("#ff4444", "#4444ff"),
+    "Sepia":        ("#ffcc88", "#884400"),
+    "Vignette":     ("#888888", "#111111"),
+    "Film Grain":   ("#ccbbaa", "#554433"),
+    "Pixelate":     ("#44ffaa", "#006633"),
+    "Letterbox":    ("#444444", "#111111"),
+    "Invert":       ("#ffffff", "#000000"),
+    "Glitch":       ("#ff2244", "#aa0022"),
+    "RGB Split":    ("#ff3333", "#3333ff"),
+    "VHS":          ("#aaffaa", "#224422"),
+    "Neon":         ("#00ffee", "#006655"),
+    "Pulse":        ("#ff44ff", "#660066"),
+    "Camera":       ("#44aaff", "#002266"),
 }
-
-
-def _get_fx_icon_key(name):
-    """Determina qual icone usar baseado no nome do FX."""
-    n = name.lower()
-    for key in _FX_ICONS:
-        if key in n:
-            return key
-    return "default"
 
 
 class _FxIconWidget(QWidget):
@@ -199,9 +315,25 @@ class _FxIconWidget(QWidget):
 
     def __init__(self, fx_name, parent=None):
         super().__init__(parent)
-        self._key = _get_fx_icon_key(fx_name)
-        self._grid = _FX_ICONS.get(self._key, _FX_ICONS["default"])
-        self._color1, self._color2 = _FX_ICON_COLORS.get(self._key, _FX_ICON_COLORS["default"])
+        # Remove emoji prefix se houver (ex: "🎬 Fade In" -> "Fade In")
+        clean = fx_name.strip()
+        # Percorre caracteres até achar letra ASCII
+        for i, ch in enumerate(clean):
+            if ch.isascii() and ch.isalpha():
+                clean = clean[i:].strip()
+                break
+        self._grid = _FX_ICONS.get(clean)
+        if self._grid is None:
+            # Tenta match parcial
+            for key in _FX_ICONS:
+                if key.lower() in clean.lower() or clean.lower() in key.lower():
+                    self._grid = _FX_ICONS[key]
+                    clean = key
+                    break
+            else:
+                self._grid = _FX_ICONS["Glitch"]
+        c1, c2 = _FX_ICON_COLORS.get(clean, ("#aaaaff", "#334488"))
+        self._color1, self._color2 = c1, c2
 
     def paintEvent(self, event):
         from PySide6.QtGui import QPainter, QColor
@@ -369,16 +501,10 @@ class FxPanel(QWidget):
         icon.setAttribute(Qt.WA_TransparentForMouseEvents)
         cl.addWidget(icon)
 
-        # Texto
+        # Texto — usa o name direto (sem emoji, já vem limpo do FX_TABS)
         text_col = QVBoxLayout()
         text_col.setSpacing(1)
-        # Remover emoji do nome se tiver
-        display_name = name
-        if len(name) > 2 and name[1] == ' ':
-            display_name = name[2:]
-        elif len(name) > 3 and name[2] == ' ':
-            display_name = name[3:]
-        name_lbl = QLabel(display_name)
+        name_lbl = QLabel(name)
         name_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
         name_lbl.setStyleSheet(f"color: {C['text']}; font-size: 9pt; font-weight: bold; border: none; background: transparent;")
         text_col.addWidget(name_lbl)
@@ -411,25 +537,871 @@ class FxPanel(QWidget):
         self._title.setText(f"FX: {item.name}")
         self._tab_bar.hide()
 
-        # Limpar conteudo
         while self._content_layout.count():
             child = self._content_layout.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
 
-        # Info
-        info = QLabel(f"{item.name} | {item.duration:.1f}s | Inicio: {item.start_time:.1f}s")
+        name_lower = item.name.lower()
+        is_fade = "fade" in name_lower or "flash" in name_lower
+
+        if is_fade:
+            self._build_fade_editor(item)
+        else:
+            self._build_generic_editor(item)
+
+        self._content_layout.addStretch()
+
+    # ── editor generico (nao-fade) ────────────────────────────────────────────
+
+    def _build_generic_editor(self, item):
+        L = self._content_layout
+
+        info = QLabel(f"{item.name}  ·  {item.duration:.1f}s  ·  Início: {item.start_time:.1f}s")
         info.setStyleSheet(f"color: {C['text3']}; font-size: 8pt;")
-        self._content_layout.addWidget(info)
+        L.addWidget(info)
 
-        # Intensidade
-        self._fx_slider(self._content_layout, item, "intensity", "INTENSIDADE", 0, 100,
+        self._fx_slider(L, item, "intensity", "INTENSIDADE", 0, 100,
                         int(item.params.get("intensity", 100)), "%", C['purple'])
+        self._build_easing_section(L, item)
+        self._build_fx_params(item)
+        self._build_action_buttons(item)
 
-        # Easing (botoes visuais)
-        ease_lbl = QLabel("CURVA DE TRANSIÇÃO")
-        ease_lbl.setStyleSheet(f"color: {C['text2']}; font-size: 9pt; font-weight: bold;")
-        self._content_layout.addWidget(ease_lbl)
+    # ── editor profissional fade/flash ────────────────────────────────────────
+
+    def _build_fade_editor(self, item):
+        L = self._content_layout
+
+        # ── Header info ──────────────────────────────────────────────────────
+        hdr = QFrame()
+        hdr.setStyleSheet(
+            f"background: {C['card']}; border: 1px solid {C['border']}; border-radius: 10px;"
+        )
+        hdr_l = QVBoxLayout(hdr)
+        hdr_l.setContentsMargins(12, 10, 12, 10)
+        hdr_l.setSpacing(3)
+
+        row1 = QHBoxLayout()
+        fx_lbl = QLabel(item.name)
+        fx_lbl.setStyleSheet(
+            f"color: {C['text']}; font-size: 11pt; font-weight: bold; border: none;"
+        )
+        row1.addWidget(fx_lbl)
+        row1.addStretch()
+        hdr_l.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.setSpacing(16)
+        for label, param, value in [
+            ("DURAÇÃO",  "duration",   f"{item.duration:.1f}"),
+            ("INÍCIO",   "start_time", f"{item.start_time:.1f}"),
+        ]:
+            from PySide6.QtWidgets import QLineEdit
+            col = QVBoxLayout()
+            col.setSpacing(1)
+            lbl = QLabel(label)
+            lbl.setStyleSheet(f"color: {C['text3']}; font-size: 7pt; font-weight: bold; border: none;")
+            col.addWidget(lbl)
+            edit = QLineEdit(value)
+            edit.setFixedWidth(60)
+            edit.setFixedHeight(22)
+            edit.setStyleSheet(
+                f"background: rgba(10,16,30,0.70); color: {C['accent']}; "
+                f"font-family: Consolas; font-size: 9pt; font-weight: bold; "
+                f"border: 1px solid rgba(255,255,255,0.12); border-radius: 5px; padding: 0 4px;"
+            )
+            def _make_handler(p, e):
+                def _on_edit():
+                    try:
+                        v = float(e.text().replace(",", "."))
+                        if v < 0:
+                            v = 0.0
+                        setattr(item, p, v)
+                        e.setText(f"{v:.1f}")
+                        self._auto_save()
+                        try:
+                            self.window().timeline.rebuild_scene()
+                        except Exception:
+                            pass
+                    except ValueError:
+                        e.setText(f"{getattr(item, p):.1f}")
+                return _on_edit
+            edit.editingFinished.connect(_make_handler(param, edit))
+            col.addWidget(edit)
+            row2.addLayout(col)
+        row2.addStretch()
+        hdr_l.addLayout(row2)
+        L.addWidget(hdr)
+
+        # ── Presets ───────────────────────────────────────────────────────────
+        custom_thumb_ref = self._build_fade_presets(L, item)
+
+        # ── Appearance ────────────────────────────────────────────────────────
+        shared = {"on_color_change": None}
+        self._appearance_section = self._build_fade_appearance(L, item, shared, custom_thumb_ref)
+
+        # ── Animation ─────────────────────────────────────────────────────────
+        self._build_fade_animation(L, item)
+
+        # ── Preview ───────────────────────────────────────────────────────────
+        self._build_fade_preview(L, item)
+
+        self._build_action_buttons(item)
+
+    # ── appearance: color picker HSV completo ───────────────────────────────
+
+    def _build_fade_appearance(self, layout, item, shared, custom_thumb_ref=None):
+        import colorsys
+        from PySide6.QtWidgets import QLineEdit
+        from PySide6.QtGui import QPainter, QLinearGradient, QImage, QPixmap  # QLinearGradient usado em _render_spectrum
+
+        section = self._section_frame("▾ Appearance")
+        body_l  = section.layout()
+
+        # ── parse cor salva ──────────────────────────────────────────────────
+        default_color = "255,255,255" if "flash" in item.name.lower() else "0,0,0"
+        saved = item.params.get("color", default_color)
+        try:
+            ri, gi, bi = [int(x) for x in saved.split(",")]
+        except Exception:
+            ri, gi, bi = 0, 0, 0
+        SP_W, SP_H = 194, 110   # espectro
+        HUE_H      = 14          # barra de matiz
+
+        # ── renders ─────────────────────────────────────────────────────────
+        def _render_spectrum(hue_norm):
+            """Quadrado SV: eixo X = saturação, eixo Y = valor."""
+            img = QImage(SP_W, SP_H, QImage.Format_RGB888)
+            p   = QPainter(img)
+            rh, gh, bh = colorsys.hsv_to_rgb(hue_norm, 1.0, 1.0)
+            base = QColor(int(rh*255), int(gh*255), int(bh*255))
+            # gradiente horizontal: branco -> cor pura
+            for x in range(SP_W):
+                sat = x / (SP_W - 1)
+                gr  = QLinearGradient(0, 0, 0, SP_H)
+                rr  = int(255 + (base.red()   - 255) * sat)
+                gg  = int(255 + (base.green() - 255) * sat)
+                bb  = int(255 + (base.blue()  - 255) * sat)
+                gr.setColorAt(0.0, QColor(rr, gg, bb))
+                gr.setColorAt(1.0, QColor(0, 0, 0))
+                p.fillRect(x, 0, 1, SP_H, gr)
+            p.end()
+            return QPixmap.fromImage(img)
+
+        def _render_hue_bar():
+            img = QImage(SP_W, HUE_H, QImage.Format_RGB888)
+            p   = QPainter(img)
+            for x in range(SP_W):
+                rr, gg, bb = colorsys.hsv_to_rgb(x / (SP_W - 1), 1.0, 1.0)
+                p.fillRect(x, 0, 1, HUE_H, QColor(int(rr*255), int(gg*255), int(bb*255)))
+            p.end()
+            return QPixmap.fromImage(img)
+
+        # ── estado interno ───────────────────────────────────────────────────
+        h0, s0, v0 = colorsys.rgb_to_hsv(ri/255, gi/255, bi/255)
+        state = {"h": h0, "s": s0, "v": v0}
+
+        # ── espectro SV ──────────────────────────────────────────────────────
+        sv_lbl = QLabel()
+        sv_lbl.setFixedSize(SP_W, SP_H)
+        sv_lbl.setCursor(Qt.CrossCursor)
+        sv_lbl.setStyleSheet(
+            "border: 1px solid rgba(255,255,255,0.15); border-radius: 6px;"
+        )
+        sv_lbl.setPixmap(_render_spectrum(h0))
+        body_l.addWidget(sv_lbl)
+
+        # ── barra de matiz ───────────────────────────────────────────────────
+        hue_lbl = QLabel()
+        hue_lbl.setFixedSize(SP_W, HUE_H)
+        hue_lbl.setCursor(Qt.SizeHorCursor)
+        hue_lbl.setStyleSheet(
+            "border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; margin-top: 4px;"
+        )
+        hue_lbl.setPixmap(_render_hue_bar())
+        body_l.addWidget(hue_lbl)
+
+        # ── linha inferior: swatch + HEX + RGB + opacidade + reset ──────────
+        info_row = QHBoxLayout()
+        info_row.setSpacing(8)
+        info_row.setContentsMargins(0, 6, 0, 0)
+
+        swatch = QLabel()
+        swatch.setFixedSize(36, 36)
+        swatch.setStyleSheet(
+            f"background: rgb({ri},{gi},{bi}); "
+            f"border: 2px solid rgba(255,255,255,0.25); border-radius: 6px;"
+        )
+        info_row.addWidget(swatch)
+
+        fields_col = QVBoxLayout()
+        fields_col.setSpacing(2)
+
+        hex_edit = QLineEdit(f"#{ri:02X}{gi:02X}{bi:02X}")
+        hex_edit.setFixedHeight(20)
+        hex_edit.setMaxLength(7)
+        hex_edit.setStyleSheet(
+            f"background: rgba(10,16,30,0.70); color: {C['accent']}; "
+            f"font-family: Consolas; font-size: 9pt; font-weight: bold; "
+            f"border: 1px solid rgba(255,255,255,0.12); border-radius: 5px; padding: 0 6px;"
+        )
+        fields_col.addWidget(hex_edit)
+
+        rgb_lbl = QLabel(f"R {ri}  G {gi}  B {bi}")
+        rgb_lbl.setStyleSheet(
+            f"color: {C['text3']}; font-family: Consolas; font-size: 7pt; border: none;"
+        )
+        fields_col.addWidget(rgb_lbl)
+        info_row.addLayout(fields_col)
+        body_l.addLayout(info_row)
+
+        # ── função central ───────────────────────────────────────────────────
+        def _apply_color(r, g, b, save=True):
+            swatch.setStyleSheet(
+                f"background: rgb({r},{g},{b}); "
+                f"border: 2px solid rgba(255,255,255,0.25); border-radius: 6px;"
+            )
+            rgb_lbl.setText(f"R {r}  G {g}  B {b}")
+            hex_edit.blockSignals(True)
+            hex_edit.setText(f"#{r:02X}{g:02X}{b:02X}")
+            hex_edit.blockSignals(False)
+            # atualiza thumbnail do card Custom
+            if custom_thumb_ref and custom_thumb_ref[0] is not None:
+                from PySide6.QtGui import QImage, QPixmap, QPainter, QLinearGradient
+                w, h = 48, 28
+                img = QImage(w, h, QImage.Format_RGB888)
+                p   = QPainter(img)
+                is_fi = "fade in" in item.name.lower()
+                gr = QLinearGradient(0, 0, w, 0)
+                if is_fi:
+                    gr.setColorAt(0.0, QColor(r, g, b))
+                    gr.setColorAt(1.0, QColor(20, 20, 30))
+                else:
+                    gr.setColorAt(0.0, QColor(20, 20, 30))
+                    gr.setColorAt(1.0, QColor(r, g, b))
+                p.fillRect(0, 0, w, h, gr)
+                p.end()
+                custom_thumb_ref[0].setPixmap(QPixmap.fromImage(img))
+            if save:
+                item.params["color"] = f"{r},{g},{b}"
+                self._auto_save()
+
+        # ── clique no espectro SV ────────────────────────────────────────────
+        def _sv_pick(event):
+            x = max(0, min(SP_W - 1, int(event.position().x())))
+            y = max(0, min(SP_H - 1, int(event.position().y())))
+            state["s"] = x / (SP_W - 1)
+            state["v"] = 1.0 - y / (SP_H - 1)
+            rr, gg, bb = colorsys.hsv_to_rgb(state["h"], state["s"], state["v"])
+            _apply_color(int(rr*255), int(gg*255), int(bb*255))
+
+        sv_lbl.mousePressEvent = _sv_pick
+        sv_lbl.mouseMoveEvent  = _sv_pick
+
+        # ── clique na barra de matiz ─────────────────────────────────────────
+        def _hue_pick(event):
+            x = max(0, min(SP_W - 1, int(event.position().x())))
+            state["h"] = x / (SP_W - 1)
+            sv_lbl.setPixmap(_render_spectrum(state["h"]))
+            rr, gg, bb = colorsys.hsv_to_rgb(state["h"], state["s"], state["v"])
+            _apply_color(int(rr*255), int(gg*255), int(bb*255))
+
+        hue_lbl.mousePressEvent = _hue_pick
+        hue_lbl.mouseMoveEvent  = _hue_pick
+
+        # ── HEX input ────────────────────────────────────────────────────────
+        def _on_hex_edit():
+            txt = hex_edit.text().strip().lstrip("#")
+            if len(txt) == 6:
+                try:
+                    r, g, b = int(txt[0:2], 16), int(txt[2:4], 16), int(txt[4:6], 16)
+                    state["h"], state["s"], state["v"] = colorsys.rgb_to_hsv(r/255, g/255, b/255)
+                    sv_lbl.setPixmap(_render_spectrum(state["h"]))
+                    _apply_color(r, g, b)
+                except ValueError:
+                    pass
+
+        hex_edit.editingFinished.connect(_on_hex_edit)
+
+        layout.addWidget(section)
+        return section
+
+    # ── preview visual do fade ──────────────────────────────────────────────
+
+    def _build_fade_preview(self, layout, item):
+        from PySide6.QtGui import QPainter, QLinearGradient, QImage, QPixmap
+        from PySide6.QtCore import QTimer
+
+        section = self._section_frame("▾ Preview")
+        body_l  = section.layout()
+
+        PW, PH = 220, 52
+        is_fade_in = "fade in" in item.name.lower()
+
+        # ── label descritivo ─────────────────────────────────────────────────
+        if is_fade_in:
+            desc = "escuro/colorido opaco  →  transparente"
+        elif "flash" in item.name.lower():
+            desc = "flash  →  transparente"
+        else:
+            desc = "transparente  →  escuro/colorido opaco"
+
+        desc_lbl = QLabel(desc)
+        desc_lbl.setStyleSheet(
+            f"color: {C['text3']}; font-size: 7pt; border: none;"
+        )
+        body_l.addWidget(desc_lbl)
+
+        # ── canvas animado ──────────────────────────────────────────────────
+        canvas = QLabel()
+        canvas.setFixedSize(PW, PH)
+        canvas.setStyleSheet(
+            "border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;"
+        )
+        body_l.addWidget(canvas)
+
+        # barra de progresso da animação
+        prog_row = QHBoxLayout()
+        prog_row.setContentsMargins(0, 0, 0, 0)
+        prog_bar = QLabel()
+        prog_bar.setFixedSize(PW, 3)
+        prog_bar.setStyleSheet(
+            f"background: rgba(255,255,255,0.08); border-radius: 1px; border: none;"
+        )
+        prog_row.addWidget(prog_bar)
+        body_l.addLayout(prog_row)
+
+        # botão play/pause
+        play_btn = QPushButton("▶  Play")
+        play_btn.setFixedHeight(26)
+        play_btn.setCursor(Qt.PointingHandCursor)
+        play_btn.setStyleSheet(
+            f"QPushButton {{ background: rgba(28,46,74,0.55); color: {C['text2']}; "
+            f"font-size: 8pt; font-weight: bold; "
+            f"border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; }}"
+            f"QPushButton:hover {{ color: {C['text']}; border-color: {C['secondary']}; }}"
+        )
+        body_l.addWidget(play_btn)
+
+        # estado da animação
+        anim = {"t": 0.0, "running": False}
+        timer = QTimer()
+        timer.setInterval(30)  # ~33fps
+
+        def _get_color():
+            saved = item.params.get("color", "0,0,0")
+            try:
+                return [int(x) for x in saved.split(",")]
+            except Exception:
+                return [0, 0, 0]
+
+        def _easing(t):
+            mode = item.params.get("easing", "linear")
+            t = max(0.0, min(1.0, t))
+            if mode == "ease-in":     return t * t
+            if mode == "ease-out":    return 1.0 - (1.0 - t) ** 2
+            if mode == "ease-in-out":
+                return 2*t*t if t < 0.5 else 1 - (-2*t+2)**2/2
+            return t
+
+        def _draw_frame(t):
+            rgb   = _get_color()
+            op    = float(item.params.get("color_opacity", 100)) / 100.0
+            inten = float(item.params.get("intensity", 100)) / 100.0
+            et    = _easing(t)
+
+            # alpha da camada de cor sobre fundo de cena
+            if is_fade_in:
+                alpha = op * inten * (1.0 - et)   # começa opaco, vai a transparente
+            else:
+                alpha = op * inten * et            # começa transparente, vai a opaco
+
+            img = QImage(PW, PH, QImage.Format_RGB888)
+            p   = QPainter(img)
+
+            # fundo: simula cena (gradiente azul escuro)
+            bg = QLinearGradient(0, 0, PW, PH)
+            bg.setColorAt(0.0, QColor(20, 30, 55))
+            bg.setColorAt(1.0, QColor(10, 16, 32))
+            p.fillRect(0, 0, PW, PH, bg)
+
+            # texto "CENA" simulado
+            p.setPen(QColor(255, 255, 255, 30))
+            p.setFont(p.font())
+            p.drawText(PW // 2 - 18, PH // 2 + 5, "CENA")
+
+            # camada de cor do fade
+            fade_color = QColor(rgb[0], rgb[1], rgb[2], int(alpha * 255))
+            p.fillRect(0, 0, PW, PH, fade_color)
+
+            # linha indicadora de progresso
+            px_x = int(t * PW)
+            p.setPen(QColor(255, 255, 255, 80))
+            p.drawLine(px_x, 0, px_x, PH)
+
+            p.end()
+            canvas.setPixmap(QPixmap.fromImage(img))
+
+            # barra de progresso
+            filled = int(t * PW)
+            prog_bar.setStyleSheet(
+                f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+                f"stop:0 {C['primary']}, stop:{t:.3f} {C['accent']}, "
+                f"stop:{min(t+0.001,1.0):.3f} rgba(255,255,255,0.08), stop:1 rgba(255,255,255,0.08));"
+                f"border-radius: 1px; border: none;"
+            )
+
+        _draw_frame(0.0)
+
+        def _tick():
+            anim["t"] += 0.016  # ~1.6s de duração total
+            if anim["t"] >= 1.0:
+                anim["t"] = 1.0
+                _draw_frame(1.0)
+                timer.stop()
+                anim["running"] = False
+                play_btn.setText("▶  Play")
+                return
+            _draw_frame(anim["t"])
+
+        def _toggle():
+            if anim["running"]:
+                timer.stop()
+                anim["running"] = False
+                play_btn.setText("▶  Play")
+            else:
+                anim["t"] = 0.0
+                anim["running"] = True
+                play_btn.setText("⏸  Pause")
+                timer.start()
+
+        timer.timeout.connect(_tick)
+        play_btn.clicked.connect(_toggle)
+
+        layout.addWidget(section)
+
+    # ── animation: intensidade + curva ────────────────────────────────────────
+
+    def _build_fade_animation(self, layout, item):
+        from PySide6.QtGui import QPainter, QPen, QPainterPath, QColor as QC
+        from PySide6.QtCore import QPointF
+
+        section = self._section_frame("\u25be Animation")
+        body_l  = section.layout()
+
+        # ── intensidade ──────────────────────────────────────────────────────
+        intensity_val = int(item.params.get("intensity", 100))
+
+        int_head = QHBoxLayout()
+        int_lbl  = QLabel("INTENSIDADE")
+        int_lbl.setStyleSheet(f"color: {C['text2']}; font-size: 8pt; font-weight: bold; border: none;")
+        int_val_lbl = QLabel(f"{intensity_val}%")
+        int_val_lbl.setStyleSheet(f"color: {C['purple']}; font-size: 9pt; font-weight: bold; border: none;")
+        int_head.addWidget(int_lbl)
+        int_head.addStretch()
+        int_head.addWidget(int_val_lbl)
+        body_l.addLayout(int_head)
+
+        int_slider = QSlider(Qt.Horizontal)
+        int_slider.setRange(0, 100)
+        int_slider.setValue(intensity_val)
+        int_slider.setStyleSheet(
+            f"QSlider::groove:horizontal {{ background: rgba(10,16,30,0.70); height: 6px; border-radius: 3px; }}"
+            f"QSlider::handle:horizontal {{ background: {C['purple']}; width: 14px; margin: -4px 0; border-radius: 7px; }}"
+            f"QSlider::sub-page:horizontal {{ background: {C['purple']}; border-radius: 3px; }}"
+        )
+        body_l.addWidget(int_slider)
+
+        def _on_intensity(v):
+            int_val_lbl.setText(f"{v}%")
+            item.params["intensity"] = str(v)
+            self._auto_save()
+
+        int_slider.valueChanged.connect(_on_intensity)
+
+        # ── separador ────────────────────────────────────────────────────────
+        sep = QFrame()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet(f"background: rgba(255,255,255,0.08); border: none;")
+        body_l.addWidget(sep)
+
+        # ── curva de transição ────────────────────────────────────────────────
+        curve_lbl = QLabel("CURVA DE TRANSIÇÃO")
+        curve_lbl.setStyleSheet(f"color: {C['text2']}; font-size: 8pt; font-weight: bold; border: none;")
+        body_l.addWidget(curve_lbl)
+
+        CURVES = [
+            ("linear",      "Linear",    "━━━"),
+            ("ease-in",     "Ease In",   "╭━━"),
+            ("ease-out",    "Ease Out",  "━━╮"),
+            ("ease-in-out", "Ease I/O",  "╭━╮"),
+        ]
+        current_easing = item.params.get("easing", "linear")
+
+        # mini canvas para preview da curva (desenhado com QPainter)
+        CURVE_W, CURVE_H = 220, 48
+
+        curve_canvas = QLabel()
+        curve_canvas.setFixedSize(CURVE_W, CURVE_H)
+        curve_canvas.setStyleSheet(
+            "background: rgba(10,16,30,0.70); border: 1px solid rgba(255,255,255,0.10);"
+            "border-radius: 6px;"
+        )
+
+        def _easing_fn(t, mode):
+            t = max(0.0, min(1.0, t))
+            if mode == "ease-in":     return t * t
+            if mode == "ease-out":    return 1.0 - (1.0 - t) ** 2
+            if mode == "ease-in-out":
+                return 2*t*t if t < 0.5 else 1 - (-2*t+2)**2/2
+            return t  # linear
+
+        def _draw_curve(mode):
+            from PySide6.QtGui import QPixmap
+            px  = QPixmap(CURVE_W, CURVE_H)
+            px.fill(QC(10, 16, 30, 178))
+            p   = QPainter(px)
+            p.setRenderHint(QPainter.Antialiasing)
+            pad = 10
+            W   = CURVE_W - pad * 2
+            H   = CURVE_H - pad * 2
+
+            # grade sutil
+            p.setPen(QPen(QC(255, 255, 255, 18), 1))
+            for i in range(1, 4):
+                x = pad + W * i // 4
+                p.drawLine(x, pad, x, pad + H)
+            for i in range(1, 3):
+                y = pad + H * i // 2
+                p.drawLine(pad, y, pad + W, y)
+
+            # curva
+            path = QPainterPath()
+            steps = 60
+            for i in range(steps + 1):
+                t  = i / steps
+                yt = _easing_fn(t, mode)
+                x  = pad + t  * W
+                y  = pad + (1.0 - yt) * H
+                if i == 0:
+                    path.moveTo(QPointF(x, y))
+                else:
+                    path.lineTo(QPointF(x, y))
+
+            pen = QPen(QC(C["primary"]), 2)
+            pen.setCapStyle(Qt.RoundCap)
+            p.setPen(pen)
+            p.drawPath(path)
+
+            # ponto final
+            p.setBrush(QC(C["accent"]))
+            p.setPen(Qt.NoPen)
+            t_end = 1.0
+            yt_end = _easing_fn(t_end, mode)
+            p.drawEllipse(QPointF(pad + t_end * W, pad + (1.0 - yt_end) * H), 4, 4)
+            p.end()
+            curve_canvas.setPixmap(px)
+
+        _draw_curve(current_easing)
+        body_l.addWidget(curve_canvas)
+
+        # botões de curva
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(4)
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        ease_btns = []
+
+        def _ease_style(active):
+            if active:
+                return (
+                    f"QPushButton {{ background: {C['secondary']}; color: {C['text']}; "
+                    f"font-size: 8pt; font-weight: bold; "
+                    f"border: 2px solid {C['accent']}; border-radius: 6px; padding: 2px 6px; }}"
+                )
+            return (
+                f"QPushButton {{ background: rgba(28,46,74,0.55); color: {C['text3']}; "
+                f"font-size: 8pt; font-weight: bold; "
+                f"border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 2px 6px; }}"
+                f"QPushButton:hover {{ color: {C['text']}; border-color: {C['secondary']}; }}"
+            )
+
+        def _select_curve(val):
+            item.params["easing"] = val
+            self._auto_save()
+            _draw_curve(val)
+            for b, v in ease_btns:
+                b.setStyleSheet(_ease_style(v == val))
+
+        for val, label, icon in CURVES:
+            btn = QPushButton(f"{icon}  {label}")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(_ease_style(val == current_easing))
+            btn.clicked.connect(lambda ck=False, v=val: _select_curve(v))
+            btn_row.addWidget(btn)
+            ease_btns.append((btn, val))
+
+        body_l.addLayout(btn_row)
+        layout.addWidget(section)
+
+    # ── opacity / alpha ────────────────────────────────────────────────────
+
+    def _build_fade_opacity(self, layout, item, shared):
+        from PySide6.QtGui import QPainter, QLinearGradient, QImage, QPixmap
+
+        section = self._section_frame("▾ Opacity / Alpha")
+        body_l  = section.layout()
+
+        # ── parse valores iniciais ────────────────────────────────────────────
+        default_color = "255,255,255" if "flash" in item.name.lower() else "0,0,0"
+        saved = item.params.get("color", default_color)
+        try:
+            ri, gi, bi = [int(x) for x in saved.split(",")]
+        except Exception:
+            ri, gi, bi = 0, 0, 0
+        opacity_val = int(item.params.get("color_opacity", 100))
+
+        BAR_W, BAR_H = 220, 18
+        CHESS = 5  # tamanho do quadrado do xadrez
+
+        # ── barra visual (QLabel clicavel) ───────────────────────────────────
+        bar_lbl = QLabel()
+        bar_lbl.setFixedSize(BAR_W, BAR_H)
+        bar_lbl.setCursor(Qt.SizeHorCursor)
+        bar_lbl.setStyleSheet(
+            "border: 1px solid rgba(255,255,255,0.15); border-radius: 5px;"
+        )
+
+        # ── linha com valor % e handle ────────────────────────────────────────
+        val_row = QHBoxLayout()
+        val_row.setContentsMargins(0, 0, 0, 0)
+        val_row.setSpacing(8)
+
+        pct_lbl = QLabel(f"{opacity_val}%")
+        pct_lbl.setFixedWidth(40)
+        pct_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        pct_lbl.setStyleSheet(
+            f"color: rgb({ri},{gi},{bi}); font-size: 10pt; font-weight: bold; "
+            f"font-family: Consolas; border: none;"
+        )
+
+        desc_lbl = QLabel("transparente → opaco")
+        desc_lbl.setStyleSheet(
+            f"color: {C['text3']}; font-size: 7pt; border: none;"
+        )
+
+        val_row.addWidget(desc_lbl)
+        val_row.addStretch()
+        val_row.addWidget(pct_lbl)
+
+        body_l.addWidget(bar_lbl)
+        body_l.addLayout(val_row)
+
+        # ── função de atualização da barra ──────────────────────────────────
+        def _refresh_bar(r, g, b):
+            img = QImage(BAR_W, BAR_H, QImage.Format_ARGB32)
+            p   = QPainter(img)
+            ca  = QColor(50, 55, 68)
+            cb  = QColor(80, 86, 100)
+            for yy in range(0, BAR_H, CHESS):
+                for xx in range(0, BAR_W, CHESS):
+                    p.fillRect(xx, yy, CHESS, CHESS,
+                               ca if ((xx // CHESS + yy // CHESS) % 2 == 0) else cb)
+            grad = QLinearGradient(0, 0, BAR_W, 0)
+            grad.setColorAt(0.0, QColor(r, g, b, 0))
+            grad.setColorAt(1.0, QColor(r, g, b, 255))
+            p.fillRect(0, 0, BAR_W, BAR_H, grad)
+            p.end()
+            bar_lbl.setPixmap(QPixmap.fromImage(img))
+            pct_lbl.setStyleSheet(
+                f"color: rgb({r},{g},{b}); font-size: 10pt; font-weight: bold; "
+                f"font-family: Consolas; border: none;"
+            )
+
+        _refresh_bar(ri, gi, bi)
+
+        # ── clique/drag na barra ─────────────────────────────────────────────
+        def _bar_pick(event):
+            x   = max(0, min(BAR_W - 1, int(event.position().x())))
+            pct = round(x / (BAR_W - 1) * 100)
+            pct_lbl.setText(f"{pct}%")
+            item.params["color_opacity"] = str(pct)
+            self._auto_save()
+
+        bar_lbl.mousePressEvent = _bar_pick
+        bar_lbl.mouseMoveEvent  = _bar_pick
+
+        # ── registra callback para quando a cor mudar no Appearance ──────────
+        shared["on_color_change"] = _refresh_bar
+
+        layout.addWidget(section)
+
+    # ── presets com cards visuais ─────────────────────────────────────────────
+
+    def _build_fade_presets(self, layout, item):
+        from PySide6.QtGui import QPainter, QLinearGradient, QImage, QPixmap
+
+        section = self._section_frame("▾ Presets")
+        body_l  = section.layout()
+
+        PRESETS = [
+            ("Noir",   "0,0,0",       100, "Preto clássico"),
+            ("Flash",  "255,255,255",  100, "Branco intenso"),
+            ("Warm",   "255,180,80",   85,  "Laranja quente"),
+            ("Custom", None,           None, "Cor personalizada"),
+        ]
+
+        cards_row = QHBoxLayout()
+        cards_row.setSpacing(6)
+        cards_row.setContentsMargins(0, 0, 0, 0)
+
+        saved_color = item.params.get("color", "0,0,0")
+        custom_thumb_ref = [None]  # referência mutável para o thumb do Custom
+
+        for name, color_str, intensity, tip in PRESETS:
+            card = QFrame()
+            card.setFixedSize(58, 68)
+            card.setCursor(Qt.PointingHandCursor)
+            card.setToolTip(tip)
+            card.setObjectName("presetCard")
+            card.setStyleSheet(
+                "QFrame#presetCard { background: rgba(28,46,74,0.55); "
+                f"border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; }}"
+                "QFrame#presetCard:hover { border: 1px solid #6C63FF; }"
+            )
+
+            cl = QVBoxLayout(card)
+            cl.setContentsMargins(5, 6, 5, 5)
+            cl.setSpacing(4)
+
+            # Miniatura de cor — gradiente fade
+            thumb = QLabel()
+            thumb.setFixedSize(48, 28)
+            thumb.setAttribute(Qt.WA_TransparentForMouseEvents)
+            thumb.setStyleSheet("border: none; background: transparent;")
+
+            if color_str:
+                rgb = [int(x) for x in color_str.split(",")]
+                w, h = 48, 28
+                img = QImage(w, h, QImage.Format_RGB888)
+                p = QPainter(img)
+                is_fade_in = "fade in" in item.name.lower()
+                g = QLinearGradient(0, 0, w, 0)
+                if is_fade_in:
+                    g.setColorAt(0.0, QColor(rgb[0], rgb[1], rgb[2]))
+                    g.setColorAt(1.0, QColor(20, 20, 30))
+                else:
+                    g.setColorAt(0.0, QColor(20, 20, 30))
+                    g.setColorAt(1.0, QColor(rgb[0], rgb[1], rgb[2]))
+                p.fillRect(0, 0, w, h, g)
+                p.end()
+                thumb.setPixmap(QPixmap.fromImage(img))
+            else:
+                # Custom: xadrez
+                w, h = 48, 28
+                img = QImage(w, h, QImage.Format_RGB888)
+                p = QPainter(img)
+                s = 6
+                c1 = QColor(50, 50, 60)
+                c2 = QColor(80, 80, 95)
+                for yy in range(0, h, s):
+                    for xx in range(0, w, s):
+                        p.fillRect(xx, yy, s, s,
+                                   c1 if ((xx // s + yy // s) % 2 == 0) else c2)
+                p.end()
+                thumb.setPixmap(QPixmap.fromImage(img))
+
+            if color_str is None:
+                custom_thumb_ref[0] = thumb
+
+            cl.addWidget(thumb, alignment=Qt.AlignHCenter)
+
+            name_lbl = QLabel(name)
+            name_lbl.setAlignment(Qt.AlignCenter)
+            name_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
+            name_lbl.setStyleSheet(
+                f"color: {C['text2']}; font-size: 8pt; font-weight: bold; border: none;"
+            )
+            cl.addWidget(name_lbl)
+
+            def _on_preset(checked=False, cs=color_str, iv=intensity, it=item):
+                if cs is not None:
+                    it.params["color"] = cs
+                    if iv is not None:
+                        it.params["intensity"] = str(iv)
+                    self._auto_save()
+                    self.show_item(it, self._project)
+                else:
+                    # Custom: salva a cor atual do picker e destaca Appearance
+                    self._auto_save()
+                    sec = getattr(self, "_appearance_section", None)
+                    if sec:
+                        self._content_scroll.ensureWidgetVisible(sec)
+                        sec.setStyleSheet(
+                            f"QFrame {{ background: {C['card']}; "
+                            f"border: 2px solid {C['accent']}; border-radius: 10px; }}"
+                        )
+                        from PySide6.QtCore import QTimer
+                        QTimer.singleShot(800, lambda: sec.setStyleSheet(
+                            f"QFrame {{ background: {C['card']}; "
+                            f"border: 1px solid {C['border']}; border-radius: 10px; }}"
+                        ))
+
+            card.mousePressEvent = lambda e, fn=_on_preset: fn()
+            cards_row.addWidget(card)
+
+        cards_row.addStretch()
+        body_l.addLayout(cards_row)
+        layout.addWidget(section)
+        return custom_thumb_ref
+
+    # ── helpers compartilhados ──────────────────────────────────────────────
+
+    def _section_frame(self, title):
+        """Cria um QFrame colapsável com título e corpo VBox."""
+        frame = QFrame()
+        frame.setStyleSheet(
+            f"QFrame {{ background: {C['card']}; border: 1px solid {C['border']}; "
+            f"border-radius: 10px; }}"
+        )
+        fl = QVBoxLayout(frame)
+        fl.setContentsMargins(10, 8, 10, 10)
+        fl.setSpacing(8)
+        lbl = QLabel(title)
+        lbl.setStyleSheet(
+            f"color: {C['text2']}; font-size: 9pt; font-weight: bold; border: none;"
+        )
+        fl.addWidget(lbl)
+        return frame
+
+    def _build_action_buttons(self, item):
+        L = self._content_layout
+        btn_preview = QPushButton("\u25b6  PREVIEW")
+        btn_preview.setFixedHeight(30)
+        btn_preview.setStyleSheet(
+            f"background: {C['card']}; color: {C['purple']}; font-weight: bold; "
+            f"border: 2px solid {C['purple']}; border-radius: 6px;"
+        )
+        btn_preview.clicked.connect(lambda: self._preview_fx(item))
+        L.addWidget(btn_preview)
+
+        btn_remove = QPushButton("REMOVER FX")
+        btn_remove.setFixedHeight(28)
+        btn_remove.setStyleSheet(
+            f"background: {C['danger_bg']}; color: {C['danger']}; font-weight: bold; "
+            f"border: 1px solid {C['danger']}; border-radius: 6px;"
+        )
+        btn_remove.clicked.connect(lambda: self._remove_fx(item))
+        L.addWidget(btn_remove)
+
+    def _build_easing_section(self, layout, item):
+        current_easing = item.params.get("easing", "linear")
+        easing_options = [
+            ("linear",     "━━━", "Linear",  "Intensidade constante durante todo o efeito."),
+            ("ease-in",    "╭━━", "Entrada", "Começa suave e acelera no decorrer do efeito."),
+            ("ease-out",   "━━╮", "Saída",   "Começa forte e suaviza no final do efeito."),
+            ("ease-in-out","╭━╮", "Suave",   "Suave no início e no fim, mais intenso no meio."),
+        ]
+        self._ease_hint_map = {v: h for v, _, _, h in easing_options}
 
         ease_frame = QFrame()
         ease_frame.setStyleSheet(f"background: {C['card']}; border-radius: 4px;")
@@ -437,57 +1409,24 @@ class FxPanel(QWidget):
         ease_layout.setContentsMargins(4, 4, 4, 4)
         ease_layout.setSpacing(3)
 
-        current_easing = item.params.get("easing", "linear")
-        easing_options = [
-            ("linear", "━━━", "Linear", "Intensidade constante durante todo o efeito."),
-            ("ease-in", "╭━━", "Entrada", "Começa suave e acelera no decorrer do efeito."),
-            ("ease-out", "━━╮", "Saída", "Começa forte e suaviza no final do efeito."),
-            ("ease-in-out", "╭━╮", "Suave", "Suave no início e no fim, mais intenso no meio."),
-        ]
         self._ease_buttons = []
-        self._ease_hint_map = {val: hint for val, _icon, _label, hint in easing_options}
         for val, icon, label, tip in easing_options:
             btn = QPushButton(f"{icon} {label}")
             btn.setFixedSize(84, 28)
             btn.setToolTip(tip)
             btn.setCursor(Qt.PointingHandCursor)
-            is_active = (val == current_easing)
-            btn.setStyleSheet(self._ease_btn_style(is_active))
+            btn.setStyleSheet(self._ease_btn_style(val == current_easing))
             btn.clicked.connect(lambda ck=False, v=val: self._set_easing(item, v))
             ease_layout.addWidget(btn)
             self._ease_buttons.append((btn, val))
-
-        self._content_layout.addWidget(ease_frame)
+        layout.addWidget(ease_frame)
 
         self._ease_hint = QLabel(self._ease_hint_map.get(current_easing, ""))
         self._ease_hint.setWordWrap(True)
         self._ease_hint.setStyleSheet(
             f"color: {C['text3']}; font-size: 8pt; border: none; padding: 0 2px;"
         )
-        self._content_layout.addWidget(self._ease_hint)
-
-        # Parametros especificos por efeito
-        self._build_fx_params(item)
-
-        # Preview
-        btn_preview = QPushButton("\u25b6 PREVIEW")
-        btn_preview.setFixedHeight(30)
-        btn_preview.setStyleSheet(
-            f"background: {C['card']}; color: {C['purple']}; font-weight: bold; "
-            f"border: 2px solid {C['purple']}; border-radius: 4px;")
-        btn_preview.clicked.connect(lambda: self._preview_fx(item))
-        self._content_layout.addWidget(btn_preview)
-
-        # Remover
-        btn_remove = QPushButton("REMOVER FX")
-        btn_remove.setFixedHeight(28)
-        btn_remove.setStyleSheet(
-            f"background: {C['danger_bg']}; color: {C['danger']}; font-weight: bold; "
-            f"border: 1px solid {C['danger']}; border-radius: 6px;")
-        btn_remove.clicked.connect(lambda: self._remove_fx(item))
-        self._content_layout.addWidget(btn_remove)
-
-        self._content_layout.addStretch()
+        layout.addWidget(self._ease_hint)
 
     def _set_easing(self, item, value):
         """Muda easing e atualiza visual dos botoes."""

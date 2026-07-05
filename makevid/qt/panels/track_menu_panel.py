@@ -278,12 +278,13 @@ class TrackMenuPanel(QWidget):
                     f"QPushButton:hover {{ background: {C['card_hover']}; }}")
 
         tab = FX_TABS[selected_key]
-        tab_icon = tab.get("icon", "")
         tab_badge = tab.get("label", "FX").upper()
         content = QWidget()
         cl = QVBoxLayout(content)
         cl.setContentsMargins(6, 6, 6, 6)
         cl.setSpacing(4)
+
+        from makevid.qt.panels.fx_panel import _FxIconWidget
 
         grid = QGridLayout()
         grid.setSpacing(4)
@@ -293,33 +294,28 @@ class TrackMenuPanel(QWidget):
             item_frame.setStyleSheet(
                 f"QFrame#fxItem {{ background: {color}; border: 2px solid {color}; border-radius: 5px; }}"
                 f"QFrame#fxItem:hover {{ background: {C['secondary']}; border-color: {C['secondary']}; }}")
-            il = QVBoxLayout(item_frame)
-            il.setContentsMargins(8, 5, 8, 5)
+            il = QHBoxLayout(item_frame)
+            il.setContentsMargins(6, 5, 8, 5)
+            il.setSpacing(8)
 
-            head = QHBoxLayout()
-            head.setContentsMargins(0, 0, 0, 0)
-            head.setSpacing(6)
+            icon = _FxIconWidget(name)
+            icon.setFixedSize(28, 28)
+            icon.setAttribute(Qt.WA_TransparentForMouseEvents)
+            il.addWidget(icon)
 
-            n_lbl = QLabel(f"{tab_icon} {name}" if tab_icon else name)
+            text_col = QVBoxLayout()
+            text_col.setSpacing(1)
+            n_lbl = QLabel(name)
             n_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
             n_lbl.setStyleSheet(f"color: {C['dark_text']}; font-size: 9pt; font-weight: bold;")
-            head.addWidget(n_lbl)
-            head.addStretch()
-
-            badge_lbl = QLabel(tab_badge)
-            badge_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
-            badge_lbl.setStyleSheet(
-                "color: rgba(11,18,32,0.88); font-size: 7pt; font-weight: bold; "
-                "background: rgba(255,255,255,0.42); border-radius: 6px; padding: 1px 6px;"
-            )
-            head.addWidget(badge_lbl)
-
-            il.addLayout(head)
+            text_col.addWidget(n_lbl)
             d_lbl = QLabel(desc)
             d_lbl.setWordWrap(True)
             d_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
             d_lbl.setStyleSheet(f"color: rgba(11,18,32,0.75); font-size: 8pt;")
-            il.addWidget(d_lbl)
+            text_col.addWidget(d_lbl)
+            il.addLayout(text_col)
+
             item_frame.setCursor(Qt.PointingHandCursor)
             item_frame.mousePressEvent = lambda e, n=name: self._add_fx(n)
             grid.addWidget(item_frame, idx // 2, idx % 2)
