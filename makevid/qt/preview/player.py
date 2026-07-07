@@ -223,7 +223,7 @@ class TimelinePlayerQt(QObject):
         import numpy as np
 
         frame = None
-        if clip.status == "done" and clip.video_path and Path(clip.video_path).exists():
+        if clip is not None and clip.status == "done" and clip.video_path and Path(clip.video_path).exists():
             cap = self._caps.get(clip.id)
             if cap:
                 clip_fps = self._clip_fps.get(clip.id, 16)
