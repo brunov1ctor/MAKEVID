@@ -246,6 +246,46 @@ def generate_vace(
 
 
 # ============================================================
+# LTX VIDEO 2.3 (Text-to-Video)
+# ============================================================
+
+def generate_ltx(
+    model_manager,
+    prompt: str,
+    num_frames: int = 97,
+    height: int = 480,
+    width: int = 832,
+    steps: int = 30,
+    guidance: float = 3.0,
+    seed: Optional[int] = None,
+    fps: int = 24,
+    negative_prompt: str = NEGATIVE_PROMPT,
+    callback=None,
+) -> VideoResult:
+    """LTX Video 2.3 - Text-to-Video."""
+    pipe = model_manager.get("ltx_video")
+    gen = _make_gen(seed)
+    actual_seed = gen.initial_seed() if gen else 0
+
+    if callback:
+        callback(f"Gerando {num_frames} frames (LTX Video)...")
+
+    output = pipe(
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        num_frames=num_frames,
+        height=height,
+        width=width,
+        num_inference_steps=steps,
+        guidance_scale=guidance,
+        generator=gen,
+    )
+
+    frames = output.frames[0]
+    return VideoResult(frames=frames, fps=fps, seed=actual_seed, duration=len(frames) / fps)
+
+
+# ============================================================
 # VIDEO-TO-VIDEO (Refinamento)
 # ============================================================
 

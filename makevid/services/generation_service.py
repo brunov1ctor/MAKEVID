@@ -112,6 +112,7 @@ class GenerationService:
                     "Local (CPU)": self._generate_cpu,
                     "VACE (Referencia)": self._generate_vace,
                     "V2V (Refinar)": self._generate_v2v,
+                    "LTX 2.3": self._generate_ltx,
                 }
                 gen_fn = engine_dispatch.get(engine, self._generate_local)
                 result = gen_fn(**gen_params)
@@ -417,6 +418,31 @@ class GenerationService:
             steps=steps, guidance=guidance,
             seed=seed, fps=int(extract_fps[0]),
             negative_prompt=neg, callback=on_progress,
+        )
+
+    def _generate_ltx(self, prompt, ref_images, duration, steps, guidance, seed, width, height, fps, neg, on_progress, **_):
+        """Gera video com LTX Video 2.3."""
+        from makevid.core.generator import generate_ltx
+
+        mm = self._get_mm()
+        styled_prompt = self._apply_style(prompt)
+        # LTX usa fps=24 por padrao
+        ltx_fps = 24
+        raw = int(duration * ltx_fps)
+        num_frames = ((raw - 1) // 8) * 8 + 1
+        num_frames = max(num_frames, 17)
+
+        if on_progress:
+            on_progress("Carregando LTX Video 2.3...")
+
+        return generate_ltx(
+            mm, styled_prompt,
+            num_frames=num_frames,
+            height=height, width=width,
+            steps=steps, guidance=guidance,
+            seed=seed, fps=ltx_fps,
+            negative_prompt=neg,
+            callback=on_progress,
         )
 
     def _generate_local(self, prompt, ref_images, duration, steps, guidance, seed, width, height, fps, neg, on_progress, **_):

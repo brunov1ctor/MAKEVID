@@ -38,6 +38,7 @@ class ModelManager:
             "wan22_ti2v": self._load_ti2v,
             "wan_vace": self._load_vace,
             "wan_v2v": self._load_v2v,
+            "ltx_video": self._load_ltx,
         }
         return loaders[name]()
 
@@ -149,4 +150,21 @@ class ModelManager:
             model_id, torch_dtype=torch.float16, cache_dir=str(self.cache_dir))
         pipe.enable_model_cpu_offload()
         self._models["wan_v2v"] = pipe
+        return pipe
+
+    def _load_ltx(self, model_id: str = "Lightricks/LTX-Video-0.9.7-dev"):
+        """LTX Video 2.3 - Text-to-Video rapido."""
+        if not self.has_gpu:
+            return None
+        if "ltx_video" in self._models:
+            return self._models["ltx_video"]
+
+        import torch
+        from diffusers import LTXPipeline
+
+        logger.info(f"Carregando LTX Video {model_id}...")
+        pipe = LTXPipeline.from_pretrained(
+            model_id, torch_dtype=torch.bfloat16, cache_dir=str(self.cache_dir))
+        pipe.enable_model_cpu_offload()
+        self._models["ltx_video"] = pipe
         return pipe

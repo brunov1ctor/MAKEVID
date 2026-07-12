@@ -264,7 +264,7 @@ def build_topbar(window) -> GlassPanel:
     btn_eng = _menu_btn("Engine", "\u2699")
     m_eng = _make_menu()
     _engine_items = {}
-    for eng in ["Local (GPU)", "Local (CPU)", "Wan 2.2 TI2V", None,
+    for eng in ["Local (GPU)", "Local (CPU)", "Wan 2.2 TI2V", "LTX 2.3", None,
                 "VACE (Referencia)", "V2V (Refinar)", None, "HuggingFace API"]:
         if eng is None:
             m_eng.add_separator()
