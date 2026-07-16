@@ -40,26 +40,48 @@ class TrackGraphicsItem(QGraphicsItem):
 
     def _load_waveform(self):
         try:
-            from makevid.core.audio_utils import read_audio_mono
+            import soundfile as sf
             import numpy as np
-            audio, _ = read_audio_mono(self.track_item.file_path)
-            if len(audio) < 10:
+            raw, sr = sf.read(self.track_item.file_path, dtype="float32")
+            data = np.array(raw, copy=True)
+            if len(data.shape) > 1:
+                data = data.mean(axis=1)
+
+            offset_sec = float(getattr(self.track_item, 'file_offset', 0.0))
+            if offset_sec > 0:
+                data = data[int(offset_sec * sr):]
+
+            max_samples = int(float(self.track_item.duration) * sr)
+            if max_samples > 0 and len(data) > max_samples:
+                data = data[:max_samples]
+
+            muted = getattr(self.track_item, 'muted_regions', [])
+            if muted:
+                n = len(data)
+                for region in muted:
+                    ca = int(float(region['start']) * n)
+                    cb = int(float(region['end']) * n)
+                    if cb > ca:
+                        data[ca:cb] = 0.0
+
+            if len(data) < 10:
                 return
+
             n = max(4, self._w - 12)
-            if len(audio) < n:
+            if len(data) < n:
                 self._waveform = np.interp(
-                    np.linspace(0, len(audio) - 1, n),
-                    np.arange(len(audio)), audio)
+                    np.linspace(0, len(data) - 1, n),
+                    np.arange(len(data)), data)
             else:
-                bs = max(1, len(audio) // n)
-                self._waveform = np.array([
-                    audio[i * bs: i * bs + bs][
-                        __import__('numpy').argmax(
-                            __import__('numpy').abs(audio[i * bs: i * bs + bs])
-                        )
-                    ] if len(audio[i * bs: i * bs + bs]) else 0.0
+                bs = max(1, len(data) // n)
+                rms_vals = np.array([
+                    float(np.sqrt(np.mean(data[i*bs:i*bs+bs]**2))) if len(data[i*bs:i*bs+bs]) else 1e-9
                     for i in range(int(n))
                 ])
+                rms_vals = np.maximum(rms_vals, 1e-9)
+                db = 20 * np.log10(rms_vals)
+                db_floor, db_ceil = -60.0, max(db.max(), -59.0)
+                self._waveform = np.clip((db - db_floor) / (db_ceil - db_floor), 0.0, 1.0)
         except Exception:
             self._waveform = None
 

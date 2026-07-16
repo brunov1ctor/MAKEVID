@@ -180,6 +180,8 @@ class InpaintPanel(QWidget):
         self._sz_slider = QSlider(Qt.Horizontal)
         self._sz_slider.setRange(5, 80)
         self._sz_slider.setValue(30)
+        self._sz_slider.setFocusPolicy(Qt.StrongFocus)
+        self._sz_slider.wheelEvent = lambda e: e.ignore()
         self._sz_slider.valueChanged.connect(self._canvas.set_brush_size)
         sz_row.addWidget(self._sz_slider)
         L.addLayout(sz_row)

@@ -38,8 +38,8 @@ class _LiveWaveformWidget(QWidget):
         chunk_size = max(1, len(samples) // n_points)
         envelope = []
         for i in range(0, len(samples), chunk_size):
-            seg = samples[i:i+chunk_size]
-            envelope.append(float(np.abs(seg).max()))
+            seg = samples[i:i + chunk_size]
+            envelope.append(float(np.sqrt(np.mean(seg ** 2))))
         n = len(envelope)
         self._data = np.roll(self._data, -n)
         self._data[-n:] = envelope[:n]
@@ -52,12 +52,16 @@ class _LiveWaveformWidget(QWidget):
         samples = audio_data.flatten().astype(np.float32) / 32768.0
         n_points = 300
         chunk_size = max(1, len(samples) // n_points)
-        envelope = []
+        rms_vals = []
         for i in range(0, len(samples), chunk_size):
-            seg = samples[i:i+chunk_size]
-            envelope.append(float(np.abs(seg).max()))
-        self._data = np.zeros(300, dtype=np.float32)
-        self._data[:len(envelope)] = envelope[:300]
+            seg = samples[i:i + chunk_size]
+            rms_vals.append(max(float(np.sqrt(np.mean(seg ** 2))), 1e-9))
+        db = np.array([20 * np.log10(v) for v in rms_vals])
+        db_floor, db_ceil = -60.0, max(float(db.max()), -59.0)
+        arr = np.zeros(300, dtype=np.float32)
+        normalized = np.clip((db - db_floor) / (db_ceil - db_floor), 0.0, 1.0)
+        arr[:len(normalized)] = normalized[:300]
+        self._data = arr
         self._static_mode = True
         self.update()
 

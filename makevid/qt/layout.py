@@ -113,13 +113,17 @@ def _build_panels(window):
     window.inpaint_panel = InpaintPanel()
     window.audio_browser = AudioBrowserPanel(project, window.timeline)
 
+    # Paineis que gerenciam seu proprio visual — nao aplicar _make_transparent
+    _opaque_panels = {window.track_editor, window.mixer, window.fx_editor}
+
     panels = (
         window.generator, window.mixer, window.fx_editor, window.track_editor,
         window.export_panel, window.recorder, window.tts_panel, window.video_browser,
         window.track_menu, window.inpaint_panel, window.audio_browser,
     )
     for panel in panels:
-        _make_transparent(panel)
+        if panel not in _opaque_panels:
+            _make_transparent(panel)
         window._left_stack.addWidget(panel)
     window._left_stack.setCurrentWidget(window.generator)
 

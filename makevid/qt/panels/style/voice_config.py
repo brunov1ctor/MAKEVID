@@ -256,6 +256,8 @@ class VoiceConfigMixin:
         sl = QSlider(Qt.Horizontal)
         sl.setRange(mn, mx)
         sl.setValue(val)
+        sl.setFocusPolicy(Qt.StrongFocus)
+        sl.wheelEvent = lambda e: e.ignore()
         sl.setStyleSheet(
             f"QSlider::groove:horizontal {{ background: {C['input']}; height: 6px; border-radius: 3px; }}"
             f"QSlider::handle:horizontal {{ background: {C['gold']}; width: 14px; margin: -4px 0; border-radius: 7px; }}"

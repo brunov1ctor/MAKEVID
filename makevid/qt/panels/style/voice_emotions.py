@@ -94,6 +94,8 @@ def build_emotions_section(parent_layout, profile, on_emotion_select=None):
             sl = QSlider(Qt.Horizontal)
             sl.setRange(mn, mx)
             sl.setValue(val)
+            sl.setFocusPolicy(Qt.StrongFocus)
+            sl.wheelEvent = lambda e: e.ignore()
             sl.setStyleSheet(
                 f"QSlider::groove:horizontal {{ background: {C['input']}; height: 5px; border-radius: 2px; }}"
                 f"QSlider::handle:horizontal {{ background: {clr}; width: 12px; margin: -4px 0; border-radius: 6px; }}"

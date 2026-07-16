@@ -1,6 +1,5 @@
 """Mixer Panel Qt - Painel de mixagem profissional para items de audio."""
 
-import numpy as np
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -11,6 +10,7 @@ from PySide6.QtCore import Qt, Signal
 
 from makevid.qt.theme import C
 from makevid.config import PROJECTS_DIR
+from makevid.core.audio_utils import process_audio_item
 
 
 class MixerPanel(QWidget):
@@ -129,32 +129,16 @@ class MixerPanel(QWidget):
             self._project.save(PROJECTS_DIR)
         self.changed.emit()
 
-    def get_values(self):
-        """Retorna valores atuais do mixer."""
-        s = self._sliders
-        divisors = {"fade_in": 10, "fade_out": 10}
-        vals = {}
-        for key, slider in s.items():
-            v = slider.value()
-            if key in divisors:
-                vals[key] = v / divisors[key]
-            elif key == "volume":
-                vals[key] = v / 100.0
-            elif key == "speed":
-                vals[key] = v / 100.0
-            elif key == "pan":
-                vals[key] = v / 100.0
-            elif key == "reverb":
-                vals[key] = v / 100.0
-            else:
-                vals[key] = v
-        return vals
-
     def _preview(self):
-        """Reproduz audio com efeitos aplicados."""
         if not self._item:
             return
-        audio, sr = self._process_audio(self._item)
+        audio, sr = process_audio_item(
+            self._item.file_path,
+            self._collect_params(),
+            self._item.volume_keyframes,
+            self._item.duration,
+            muted_regions=getattr(self._item, 'muted_regions', []),
+        )
         if audio is not None:
             try:
                 import sounddevice as sd
@@ -163,91 +147,21 @@ class MixerPanel(QWidget):
             except Exception:
                 pass
 
-    def _process_audio(self, item):
-        """Processa audio com todos os efeitos. Retorna (stereo_array, sr)."""
-        import wave
-        if not item.file_path or not Path(item.file_path).exists():
-            return None, 0
-
-        try:
-            import soundfile as sf
-            data, sr = sf.read(item.file_path, dtype="float32")
-            if len(data.shape) > 1:
-                audio = data.mean(axis=1)
-            else:
-                audio = data
-        except Exception:
-            return None, 0
-
-        vals = self.get_values()
-
-        # Speed
-        if vals["speed"] != 1.0:
-            new_len = int(len(audio) / vals["speed"])
-            audio = np.interp(np.linspace(0, len(audio) - 1, new_len), np.arange(len(audio)), audio)
-
-        # Pitch
-        pitch = vals.get("pitch", 0)
-        if pitch != 0:
-            factor = 2.0 ** (pitch / 12.0)
-            stretched_len = int(len(audio) / factor)
-            pitched = np.interp(np.linspace(0, len(audio) - 1, stretched_len), np.arange(len(audio)), audio)
-            if len(pitched) > len(audio):
-                pitched = pitched[:len(audio)]
-            else:
-                pitched = np.pad(pitched, (0, len(audio) - len(pitched)))
-            audio = pitched
-
-        # EQ
-        eq_low, eq_mid, eq_high = vals.get("eq_low", 0), vals.get("eq_mid", 0), vals.get("eq_high", 0)
-        if eq_low != 0 or eq_mid != 0 or eq_high != 0:
-            try:
-                from scipy.signal import butter, lfilter
-                b, a = butter(2, 300 / (sr / 2), btype='low')
-                low = lfilter(b, a, audio)
-                b, a = butter(2, 3000 / (sr / 2), btype='high')
-                high = lfilter(b, a, audio)
-                mid = audio - low - high
-                audio = (low * 10 ** (eq_low / 20.0) +
-                         mid * 10 ** (eq_mid / 20.0) +
-                         high * 10 ** (eq_high / 20.0))
-            except ImportError:
-                pass
-
-        # Volume
-        audio = audio * vals["volume"]
-
-        # Volume Keyframes
-        if item.volume_keyframes and len(item.volume_keyframes) >= 2:
-            from makevid.core.audio_utils import apply_volume_keyframes
-            audio = apply_volume_keyframes(audio, sr, item.volume_keyframes, item.duration)
-
-        # Fade In/Out
-        fade_in = vals.get("fade_in", 0)
-        if fade_in > 0:
-            n = min(int(fade_in * sr), len(audio))
-            audio[:n] *= np.linspace(0, 1, n)
-        fade_out = vals.get("fade_out", 0)
-        if fade_out > 0:
-            n = min(int(fade_out * sr), len(audio))
-            audio[-n:] *= np.linspace(1, 0, n)
-
-        # Pan → stereo
-        pan = vals.get("pan", 0)
-        stereo = np.column_stack([audio * min(1.0, 1.0 - pan), audio * min(1.0, 1.0 + pan)])
-
-        # Reverb
-        reverb = vals.get("reverb", 0)
-        if reverb > 0:
-            reverb_len = int(0.3 * sr)
-            impulse = np.exp(-np.linspace(0, 5, reverb_len))
-            impulse = impulse / impulse.sum()
-            wet_l = np.convolve(stereo[:, 0], impulse)[:len(audio)]
-            wet_r = np.convolve(stereo[:, 1], impulse)[:len(audio)]
-            stereo[:, 0] = stereo[:, 0] * (1 - reverb) + wet_l * reverb
-            stereo[:, 1] = stereo[:, 1] * (1 - reverb) + wet_r * reverb
-
-        return np.clip(stereo, -1.0, 1.0), sr
+    def _collect_params(self) -> dict:
+        """Converte os sliders para o formato esperado por process_audio_item."""
+        s = self._sliders
+        return {
+            "volume":   str(s["volume"].value()),
+            "pan":      str(s["pan"].value()),
+            "speed":    str(s["speed"].value()),
+            "pitch":    str(s["pitch"].value()),
+            "fade_in":  str(s["fade_in"].value()),
+            "fade_out": str(s["fade_out"].value()),
+            "eq_low":   str(s["eq_low"].value()),
+            "eq_mid":   str(s["eq_mid"].value()),
+            "eq_high":  str(s["eq_high"].value()),
+            "reverb":   str(s["reverb"].value()),
+        }
 
     # ============================================================
     # UI HELPERS
@@ -268,6 +182,8 @@ class MixerPanel(QWidget):
         slider = QSlider(Qt.Horizontal)
         slider.setRange(from_, to)
         slider.setValue(default)
+        slider.setFocusPolicy(Qt.StrongFocus)
+        slider.wheelEvent = lambda e: e.ignore()
         slider.setStyleSheet(
             f"QSlider::groove:horizontal {{ background: {C['border']}; height: 4px; border-radius: 2px; }}"
             f"QSlider::handle:horizontal {{ background: {color}; width: 12px; margin: -4px 0; border-radius: 6px; }}"

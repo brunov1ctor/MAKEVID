@@ -3,6 +3,8 @@
 import logging
 import sys
 
+_log = logging.getLogger(__name__)
+
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout
 from PySide6.QtCore import Qt, QTimer
 
@@ -16,7 +18,6 @@ from makevid.qt.app_state import AppState
 from makevid.services.generation_service import GenerationService
 
 
-_log = logging.getLogger("timeline")
 
 
 class MakeVidWindow(ActionsMixin, QMainWindow):
@@ -268,35 +269,14 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
     # ── Keyboard ──────────────────────────────────────────────────────────────
 
     def _setup_shortcuts(self):
-        from PySide6.QtGui import QShortcut, QKeySequence
-        sc = QShortcut(QKeySequence(Qt.Key_F5), self)
-        sc.setContext(Qt.ApplicationShortcut)
-        sc.activated.connect(self._safe_hot_reload)
+        pass
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_F5:
-            self._safe_hot_reload()
-        else:
-            super().keyPressEvent(event)
-
-    def _safe_hot_reload(self):
-        print("[F5] Hot reload iniciado...")
-        try:
-            from makevid.qt.hot_reload import hot_reload
-            hot_reload(self)
-            print("[F5] Hot reload OK")
-        except Exception as e:
-            print(f"[F5] Hot reload ERRO: {e}")
-            import traceback
-            traceback.print_exc()
-            self._engine_badge.set_text(f"{self._engine} | ERRO")
-            QTimer.singleShot(3000, lambda: self._engine_badge.set_text(self._engine))
+        super().keyPressEvent(event)
 
     def _timeline_key_handler(self, event):
         from PySide6.QtWidgets import QWidget
-        if event.key() == Qt.Key_F5:
-            self._safe_hot_reload()
-        elif event.key() == Qt.Key_Space:
+        if event.key() == Qt.Key_Space:
             if self.preview.player.is_playing:
                 self.preview._pause()
             else:

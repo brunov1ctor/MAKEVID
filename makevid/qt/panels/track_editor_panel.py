@@ -1,17 +1,149 @@
 """Track Editor Panel Qt - Editor de layers de audio por track (voice/sfx/music/audio)."""
 
+import logging
 import time as _time
+import threading
 from pathlib import Path
+
+import numpy as np
+import soundfile as sf
+import sounddevice as sd
+
+_log = logging.getLogger(__name__)
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QSlider, QScrollArea, QFrame, QLineEdit, QGridLayout, QSizePolicy
+    QSlider, QScrollArea, QFrame, QLineEdit, QGridLayout,
+    QSizePolicy, QCheckBox
 )
 from PySide6.QtCore import Qt, Signal, QTimer, QPoint, QMimeData
-from PySide6.QtGui import QFont, QPainter, QColor, QPen, QBrush, QPainterPath, QDrag
+from PySide6.QtGui import QFont, QPainter, QColor, QPen, QBrush, QPainterPath, QDrag, QPolygon, QConicalGradient, QLinearGradient
+
+
+class _GlowButton(QPushButton):
+    """Botao com luz girando na borda (efeito Copilot)."""
+
+    def __init__(self, text, glow_colors=None, bg="rgba(255,255,255,0.07)",
+                 fg="#fff", parent=None):
+        super().__init__(text, parent)
+        self._glow_colors = glow_colors or [
+            QColor(0, 220, 255), QColor(180, 80, 255),
+            QColor(0, 180, 255), QColor(255, 80, 180),
+        ]
+        self._bg = bg
+        self._fg = fg
+        self._angle = 0.0
+        self._animating = False
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)  # ~60fps
+        self._timer.timeout.connect(self._tick)
+
+    def start_glow(self):
+        if not self._animating:
+            self._animating = True
+            self._timer.start()
+
+    def stop_glow(self):
+        self._animating = False
+        self._timer.stop()
+        self.update()
+
+    def _tick(self):
+        self._angle = (self._angle + 3.0) % 360.0
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        r = 10  # border-radius
+
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, w, h, r, r)
+
+        # Fundo
+        p.setPen(Qt.NoPen)
+        p.setBrush(QBrush(QColor(self._bg) if isinstance(self._bg, str)
+                          else QColor(*self._bg)))
+        p.drawPath(path)
+
+        if self._animating:
+            # Borda com gradiente cônico girando
+            border = 2
+            cg = QConicalGradient(w / 2, h / 2, self._angle)
+            cg.setCoordinateMode(QConicalGradient.CoordinateMode.LogicalMode)
+            n = len(self._glow_colors)
+            for i, c in enumerate(self._glow_colors):
+                cg.setColorAt(i / n, c)
+            cg.setColorAt(1.0, self._glow_colors[0])
+
+            # Desenha borda como anel: path externo - path interno
+            inner = QPainterPath()
+            inner.addRoundedRect(border, border, w - border * 2, h - border * 2, r - 1, r - 1)
+            ring = QPainterPath(path)
+            ring = ring.subtracted(inner)
+            p.setBrush(QBrush(cg))
+            p.drawPath(ring)
+        else:
+            p.setPen(QPen(QColor(80, 80, 100, 80), 1))
+            p.setBrush(Qt.NoBrush)
+            p.drawPath(path)
+
+        # Texto
+        p.setPen(QColor(self._fg))
+        p.setFont(self.font())
+        p.drawText(self.rect(), Qt.AlignCenter, self.text())
+        p.end()
 
 from makevid.qt.theme import C
 from makevid.config import PROJECTS_DIR
+from makevid.services.waveform_cut_service import WaveformCutService
+from makevid.core.audio_utils import slice_volume_keyframes
+
+
+def _file_exists(path) -> bool:
+    """Retorna True se path não é None/vazio e o arquivo existe."""
+    return bool(path) and Path(path).exists()
+
+
+def _prepare_audio(item):
+    """Carrega e prepara o array de audio identico ao que a waveform exibe.
+
+    Aplica em ordem: file_offset → limita ao duration → muted_regions.
+    Retorna (data_stereo_float32, sr) ou (None, 0) se falhar.
+    """
+    if not _file_exists(item.file_path):
+        return None, 0
+    try:
+        raw, sr = sf.read(item.file_path, dtype="float32")
+        data = np.array(raw, copy=True)  # sempre gravavel
+        if len(data.shape) == 1:
+            data = np.column_stack([data, data])
+
+        # 1. file_offset
+        offset_sec = float(getattr(item, 'file_offset', 0.0))
+        if offset_sec > 0:
+            data = data[int(offset_sec * sr):]
+
+        # 2. limitar ao duration
+        max_samples = int(float(item.duration) * sr)
+        if max_samples > 0 and len(data) > max_samples:
+            data = data[:max_samples]
+
+        # 3. muted_regions
+        muted = getattr(item, 'muted_regions', [])
+        if muted:
+            n = len(data)
+            for region in muted:
+                ca = int(float(region['start']) * n)
+                cb = int(float(region['end']) * n)
+                if cb > ca:
+                    data[ca:cb] = 0.0
+
+        return data, sr
+    except Exception:
+        _log.exception("Erro ao preparar audio")
+        return None, 0
 
 
 TRACK_COLORS = {
@@ -41,9 +173,10 @@ class TrackEditorPanel(QWidget):
         self._layer_frames = {}
         self._layer_headers = {}
         self._action_grid = None
+        self._cut_service = WaveformCutService()
+        self._pulse_timers = {}  # item_id -> QTimer
         self.setMinimumWidth(0)
         self.setObjectName("trackEditorPanel")
-        from PySide6.QtWidgets import QSizePolicy
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._build_shell()
 
@@ -133,7 +266,6 @@ class TrackEditorPanel(QWidget):
         L.addWidget(sep)
 
         # Loop checkbox fora do grid
-        from PySide6.QtWidgets import QCheckBox
         self._loop_cb = QCheckBox("  Loop")
         self._loop_cb.setStyleSheet(
             f"QCheckBox {{ color: {C['text2']}; font-size: 9pt; font-weight: bold; spacing: 6px; padding: 6px 0; }}"
@@ -270,9 +402,10 @@ class TrackEditorPanel(QWidget):
         )
         hdr_layout.addWidget(mode_chip)
 
-        del_btn = QPushButton("X")
+        del_btn = QPushButton("✕")
+        del_btn.setFixedSize(24, 24)
         del_btn.setObjectName("closeBtn")
-        del_btn.setFixedSize(22, 22)
+        del_btn.setToolTip("Remover layer")
         del_btn.clicked.connect(lambda checked=False, i=item: self._delete_layer(i))
         hdr_layout.addWidget(del_btn)
         fl.addWidget(hdr_frame)
@@ -305,6 +438,8 @@ class TrackEditorPanel(QWidget):
         waveform = _WaveformWidget(item, color)
         waveform.setFixedHeight(78)
         waveform.keyframe_changed.connect(lambda commit, i=item: self._on_layer_change(i, commit))
+        waveform.cut_requested.connect(lambda i=item, wf=waveform: self._apply_cut_from_waveform(
+            i, wf, self._layer_refs.get(i.id, {}).get("cut_btn")))
         waveform.setToolTip("Clique para criar keyframe | Arraste para ajustar | Botao direito remove")
         waveform_l.addWidget(waveform)
         cl.addWidget(waveform_card)
@@ -393,45 +528,45 @@ class TrackEditorPanel(QWidget):
         dup_btn.clicked.connect(lambda checked=False, i=item: self._duplicate(i))
         play_row.addWidget(dup_btn)
 
-        split_btn = QPushButton("Quebrar")
-        split_btn.setMinimumSize(78, 30)
-        split_btn.setStyleSheet(
+        cut_btn = QPushButton("✂ Recortar")
+        cut_btn.setMinimumSize(96, 30)
+        cut_btn.setCheckable(True)
+        cut_btn.setStyleSheet(
             "background: rgba(255,255,255,0.05); color: #A9B4C8; font-size: 8pt; font-weight: bold; "
             "border-radius: 10px; padding: 4px 12px;"
         )
-        split_btn.clicked.connect(lambda checked=False, i=item: self._split_layer(i))
-        play_row.addWidget(split_btn)
+        cut_btn.clicked.connect(lambda checked, i=item, b=cut_btn, wf=waveform: self._cut_btn_clicked(i, b, wf))
 
-        cut_start_btn = QPushButton("Cortar início")
-        cut_start_btn.setMinimumSize(92, 30)
-        cut_start_btn.setStyleSheet(
-            "background: rgba(255,255,255,0.05); color: #A9B4C8; font-size: 8pt; font-weight: bold; "
-            "border-radius: 10px; padding: 4px 12px;"
+        # Botoes Desfazer / Aplicar (ficam ocultos ate haver selecao)
+        undo_btn = _GlowButton(
+            "↩ Desfazer",
+            glow_colors=[QColor(255,60,60), QColor(255,120,80), QColor(200,30,30), QColor(255,80,80)],
+            bg="rgba(180,30,30,0.25)", fg="#ff6060",
         )
-        cut_start_btn.clicked.connect(lambda checked=False, i=item: self._trim_start_to_playhead(i))
-        play_row.addWidget(cut_start_btn)
+        undo_btn.setMinimumSize(80, 30)
+        undo_btn.setFont(QFont("Segoe UI", 8, QFont.Bold))
+        undo_btn.hide()
+        undo_btn.clicked.connect(lambda: self._undo_cut_selection(item))
 
-        cut_end_btn = QPushButton("Cortar fim")
-        cut_end_btn.setMinimumSize(88, 30)
-        cut_end_btn.setStyleSheet(
-            "background: rgba(255,255,255,0.05); color: #A9B4C8; font-size: 8pt; font-weight: bold; "
-            "border-radius: 10px; padding: 4px 12px;"
+        apply_btn = _GlowButton(
+            "✅ Aplicar",
+            glow_colors=[QColor(0,220,255), QColor(180,80,255), QColor(0,180,255), QColor(255,80,180)],
+            bg=C['secondary'], fg="#fff",
         )
-        cut_end_btn.clicked.connect(lambda checked=False, i=item: self._trim_end_to_playhead(i))
-        play_row.addWidget(cut_end_btn)
+        apply_btn.setMinimumSize(80, 30)
+        apply_btn.setFont(QFont("Segoe UI", 8, QFont.Bold))
+        apply_btn.hide()
+        apply_btn.clicked.connect(lambda: self._apply_cut_from_waveform(item, waveform, cut_btn))
 
-        range_btn = QPushButton("Recorte A-B")
-        range_btn.setMinimumSize(96, 30)
-        range_btn.setStyleSheet(
-            "background: rgba(255,255,255,0.05); color: #A9B4C8; font-size: 8pt; font-weight: bold; "
-            "border-radius: 10px; padding: 4px 12px;"
-        )
-        range_info = QLabel("")
-        range_info.setStyleSheet(f"color: {C['text3']}; font-family: Consolas; font-size: 7pt; border: none;")
-        range_info.setMinimumWidth(70)
-        range_btn.clicked.connect(lambda checked=False, i=item, b=range_btn, info=range_info: self._range_cut_action(i, b, info))
-        play_row.addWidget(range_btn)
-        play_row.addWidget(range_info)
+        play_row.addWidget(cut_btn)
+        play_row.addWidget(undo_btn)
+        play_row.addWidget(apply_btn)
+
+        self._layer_refs.setdefault(item.id, {})
+        self._layer_refs[item.id]["cut_btn"] = cut_btn
+        self._layer_refs[item.id]["cut_undo_btn"] = undo_btn
+        self._layer_refs[item.id]["cut_apply_btn"] = apply_btn
+        self._layer_refs[item.id]["cut_waveform"] = waveform
 
         play_row.addStretch()
         start_lbl = QLabel(f"Inicio: {item.start_time:.1f}s")
@@ -485,11 +620,11 @@ class TrackEditorPanel(QWidget):
         collapse_btn.clicked.connect(_toggle_collapse)
 
         # Store refs for playhead animation
-        self._layer_refs[item.id] = {
+        self._layer_refs[item.id].update({
             "waveform": waveform, "time_lbl": time_lbl,
             "play_btn": play_btn, "color": color,
             "current_time": 0.0,
-        }
+        })
 
         return frame
 
@@ -521,6 +656,8 @@ class TrackEditorPanel(QWidget):
         slider.setRange(from_, to)
         slider.setValue(default)
         slider.setFixedHeight(16)
+        slider.setFocusPolicy(Qt.StrongFocus)
+        slider.wheelEvent = lambda e: e.ignore()
         slider.setStyleSheet(
             f"QSlider::groove:horizontal {{ background: rgba(255,255,255,0.08); height: 4px; border-radius: 2px; }}"
             f"QSlider::handle:horizontal {{ background: {color}; width: 12px; height: 12px; margin: -5px 0; border-radius: 6px; border: 2px solid rgba(255,255,255,0.18); }}"
@@ -792,10 +929,9 @@ class TrackEditorPanel(QWidget):
         if self._playing.get(item_id, False):
             # PAUSE: para imediatamente sem resetar
             try:
-                import sounddevice as sd
                 sd.stop()
             except Exception:
-                pass
+                _log.exception("Erro ao parar sounddevice (pause)")
             self._playing[item_id] = False
             refs = self._layer_refs.get(item_id)
             if refs:
@@ -810,17 +946,20 @@ class TrackEditorPanel(QWidget):
             self._start_play(item, btn, color)
 
     def _start_play(self, item, btn, color):
-        """Reproduz audio do layer."""
-        if not item.file_path or not Path(item.file_path).exists():
+        if not _file_exists(item.file_path):
             return
         try:
-            import sounddevice as sd
-            import numpy as np
-            import soundfile as sf
+            data, sr = _prepare_audio(item)
+            if data is None:
+                return
 
-            data, sr = sf.read(item.file_path, dtype="float32")
-            if len(data.shape) == 1:
-                data = np.column_stack([data, data])
+            # Seleções pendentes do modo de corte (preview antes de aplicar)
+            if self._cut_service.is_active(item.id) and self._cut_service.has_selection():
+                n = len(data)
+                for cut_a, cut_b in self._cut_service.get_selections():
+                    ca, cb = int(cut_a * n), int(cut_b * n)
+                    if cb > ca:
+                        data[ca:cb] = 0.0
 
             paused = self._paused_state.pop(item.id, None)
             start_ratio = max(0.0, min(1.0, float(paused.get("ratio", 0.0)) if paused else 0.0))
@@ -828,46 +967,39 @@ class TrackEditorPanel(QWidget):
             if start_sample >= len(data):
                 start_sample = 0
                 start_ratio = 0.0
+
             data = data[start_sample:]
 
             vol = int(item.params.get("volume", 80)) / 100.0
-            data *= vol
-
+            data = data * vol
             pan = int(item.params.get("pan", 0)) / 100.0
             if pan != 0:
-                data[:, 0] *= max(0, 1.0 - pan)
-                data[:, 1] *= max(0, 1.0 + pan)
+                data[:, 0] *= max(0.0, 1.0 - pan)
+                data[:, 1] *= max(0.0, 1.0 + pan)
 
-            # Speed
             speed = int(item.params.get("speed", 100)) / 100.0
             play_sr = int(sr * speed) if speed > 0 else sr
 
-            # Loop
             loop = getattr(self, '_loop_cb', None) and self._loop_cb.isChecked()
             if loop:
-                duration = len(data) / play_sr
-                repeats = max(2, int(60.0 / max(0.1, duration)))
+                repeats = max(2, int(60.0 / max(0.1, len(data) / play_sr)))
                 data = np.tile(data, (repeats, 1))
 
-            audio = np.ascontiguousarray(np.clip(data, -1, 1).astype(np.float32))
             sd.stop()
-            sd.play(audio, samplerate=play_sr)
+            sd.play(np.ascontiguousarray(np.clip(data, -1, 1).astype(np.float32)), samplerate=play_sr)
 
             self._playing[item.id] = True
             btn.setText("\u25a0 Stop")
             btn.setStyleSheet(f"background: {C['danger']}; color: {C['text']}; font-weight: bold; border-radius: 4px;")
-
-            # Iniciar animação do playhead
             self._animate_playhead(item.id, start_ratio, item.duration * (1 - start_ratio))
         except Exception:
-            pass
+            _log.exception("Erro ao reproduzir audio")
 
     def _stop_play(self, item_id, btn, color):
         try:
-            import sounddevice as sd
             sd.stop()
         except Exception:
-            pass
+            _log.exception("Erro ao parar sounddevice (stop)")
         self._playing[item_id] = False
         btn.setText("\u25b6 Play")
         btn.setStyleSheet(f"background: {color}; color: {C['dark_text']}; font-weight: bold; border-radius: 4px;")
@@ -878,13 +1010,8 @@ class TrackEditorPanel(QWidget):
 
     def _play_all(self, group, color):
         """Reproduz todos os layers mixados."""
-        import threading
-        import numpy as np
-
         def run():
             try:
-                import sounddevice as sd
-                import soundfile as sf
                 sr = 44100
                 base = min(i.start_time for i in group)
                 end = max(i.start_time + i.duration for i in group)
@@ -893,7 +1020,7 @@ class TrackEditorPanel(QWidget):
                     return
                 mix = np.zeros((total_samples, 2), dtype=np.float32)
                 for item in group:
-                    if not item.file_path or not Path(item.file_path).exists():
+                    if not _file_exists(item.file_path):
                         continue
                     data, item_sr = sf.read(item.file_path, dtype="float32")
                     if len(data.shape) == 1:
@@ -912,7 +1039,7 @@ class TrackEditorPanel(QWidget):
                 sd.stop()
                 sd.play(np.ascontiguousarray(np.clip(mix, -1, 1).astype(np.float32)), samplerate=sr)
             except Exception:
-                pass
+                _log.exception("Erro ao reproduzir audio (play all)")
         threading.Thread(target=run, daemon=True).start()
 
     def _duplicate(self, item):
@@ -924,47 +1051,6 @@ class TrackEditorPanel(QWidget):
             clip_index=item.clip_index)
         self._project.save(PROJECTS_DIR)
         self.show_item(self._item, self._project)
-
-    def _split_layer(self, item):
-        """Quebra um layer em 2 partes no playhead da timeline (ou no meio)."""
-        if item.duration <= 0.08:
-            return
-
-        cut_time = item.duration / 2.0
-        app = self.window()
-        if hasattr(app, "timeline"):
-            abs_t = float(getattr(app.timeline, "playhead_pos", item.start_time + cut_time))
-            rel_t = abs_t - item.start_time
-            if 0.05 < rel_t < item.duration - 0.05:
-                cut_time = rel_t
-
-        dur_a = round(max(0.05, cut_time), 3)
-        dur_b = round(max(0.05, item.duration - cut_time), 3)
-        if dur_a + dur_b > item.duration:
-            dur_b = round(max(0.05, item.duration - dur_a), 3)
-
-        base_name = item.name
-        params_b = dict(item.params)
-
-        kf_a, kf_b = self._split_volume_keyframes(item.volume_keyframes, item.duration, cut_time)
-        item.duration = dur_a
-        item.name = f"{base_name} A"
-        item.volume_keyframes = kf_a
-
-        new_item = self._project.add_track_item(
-            name=f"{base_name} B",
-            track=item.track,
-            start_time=round(item.start_time + dur_a, 3),
-            duration=dur_b,
-            file_path=item.file_path,
-            params=params_b,
-            clip_index=item.clip_index,
-        )
-        new_item.volume_keyframes = kf_b
-
-        self._project.save(PROJECTS_DIR)
-        self.changed.emit()
-        self.show_item(item, self._project)
 
     def _get_playhead_rel_time(self, item):
         """Retorna tempo relativo do playhead no layer selecionado."""
@@ -979,6 +1065,118 @@ class TrackEditorPanel(QWidget):
         self._project.save(PROJECTS_DIR)
         self.changed.emit()
         self.show_item(item, self._project)
+
+    def _cut_btn_clicked(self, item, btn, waveform):
+        """Clique no botao Recortar: ativa o modo de corte."""
+        self._toggle_cut_mode(item, btn, waveform)
+
+    def _toggle_cut_mode(self, item, btn, waveform):
+        """Ativa/desativa modo de recorte interativo na waveform."""
+        if self._cut_service.is_active(item.id):
+            self._cut_service.deactivate()
+            btn.setChecked(False)
+            btn.setText("✂ Recortar")
+            btn.setStyleSheet(
+                "background: rgba(255,255,255,0.05); color: #A9B4C8; font-size: 8pt; font-weight: bold; "
+                "border-radius: 10px; padding: 4px 12px;"
+            )
+            waveform.set_cut_mode(None)
+            self._set_cut_container_mode(item, "idle")
+        else:
+            self._cut_service.activate(item.id)
+            btn.setChecked(True)
+            btn.setText("✂ Recortar")
+            btn.setStyleSheet(
+                f"background: {C['danger']}; color: #fff; font-size: 8pt; font-weight: bold; "
+                "border-radius: 10px; padding: 4px 12px;"
+            )
+            waveform.set_cut_mode(self._cut_service)
+            waveform.selection_changed.connect(lambda: self._on_cut_selection_changed(item))
+
+    def _on_cut_selection_changed(self, item):
+        """Alterna o container entre [Recortar] e [Desfazer | Aplicar]."""
+        if self._cut_service.has_selection():
+            self._set_cut_container_mode(item, "confirm")
+        else:
+            self._set_cut_container_mode(item, "active")
+        # Se estiver tocando, reinicia para aplicar o silencio imediatamente
+        if self._playing.get(item.id, False):
+            refs = self._layer_refs.get(item.id, {})
+            btn = refs.get("play_btn")
+            color = refs.get("color", C["cyan"])
+            if btn:
+                self._start_play(item, btn, color)
+
+    def _set_cut_container_mode(self, item, mode):
+        """
+        mode='idle'    -> Recortar (inativo)
+        mode='active'  -> Recortar (vermelho)
+        mode='confirm' -> [Desfazer | Aplicar]
+        """
+        refs = self._layer_refs.get(item.id, {})
+        cut_btn   = refs.get("cut_btn")
+        undo_btn  = refs.get("cut_undo_btn")
+        apply_btn = refs.get("cut_apply_btn")
+        if cut_btn is None:
+            return
+
+        if mode == "idle" or mode == "active":
+            cut_btn.setChecked(mode == "active")
+            cut_btn.setText("✂ Recortar")
+            cut_btn.setStyleSheet(
+                "background: rgba(255,255,255,0.05); color: #A9B4C8; font-size: 8pt; font-weight: bold; "
+                "border-radius: 10px; padding: 4px 12px;"
+                if mode == "idle" else
+                f"background: {C['danger']}; color: #fff; font-size: 8pt; font-weight: bold; "
+                "border-radius: 10px; padding: 4px 12px;"
+            )
+            cut_btn.show()
+            if undo_btn:  undo_btn.hide()
+            if apply_btn: apply_btn.hide()
+            self._stop_pulse(item.id)
+        else:  # confirm
+            cut_btn.hide()
+            if undo_btn:  undo_btn.show()
+            if apply_btn: apply_btn.show()
+            self._start_pulse(item.id, undo_btn, apply_btn)
+
+    def _start_pulse(self, item_id, undo_btn, apply_btn):
+        """Inicia luz girando nos botoes Desfazer e Aplicar."""
+        self._stop_pulse(item_id)
+        if isinstance(undo_btn, _GlowButton):
+            undo_btn.start_glow()
+        if isinstance(apply_btn, _GlowButton):
+            apply_btn.start_glow()
+        # Guarda refs para poder parar depois
+        self._pulse_timers[item_id] = (undo_btn, apply_btn)
+
+    def _stop_pulse(self, item_id):
+        refs = self._pulse_timers.pop(item_id, None)
+        if refs:
+            undo_btn, apply_btn = refs
+            if isinstance(undo_btn, _GlowButton):
+                undo_btn.stop_glow()
+            if isinstance(apply_btn, _GlowButton):
+                apply_btn.stop_glow()
+
+    def _undo_cut_selection(self, item):
+        """Limpa todas as selecoes sem aplicar o corte."""
+        self._cut_service.clear_selection()
+        refs = self._layer_refs.get(item.id, {})
+        wf = refs.get("cut_waveform")
+        if wf:
+            wf.update()
+        self._set_cut_container_mode(item, "active")
+
+    def _apply_cut_from_waveform(self, item, waveform, cut_btn):
+        """Aplica todos os cortes e restaura o botao Recortar."""
+        applied = self._cut_service.apply_cut(
+            item, self._project,
+            self._slice_volume_keyframes,
+            self._commit_layer_edit,
+        )
+        if applied:
+            self._set_cut_container_mode(item, "idle")
 
     def _trim_start_to_playhead(self, item):
         """Remove o começo do layer até o playhead."""
@@ -1038,127 +1236,87 @@ class TrackEditorPanel(QWidget):
         self._commit_layer_edit(item)
 
     def _trim_start(self, item, cut):
-        """Mantem somente trecho [cut, dur] e reposiciona no tempo."""
         dur = float(item.duration)
         cut = max(0.0, min(dur, float(cut)))
         if cut < 0.05 or cut >= dur - 0.01:
             return
-
-        new_dur = round(max(0.05, dur - cut), 3)
         item.start_time = round(item.start_time + cut, 3)
-        item.duration = new_dur
-        item.volume_keyframes = self._slice_volume_keyframes(item.volume_keyframes, dur, cut, dur)
+        item.duration = round(max(0.05, dur - cut), 3)
+        item.volume_keyframes = slice_volume_keyframes(item.volume_keyframes, dur, cut, dur)
         self._commit_layer_edit(item)
 
     def _trim_end(self, item, end_at):
-        """Mantem somente trecho [0, end_at]."""
         dur = float(item.duration)
         end_at = max(0.0, min(dur, float(end_at)))
         if end_at <= 0.05 or end_at >= dur - 0.01:
             return
-
         item.duration = round(max(0.05, end_at), 3)
-        item.volume_keyframes = self._slice_volume_keyframes(item.volume_keyframes, dur, 0.0, end_at)
+        item.volume_keyframes = slice_volume_keyframes(item.volume_keyframes, dur, 0.0, end_at)
         self._commit_layer_edit(item)
 
     def _slice_volume_keyframes(self, keyframes, duration, seg_start, seg_end):
-        """Recorta keyframes para [seg_start, seg_end] e remapeia tempo para 0..seg_len."""
-        if not keyframes:
-            return []
-
-        dur = max(0.001, float(duration))
-        a = max(0.0, min(dur, float(seg_start)))
-        b = max(a, min(dur, float(seg_end)))
-        if b - a <= 1e-6:
-            return []
-
-        pts = sorted(
-            [{"time": float(k.get("time", 0.0)), "value": float(k.get("value", 1.0))} for k in keyframes],
-            key=lambda k: k["time"],
-        )
-
-        def value_at(t):
-            if t <= pts[0]["time"]:
-                return pts[0]["value"]
-            if t >= pts[-1]["time"]:
-                return pts[-1]["value"]
-            for i in range(1, len(pts)):
-                p0 = pts[i - 1]
-                p1 = pts[i]
-                if p0["time"] <= t <= p1["time"]:
-                    dt = p1["time"] - p0["time"]
-                    if dt <= 1e-9:
-                        return p1["value"]
-                    r = (t - p0["time"]) / dt
-                    return p0["value"] + (p1["value"] - p0["value"]) * r
-            return pts[-1]["value"]
-
-        sliced = [{"time": 0.0, "value": round(value_at(a), 3)}]
-        for p in pts:
-            t = p["time"]
-            if a < t < b:
-                sliced.append({"time": round(t - a, 2), "value": round(p["value"], 3)})
-        sliced.append({"time": round(b - a, 2), "value": round(value_at(b), 3)})
-
-        dedup = {}
-        for p in sliced:
-            dedup[round(float(p["time"]), 2)] = round(float(p["value"]), 3)
-        out = [{"time": t, "value": dedup[t]} for t in sorted(dedup.keys())]
-        return out
-
-    def _split_volume_keyframes(self, keyframes, duration, cut_time):
-        """Divide keyframes em duas listas mantendo continuidade no ponto de corte."""
-        cut = max(0.0, min(float(duration), float(cut_time)))
-        if not keyframes:
-            return [], []
-
-        pts = sorted(
-            [{"time": float(k.get("time", 0.0)), "value": float(k.get("value", 1.0))} for k in keyframes],
-            key=lambda k: k["time"],
-        )
-
-        def value_at(t):
-            if t <= pts[0]["time"]:
-                return pts[0]["value"]
-            if t >= pts[-1]["time"]:
-                return pts[-1]["value"]
-            for i in range(1, len(pts)):
-                a = pts[i - 1]
-                b = pts[i]
-                if a["time"] <= t <= b["time"]:
-                    dt = b["time"] - a["time"]
-                    if dt <= 1e-9:
-                        return b["value"]
-                    r = (t - a["time"]) / dt
-                    return a["value"] + (b["value"] - a["value"]) * r
-            return pts[-1]["value"]
-
-        v_cut = value_at(cut)
-
-        left = []
-        for p in pts:
-            if p["time"] < cut - 1e-6:
-                left.append({"time": round(p["time"], 2), "value": round(p["value"], 3)})
-        left.append({"time": round(cut, 2), "value": round(v_cut, 3)})
-
-        right = [{"time": 0.0, "value": round(v_cut, 3)}]
-        for p in pts:
-            if p["time"] > cut + 1e-6:
-                right.append({"time": round(p["time"] - cut, 2), "value": round(p["value"], 3)})
-
-        left.sort(key=lambda k: k["time"])
-        right.sort(key=lambda k: k["time"])
-        return left, right
+        return slice_volume_keyframes(keyframes, duration, seg_start, seg_end)
 
     def _delete_layer(self, item):
-        """Remove layer."""
+        """Mostra confirmacao inline no card do layer antes de remover."""
+        frame = self._layer_frames.get(item.id)
+        hdr = self._layer_headers.get(item.id)
+        if frame is None or hdr is None:
+            self._do_delete_layer(item)
+            return
+
+        # Esconde o header e insere card de confirmacao no lugar
+        hdr.hide()
+        confirm = QFrame()
+        confirm.setStyleSheet(
+            f"background: rgba(180,30,30,0.18); border: 1px solid {C['danger']}; border-radius: 10px;"
+        )
+        cl = QHBoxLayout(confirm)
+        cl.setContentsMargins(10, 6, 10, 6)
+        cl.setSpacing(8)
+        lbl = QLabel(f"Remover <b>{item.name[:20]}</b>?")
+        lbl.setStyleSheet(f"color: {C['text']}; font-size: 9pt; border: none; background: transparent;")
+        cl.addWidget(lbl)
+        cl.addStretch()
+        yes_btn = QPushButton("Remover")
+        yes_btn.setFixedHeight(26)
+        yes_btn.setStyleSheet(
+            f"background: {C['danger']}; color: #fff; font-size: 8pt; font-weight: bold; "
+            "border-radius: 8px; padding: 2px 12px;"
+        )
+        no_btn = QPushButton("Cancelar")
+        no_btn.setFixedHeight(26)
+        no_btn.setStyleSheet(
+            "background: rgba(255,255,255,0.07); color: #A9B4C8; font-size: 8pt; font-weight: bold; "
+            "border-radius: 8px; padding: 2px 12px;"
+        )
+        cl.addWidget(no_btn)
+        cl.addWidget(yes_btn)
+
+        # Insere o card logo acima do header no layout do frame
+        fl = frame.layout()
+        fl.insertWidget(0, confirm)
+
+        def _cancel():
+            confirm.deleteLater()
+            hdr.show()
+
+        def _confirm():
+            confirm.deleteLater()
+            self._do_delete_layer(item)
+
+        yes_btn.clicked.connect(_confirm)
+        no_btn.clicked.connect(_cancel)
+
+    def _do_delete_layer(self, item):
+        """Efetiva a remocao do layer."""
         try:
-            import sounddevice as sd
             sd.stop()
         except Exception:
-            pass
+            _log.exception("Erro ao parar sounddevice (delete layer)")
         self._project.remove_track_item(item.id)
         self._project.save(PROJECTS_DIR)
+        self.changed.emit()
         remaining = self._project.get_track_items(item.track)
         if remaining:
             self.show_item(remaining[0], self._project)
@@ -1167,10 +1325,9 @@ class TrackEditorPanel(QWidget):
 
     def _close(self):
         try:
-            import sounddevice as sd
             sd.stop()
         except Exception:
-            pass
+            _log.exception("Erro ao parar sounddevice (close)")
         self.closed.emit()
         self.hide()
 
@@ -1179,21 +1336,17 @@ class TrackEditorPanel(QWidget):
     # ============================================================
 
     def _get_group(self, item):
-        """Retorna items do mesmo grupo (clip_index ou posição)."""
+        """Retorna items do mesmo grupo — sempre restrito à mesma track."""
         all_track = self._project.get_track_items(item.track)
         if item.clip_index >= 0:
             return [i for i in all_track if i.clip_index == item.clip_index]
-        return [i for i in all_track if abs(i.start_time - item.start_time) < 0.05]
+        return [item]
 
     def _seek_play(self, item, ratio, color):
         """Play a partir de uma posição na waveform."""
-        if not item.file_path or not Path(item.file_path).exists():
+        if not _file_exists(item.file_path):
             return
         try:
-            import sounddevice as sd
-            import numpy as np
-            import soundfile as sf
-
             data, sr = sf.read(item.file_path, dtype="float32")
             if len(data.shape) == 1:
                 data = np.column_stack([data, data])
@@ -1210,7 +1363,7 @@ class TrackEditorPanel(QWidget):
                 refs["play_btn"].setStyleSheet(f"background: {C['danger']}; color: {C['text']}; font-weight: bold; border-radius: 4px;")
                 self._animate_playhead(item.id, ratio, item.duration * (1 - ratio))
         except Exception:
-            pass
+            _log.exception("Erro ao reproduzir audio (seek)")
 
     def _animate_playhead(self, item_id, start_ratio, duration):
         """Anima playhead na waveform em tempo real."""
@@ -1285,6 +1438,8 @@ class _WaveformWidget(QWidget):
     """Widget que desenha waveform do audio com keyframes de volume."""
 
     keyframe_changed = Signal(bool)  # commit=True quando a edicao termina
+    cut_requested = Signal()         # emitido ao soltar o mouse no modo recorte
+    selection_changed = Signal()     # emitido quando a selecao de corte muda
 
     def __init__(self, item, color, parent=None):
         super().__init__(parent)
@@ -1293,38 +1448,99 @@ class _WaveformWidget(QWidget):
         self._waveform_data = None
         self._playhead_ratio = -1  # -1 = hidden
         self._dragging = None
+        self._cut_service = None
+        self._cut_dragging = False
+        self._cut_press_pos = None
+        self._cut_edge_drag = None  # None | "start" | "end"
+        self._wip_end_preview = None  # ratio do ponto B em movimento (segundo clique+drag)
         self.setCursor(Qt.PointingHandCursor)
         self.setMouseTracking(True)
         self._ensure_default_keyframes()
         self._load_waveform()
+
+    _EDGE_HIT = 8  # pixels de tolerancia para detectar borda
+
+    def _hit_edge(self, x):
+        """Retorna (index, 'start'|'end') ou None."""
+        if self._cut_service is None:
+            return None
+        return self._cut_service.hit_edge(x / max(1, self.width()), self._EDGE_HIT, self.width())
+
+    def set_cut_mode(self, service):
+        """Ativa (service != None) ou desativa o modo de recorte."""
+        self._cut_service = service
+        self._cut_dragging = False
+        self._cut_press_pos = None
+        self._wip_end_preview = None
+        if service is None:
+            self.setCursor(Qt.PointingHandCursor)
+            self.setToolTip("Clique para criar keyframe | Arraste para ajustar | Botao direito remove")
+        else:
+            self.setCursor(Qt.CrossCursor)
+            self.setToolTip("Clique e arraste para selecionar a regi\u00e3o a recortar")
+        self.update()
 
     def _ensure_default_keyframes(self):
         if self._item.volume_keyframes:
             self._item.volume_keyframes.sort(key=lambda k: k.get("time", 0.0))
 
     def _load_waveform(self):
-        """Carrega dados da waveform do arquivo de audio."""
-        if not self._item.file_path or not Path(self._item.file_path).exists():
+        """Carrega waveform usando os mesmos dados que o play usa."""
+        data, sr = _prepare_audio(self._item)
+        if data is None or len(data) < 10:
             return
         try:
-            import numpy as np
-            import soundfile as sf
-            data, sr = sf.read(self._item.file_path, dtype="float32")
-            if len(data.shape) > 1:
-                data = data.mean(axis=1)
-            # Reduzir para ~200 pontos
+            mono = data.mean(axis=1) if len(data.shape) > 1 else data
             n_points = 200
-            chunk = max(1, len(data) // n_points)
-            self._waveform_data = []
-            for i in range(0, len(data), chunk):
-                segment = data[i:i+chunk]
-                self._waveform_data.append(float(np.abs(segment).max()))
+            chunk = max(1, len(mono) // n_points)
+            rms_values = [
+                max(float(np.sqrt(np.mean(mono[i:i+chunk] ** 2))), 1e-9)
+                for i in range(0, len(mono), chunk)
+            ]
+            db = np.array([20 * np.log10(v) for v in rms_values])
+            db_floor, db_ceil = -60.0, max(db.max(), -59.0)
+            self._waveform_data = list(
+                np.clip((db - db_floor) / (db_ceil - db_floor), 0.0, 1.0)
+            )
         except Exception:
+            _log.exception("Erro ao carregar waveform")
             self._waveform_data = None
 
     def set_playhead(self, ratio):
-        self._playhead_ratio = ratio
+        """Define o playhead. ratio refere-se ao audio sem as regioes cortadas."""
+        self._playhead_ratio = self._audio_ratio_to_visual(ratio)
         self.update()
+
+    def _audio_ratio_to_visual(self, ratio):
+        """Converte ratio do audio (sem cortes) para ratio visual (waveform original)."""
+        if ratio < 0 or self._cut_service is None:
+            return ratio
+        selections = self._cut_service.get_selections()
+        if not selections:
+            return ratio
+        # Monta lista de segmentos mantidos: [(vis_start, vis_end), ...]
+        kept = []
+        prev = 0.0
+        for a, b in sorted(selections):
+            if a > prev:
+                kept.append((prev, a))
+            prev = b
+        if prev < 1.0:
+            kept.append((prev, 1.0))
+        if not kept:
+            return ratio
+        total = sum(b - a for a, b in kept)
+        if total <= 0:
+            return ratio
+        # Encontrar em qual segmento o ratio do audio cai
+        audio_pos = ratio * total
+        acc = 0.0
+        for vis_a, vis_b in kept:
+            seg_len = vis_b - vis_a
+            if audio_pos <= acc + seg_len:
+                return vis_a + (audio_pos - acc)
+            acc += seg_len
+        return kept[-1][1]
 
     def _draw_keyframes(self, p, w, h):
         kfs = list(enumerate(self._item.volume_keyframes))
@@ -1443,19 +1659,91 @@ class _WaveformWidget(QWidget):
 
         self._draw_keyframes(p, w, h)
 
+        # Selecao de recorte
+        if self._cut_service is not None:
+            w_sel = max(1, w)
+            # Seleções confirmadas
+            for sel_a, sel_b in self._cut_service.get_selections():
+                xa, xb = int(sel_a * w_sel), int(sel_b * w_sel)
+                p.fillRect(xa, 0, xb - xa, h, QColor(220, 50, 50, 70))
+                p.setPen(QPen(QColor(220, 50, 50, 110), 1))
+                spacing = 8
+                for x in range(xa - h, xb, spacing):
+                    p.drawLine(x, h, x + h, 0)
+                p.setPen(QPen(QColor(220, 50, 50, 220), 2))
+                p.drawLine(xa, 0, xa, h)
+                p.drawLine(xb, 0, xb, h)
+            # Indicadores de borda da faixa (amarelo)
+            if self._cut_service.touches_start():
+                p.fillRect(0, 0, 4, h, QColor(255, 200, 0, 200))
+            if self._cut_service.touches_end():
+                p.fillRect(w - 4, 0, 4, h, QColor(255, 200, 0, 200))
+            # WIP (seleção em construção)
+            wip_a, wip_b = self._cut_service.get_wip()
+            if wip_a is not None and wip_b > wip_a:
+                xa, xb = int(wip_a * w_sel), int(wip_b * w_sel)
+                p.fillRect(xa, 0, xb - xa, h, QColor(220, 50, 50, 40))
+                p.setPen(QPen(QColor(220, 50, 50, 160), 1, Qt.DashLine))
+                p.drawLine(xa, 0, xa, h)
+                p.drawLine(xb, 0, xb, h)
+            # Ponto A pendente (aguardando segundo clique)
+            pending = self._cut_service.get_pending_point()
+            if pending is not None:
+                px = int(pending * w_sel)
+                p.setPen(QPen(QColor(255, 180, 0, 220), 2))
+                p.drawLine(px, 0, px, h)
+                p.setBrush(QColor(255, 180, 0, 200))
+                p.setPen(Qt.NoPen)
+                p.drawEllipse(px - 5, h // 2 - 5, 10, 10)
+                p.setPen(QPen(QColor("#fff")))
+                p.setFont(QFont("Consolas", 7))
+                p.drawText(px + 4, 14, "A")
+                # Preview do ponto B em movimento
+                if self._wip_end_preview is not None:
+                    bx = int(self._wip_end_preview * w_sel)
+                    xa, xb = (min(px, bx), max(px, bx))
+                    p.fillRect(xa, 0, xb - xa, h, QColor(220, 50, 50, 40))
+                    p.setPen(QPen(QColor(220, 50, 50, 180), 2, Qt.DashLine))
+                    p.drawLine(bx, 0, bx, h)
+                    p.setBrush(QColor(220, 50, 50, 200))
+                    p.setPen(Qt.NoPen)
+                    p.drawEllipse(bx - 5, h // 2 - 5, 10, 10)
+                    p.setPen(QPen(QColor("#fff")))
+                    p.setFont(QFont("Consolas", 7))
+                    p.drawText(bx + 4, 14, "B")
+
         # Playhead
         if 0 <= self._playhead_ratio <= 1:
             px = int(self._playhead_ratio * w)
             p.setPen(QPen(QColor(C["playhead"]), 2))
             p.drawLine(px, 0, px, h)
-            # Triangulo no topo
-            from PySide6.QtGui import QPolygon
-            from PySide6.QtCore import QPoint
             p.setBrush(QColor(C["playhead"]))
             p.setPen(Qt.NoPen)
             p.drawPolygon(QPolygon([QPoint(px - 4, 0), QPoint(px + 4, 0), QPoint(px, 5)]))
 
     def mousePressEvent(self, event):
+        if self._cut_service is not None and event.button() == Qt.LeftButton:
+            x = event.position().x()
+            edge = self._hit_edge(x)
+            if edge is not None:
+                self._cut_edge_drag = edge
+                self._cut_service.begin_edge_drag(edge[0], edge[1])
+                self._cut_press_pos = None
+                self._cut_dragging = False
+            elif self._cut_service.get_pending_point() is not None:
+                # Ponto A ja marcado: press ja mostra ponto B na posicao do clique
+                ratio = max(0.0, min(1.0, x / max(1, self.width())))
+                self._wip_end_preview = ratio
+                self._cut_press_pos = x
+                self._cut_dragging = False
+                self._cut_edge_drag = None
+            else:
+                self._cut_press_pos = x
+                self._cut_dragging = False
+                self._cut_edge_drag = None
+            self.update()
+            event.accept()
+            return
         if event.button() == Qt.LeftButton:
             idx = self._find_nearest_keyframe(event.position())
             if idx is None:
@@ -1480,6 +1768,43 @@ class _WaveformWidget(QWidget):
             event.accept()
 
     def mouseMoveEvent(self, event):
+        if self._cut_service is not None:
+            x = event.position().x()
+            # Drag de borda existente
+            if self._cut_edge_drag is not None:
+                ratio = max(0.0, min(1.0, x / max(1, self.width())))
+                self._cut_service.update_edge_drag(ratio)
+                self.update()
+                return
+            if self._cut_press_pos is not None:
+                dx = abs(x - self._cut_press_pos)
+                if self._cut_service.get_pending_point() is not None:
+                    # Ponto A marcado: mover ponto B em tempo real sem threshold
+                    ratio = max(0.0, min(1.0, x / max(1, self.width())))
+                    self._wip_end_preview = ratio
+                    self._cut_dragging = True
+                    self.update()
+                elif not self._cut_dragging and dx > 4:
+                    # Novo arrasto sem ponto A pendente
+                    ratio = max(0.0, min(1.0, self._cut_press_pos / max(1, self.width())))
+                    self._cut_service.begin_selection(ratio)
+                    self._cut_dragging = True
+                    if self._cut_dragging:
+                        ratio = max(0.0, min(1.0, x / max(1, self.width())))
+                        self._cut_service.update_selection(ratio)
+                        self.update()
+                elif self._cut_dragging:
+                    ratio = max(0.0, min(1.0, x / max(1, self.width())))
+                    self._cut_service.update_selection(ratio)
+                    self.update()
+                return
+            # Hover: mudar cursor ao passar perto de borda
+            edge = self._hit_edge(x)
+            if edge is not None:
+                self.setCursor(Qt.SizeHorCursor)
+            else:
+                self.setCursor(Qt.CrossCursor)
+            return
         if self._dragging is not None:
             t, v = self._pos_to_kf(event.position())
             kf = self._item.volume_keyframes[self._dragging]
@@ -1491,6 +1816,35 @@ class _WaveformWidget(QWidget):
             self.update()
 
     def mouseReleaseEvent(self, event):
+        if self._cut_service is not None and event.button() == Qt.LeftButton:
+            ratio = max(0.0, min(1.0, event.position().x() / max(1, self.width())))
+            if self._cut_edge_drag is not None:
+                self._cut_service.end_edge_drag()
+                self._cut_edge_drag = None
+                self.update()
+                self.selection_changed.emit()
+            elif self._cut_press_pos is not None and self._cut_service.get_pending_point() is not None:
+                # Segundo clique (com ou sem arrasto): fecha selecao A->B
+                self._wip_end_preview = None
+                self._cut_service.click_point(ratio)
+                self._cut_press_pos = None
+                self._cut_dragging = False
+                self.update()
+                self.selection_changed.emit()
+            elif self._cut_dragging:
+                self._cut_dragging = False
+                self._cut_press_pos = None
+                self._cut_service.commit_wip()
+                self.update()
+                self.selection_changed.emit()
+            else:
+                # Primeiro clique simples: marca ponto A
+                self._cut_service.click_point(ratio)
+                self._cut_press_pos = None
+                self.update()
+                self.selection_changed.emit()
+            event.accept()
+            return
         if self._dragging is not None:
             self._dragging = None
             self.setCursor(Qt.PointingHandCursor)

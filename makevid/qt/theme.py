@@ -114,6 +114,7 @@ QPushButton#closeBtn:hover {
     color: #EF4444;
 }
 
+
 /* ── Isolamento de QFrame ── */
 QFrame > QLabel {
     border: none;

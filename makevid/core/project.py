@@ -178,10 +178,12 @@ class TrackItem:
     start_time: float = 0.0  # posicao em segundos na timeline
     duration: float = 2.0  # duracao em segundos
     file_path: str = ""  # path do arquivo (WAV para audio)
+    file_offset: float = 0.0  # offset em segundos dentro do arquivo (apos trim de inicio)
     clip_index: int = -1  # indice do clip/video que gerou este item (-1 = nao associado)
-    params: Dict[str, str] = field(default_factory=dict)  # parametros extras (cor, intensidade, volume, emotion, etc)
-    # Keyframes de volume: lista de {"time": float (segundos relativos ao item), "value": float (0.0-2.0)}
+    params: Dict[str, str] = field(default_factory=dict)
     volume_keyframes: List[Dict[str, float]] = field(default_factory=list)
+    # Regioes silenciadas: [{"start": float, "end": float}] em ratio 0..1 relativo ao item
+    muted_regions: List[Dict[str, float]] = field(default_factory=list)
 
     @classmethod
     def create(cls, name: str, track: str, start_time: float, duration: float = 2.0, file_path: str = "") -> "TrackItem":
@@ -241,9 +243,10 @@ class Project:
         track_end = max((i.start_time + i.duration for i in self.track_items), default=0)
         return max(video_dur, track_end)
 
-    def add_track_item(self, name: str, track: str, start_time: float, duration: float = 2.0, file_path: str = "", params: Dict[str, str] = None, clip_index: int = -1) -> TrackItem:
+    def add_track_item(self, name: str, track: str, start_time: float, duration: float = 2.0, file_path: str = "", params: Dict[str, str] = None, clip_index: int = -1, file_offset: float = 0.0) -> TrackItem:
         item = TrackItem.create(name=name, track=track, start_time=start_time, duration=duration, file_path=file_path)
         item.clip_index = clip_index
+        item.file_offset = file_offset
         if params:
             item.params = params
         self.track_items.append(item)
@@ -274,7 +277,7 @@ class Project:
             world=WorldBible(**data.get("world", {})),
             characters=[Character(**c) for c in data.get("characters", [])],
             clips=[Clip(**c) for c in data.get("clips", [])],
-            track_items=[TrackItem(**i) for i in data.get("track_items", [])],
+            track_items=[TrackItem(**{**i, 'file_offset': i.get('file_offset', 0.0), 'muted_regions': i.get('muted_regions', [])}) for i in data.get("track_items", [])],
             track_volumes=data.get("track_volumes", {"voice": 1.0, "sfx": 0.8, "music": 0.3, "audio": 0.7}),
             output_fps=data.get("output_fps", 16),
             output_width=data.get("output_width", 832),
