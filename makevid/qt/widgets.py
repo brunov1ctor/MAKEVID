@@ -82,6 +82,11 @@ class GlassPanel(QWidget):
             p.end()
             return
 
+        # Limpa o fundo antes de pintar o glass
+        p.setCompositionMode(QPainter.CompositionMode_Clear)
+        p.fillRect(0, 0, w, h, Qt.transparent)
+        p.setCompositionMode(QPainter.CompositionMode_SourceOver)
+
         r    = QRectF(1, 1, w - 2, h - 2)
         path = QPainterPath()
         path.addRoundedRect(r, R, R)

@@ -152,44 +152,49 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
 
     # ── Panel switching ───────────────────────────────────────────────────────
 
+    def _switch_panel(self, widget):
+        """Troca o painel ativo."""
+        self._left_stack.setCurrentWidget(widget)
+        self._left_stack.repaint()
+
     def _show_generator(self):
         self.timeline.clear_active_track()
-        self._left_stack.setCurrentWidget(self.generator)
+        self._switch_panel(self.generator)
         self.timeline._scene.select_track_item(self.timeline._selected_track_item_id)
 
     def _return_to_prev(self):
         self.timeline.redraw()
         prev = getattr(self, "_prev_panel", self.generator)
-        self._left_stack.setCurrentWidget(prev)
+        self._switch_panel(prev)
         if prev is self.audio_browser:
             self.audio_browser.refresh()
 
     def _show_track_editor(self, item):
         self.timeline.set_active_track(item.track)
         self.track_editor.show_item(item, self.project)
-        self._left_stack.setCurrentWidget(self.track_editor)
+        self._switch_panel(self.track_editor)
 
     def _show_fx_editor(self, item):
         self.timeline.set_active_track("fx")
         self.fx_editor.show_item(item, self.project)
-        self._left_stack.setCurrentWidget(self.fx_editor)
+        self._switch_panel(self.fx_editor)
 
     def _show_export(self):
-        self._left_stack.setCurrentWidget(self.export_panel)
+        self._switch_panel(self.export_panel)
 
     def _do_export_direct(self):
-        self._left_stack.setCurrentWidget(self.export_panel)
+        self._switch_panel(self.export_panel)
         self.export_panel._do_export()
 
     def _show_recorder(self, track="voice"):
         self._prev_panel = self._left_stack.currentWidget()
         self.recorder.set_context(self.project, self.timeline, track)
-        self._left_stack.setCurrentWidget(self.recorder)
+        self._switch_panel(self.recorder)
 
     def _show_tts(self):
         self._prev_panel = self._left_stack.currentWidget()
         self.tts_panel.set_context(self.project, self.timeline)
-        self._left_stack.setCurrentWidget(self.tts_panel)
+        self._switch_panel(self.tts_panel)
 
     def _show_video_browser(self):
         self.preview.show_video_browser()
@@ -216,7 +221,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
 
     def _show_mixer(self, item):
         self.mixer.show_item(item, self.project)
-        self._left_stack.setCurrentWidget(self.mixer)
+        self._switch_panel(self.mixer)
 
     def _on_clip_clicked(self, clip):
         self.generator.set_clip_data(clip)
@@ -228,7 +233,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.timeline._selected_clip_id = None
         self.timeline.set_active_track(track_name)
         self.track_menu.show_track(track_name, self.project)
-        self._left_stack.setCurrentWidget(self.track_menu)
+        self._switch_panel(self.track_menu)
 
     def _show_style_tab(self, tab_index):
         if not self.style_panel.isVisible():

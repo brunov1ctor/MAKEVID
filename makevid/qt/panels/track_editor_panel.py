@@ -1064,7 +1064,6 @@ class TrackEditorPanel(QWidget):
     def _commit_layer_edit(self, item):
         self._project.save(PROJECTS_DIR)
         self.changed.emit()
-        self.show_item(item, self._project)
 
     def _cut_btn_clicked(self, item, btn, waveform):
         """Clique no botao Recortar: ativa o modo de corte."""
@@ -1177,6 +1176,8 @@ class TrackEditorPanel(QWidget):
         )
         if applied:
             self._set_cut_container_mode(item, "idle")
+            waveform._load_waveform()
+            waveform.update()
 
     def _trim_start_to_playhead(self, item):
         """Remove o começo do layer até o playhead."""

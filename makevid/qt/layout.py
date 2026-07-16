@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt
 
 from makevid.qt.widgets import GlassPanel
 from makevid.qt.preview.glow_layer import PreviewGlowPanel
+
 from makevid.qt.timeline.timeline_widget import TimelineWidget
 from makevid.qt.preview.preview_widget import PreviewWidget
 from makevid.qt.panels.generator_panel import GeneratorPanel
@@ -114,7 +115,8 @@ def _build_panels(window):
     window.audio_browser = AudioBrowserPanel(project, window.timeline)
 
     # Paineis que gerenciam seu proprio visual — nao aplicar _make_transparent
-    _opaque_panels = {window.track_editor, window.mixer, window.fx_editor}
+    _opaque_panels = {window.track_editor, window.mixer, window.fx_editor,
+                      window.track_menu}
 
     panels = (
         window.generator, window.mixer, window.fx_editor, window.track_editor,

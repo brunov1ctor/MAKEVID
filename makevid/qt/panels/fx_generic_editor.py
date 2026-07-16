@@ -2,7 +2,7 @@
 
 import colorsys
 
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QFrame, QSlider
+from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame, QSlider
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QImage, QPixmap, QPainter
 

@@ -76,22 +76,34 @@ class TrackMenuPanel(QWidget):
             f"QScrollArea {{ background: transparent; border: none; }}"
             f"QWidget {{ background: transparent; }}"
         )
+        # Garante que o host opaco use a mesma cor de fundo
+        if self._content_host is not None:
+            from PySide6.QtGui import QPalette
+            pal = self._content_host.palette()
+            pal.setColor(QPalette.Window, QColor(mixed))
+            self._content_host.setPalette(pal)
 
     def _reset_content_host(self):
-        # Limpa imediatamente o conteúdo para evitar sobreposição visual
-        # quando o usuário troca de track rapidamente.
         if self._content_host is None:
-            from PySide6.QtWidgets import QWidget
             self._content_host = QWidget(self)
-            self._content_host.setAttribute(Qt.WA_TranslucentBackground)
-            self._content_host.setAutoFillBackground(False)
+            self._content_host.setAutoFillBackground(True)
             self._content_layout = QVBoxLayout(self._content_host)
             self._content_layout.setContentsMargins(0, 0, 0, 0)
             self._content_layout.setSpacing(0)
             self._outer.addWidget(self._content_host)
             return
 
-        self._clear_layout(self._content_layout)
+        # Substitui o host inteiro em vez de limpar o layout,
+        # garantindo que widgets antigos desapareçam imediatamente.
+        old = self._content_host
+        self._content_host = QWidget(self)
+        self._content_host.setAutoFillBackground(True)
+        self._content_layout = QVBoxLayout(self._content_host)
+        self._content_layout.setContentsMargins(0, 0, 0, 0)
+        self._content_layout.setSpacing(0)
+        self._outer.replaceWidget(old, self._content_host)
+        old.hide()
+        old.deleteLater()
 
     def _clear_layout(self, layout):
         while layout and layout.count():
@@ -106,16 +118,13 @@ class TrackMenuPanel(QWidget):
                 w.deleteLater()
 
     def show_track(self, track_name, project):
-        # Se já está mostrando a mesma track, não reconstrói
         if getattr(self, '_track', None) == track_name and getattr(self, '_project', None) is project:
             return
 
         self._track = track_name
         self._project = project
 
-        self._reset_content_host()
-
-        # Aplicar cor de fundo
+        # Aplicar cor de fundo antes de criar o novo host
         cfg = TRACK_CONFIG.get(track_name)
         if cfg:
             self._apply_bg(cfg[0]())
@@ -125,6 +134,8 @@ class TrackMenuPanel(QWidget):
             self._apply_bg(C["blue"])
         else:
             self._apply_bg(C["glass"])
+
+        self._reset_content_host()
 
         if track_name == "fx":
             self._build_fx_menu()
@@ -284,7 +295,7 @@ class TrackMenuPanel(QWidget):
         cl.setContentsMargins(6, 6, 6, 6)
         cl.setSpacing(4)
 
-        from makevid.qt.panels.fx_panel import _FxIconWidget
+        from makevid.qt.panels.fx_browser import _FxIconWidget
 
         grid = QGridLayout()
         grid.setSpacing(4)
