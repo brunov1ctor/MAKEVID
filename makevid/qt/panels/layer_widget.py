@@ -2,11 +2,10 @@
 
 import logging
 
-import numpy as np
-
 from PySide6.QtWidgets import (
     QFrame, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCheckBox, QLineEdit, QGridLayout, QSizePolicy, QRadioButton, QButtonGroup,
+    QSlider,
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QColor
@@ -21,6 +20,77 @@ from makevid.core.audio_utils import compute_normalize_gain
 from makevid.qt.panels.layer_audio_player import _file_exists
 
 _log = logging.getLogger(__name__)
+
+_PRESET_RESET = {"volume": 80, "pan": 0, "fade_in": 0, "fade_out": 0, "reverb": 0, "room": 0, "speed": 100}
+
+_PRESET_LABELS: dict[str, str] = {
+    "voice_clean": "CLEAN", "voice_broadcast": "BROADCAST", "voice_warm": "WARM",
+    "sfx_impact":  "IMPACT", "sfx_dry": "DRY",             "sfx_space": "SPACE",
+    "music_cinema": "CINEMA", "music_wide": "WIDE",        "music_tight": "TIGHT",
+    "audio_balanced": "BALANCED", "audio_air": "AIR",      "audio_focus": "FOCUS",
+    "reset": "RESET",
+}
+
+_PRESET_BUTTONS: dict[str, list] = {
+    "voice": [
+        ("voice_clean",     "CLEAN",     "voz seca e clara"),
+        ("voice_broadcast", "BROADCAST", "voz mais presente"),
+        ("voice_warm",      "WARM",      "mais corpo e sala leve"),
+        ("reset",           "RESET",     "padrão"),
+    ],
+    "sfx": [
+        ("sfx_impact", "IMPACT", "mais punch"),
+        ("sfx_dry",    "DRY",    "sem sala"),
+        ("sfx_space",  "SPACE",  "mais ambiente"),
+        ("reset",      "RESET",  "padrão"),
+    ],
+    "music": [
+        ("music_cinema", "CINEMA", "largura e profundidade"),
+        ("music_wide",   "WIDE",   "abertura estéreo"),
+        ("music_tight",  "TIGHT",  "mais focado"),
+        ("reset",        "RESET",  "padrão"),
+    ],
+    "audio": [
+        ("audio_balanced", "BALANCED", "equilíbrio geral"),
+        ("audio_air",      "AIR",      "brilho e leveza"),
+        ("audio_focus",    "FOCUS",    "mais centro"),
+        ("reset",          "RESET",    "padrão"),
+    ],
+}
+
+_PRESET_RECOMMENDED: dict[str, str] = {
+    "voice": "voice_clean",
+    "sfx":   "sfx_impact",
+    "music": "music_cinema",
+    "audio": "audio_balanced",
+}
+
+_PRESET_VALUES: dict[str, dict] = {
+    "voice": {
+        "reset":           _PRESET_RESET,
+        "voice_clean":     {"volume": 94, "pan": 0, "fade_in": 0, "fade_out": 2,  "reverb": 0,  "room": 0,  "speed": 100},
+        "voice_broadcast": {"volume": 92, "pan": 0, "fade_in": 0, "fade_out": 6,  "reverb": 3,  "room": 5,  "speed": 100},
+        "voice_warm":      {"volume": 88, "pan": 0, "fade_in": 2, "fade_out": 4,  "reverb": 10, "room": 16, "speed": 100},
+    },
+    "sfx": {
+        "reset":      _PRESET_RESET,
+        "sfx_impact": {"volume": 110, "pan": 0, "fade_in": 0, "fade_out": 2, "reverb": 6,  "room": 8,  "speed": 100},
+        "sfx_dry":    {"volume": 100, "pan": 0, "fade_in": 0, "fade_out": 0, "reverb": 0,  "room": 0,  "speed": 100},
+        "sfx_space":  {"volume": 92,  "pan": 8, "fade_in": 0, "fade_out": 4, "reverb": 18, "room": 30, "speed": 100},
+    },
+    "music": {
+        "reset":        _PRESET_RESET,
+        "music_cinema": {"volume": 78, "pan": 0,  "fade_in": 6, "fade_out": 8, "reverb": 16, "room": 24, "speed": 100},
+        "music_wide":   {"volume": 75, "pan": 10, "fade_in": 4, "fade_out": 6, "reverb": 12, "room": 18, "speed": 100},
+        "music_tight":  {"volume": 84, "pan": 0,  "fade_in": 2, "fade_out": 4, "reverb": 4,  "room": 6,  "speed": 100},
+    },
+    "audio": {
+        "reset":          _PRESET_RESET,
+        "audio_balanced": {"volume": 80, "pan": 0, "fade_in": 0, "fade_out": 0, "reverb": 0, "room": 0,  "speed": 100},
+        "audio_air":      {"volume": 82, "pan": 0, "fade_in": 2, "fade_out": 6, "reverb": 8, "room": 12, "speed": 100},
+        "audio_focus":    {"volume": 84, "pan": 0, "fade_in": 0, "fade_out": 2, "reverb": 2, "room": 4,  "speed": 100},
+    },
+}
 
 
 class LayerWidget(QFrame):
@@ -171,12 +241,12 @@ class LayerWidget(QFrame):
         wf_row.setContentsMargins(0, 0, 0, 0)
 
         db_axis = _DbAxisWidget()
-        db_axis.setFixedWidth(28)
-        db_axis.setFixedHeight(78)
+        db_axis.setFixedWidth(36)
+        db_axis.setFixedHeight(120)
         wf_row.addWidget(db_axis)
 
         self.waveform = _WaveformWidget(self._item, self._color)
-        self.waveform.setFixedHeight(78)
+        self.waveform.setFixedHeight(120)
         self.waveform.keyframe_changed.connect(
             lambda commit: self.changed.emit(self._item, commit)
         )
@@ -373,77 +443,16 @@ class LayerWidget(QFrame):
         self.changed.emit(self._item, True)
 
     def _presets_for_track(self, track):
-        banks = {
-            "voice": [
-                ("voice_clean",     "CLEAN",     "voz seca e clara"),
-                ("voice_broadcast", "BROADCAST", "voz mais presente"),
-                ("voice_warm",      "WARM",      "mais corpo e sala leve"),
-                ("reset",           "RESET",     "padrão"),
-            ],
-            "sfx": [
-                ("sfx_impact", "IMPACT", "mais punch"),
-                ("sfx_dry",    "DRY",    "sem sala"),
-                ("sfx_space",  "SPACE",  "mais ambiente"),
-                ("reset",      "RESET",  "padrão"),
-            ],
-            "music": [
-                ("music_cinema", "CINEMA", "largura e profundidade"),
-                ("music_wide",   "WIDE",   "abertura estéreo"),
-                ("music_tight",  "TIGHT",  "mais focado"),
-                ("reset",        "RESET",  "padrão"),
-            ],
-            "audio": [
-                ("audio_balanced", "BALANCED", "equilíbrio geral"),
-                ("audio_air",      "AIR",      "brilho e leveza"),
-                ("audio_focus",    "FOCUS",    "mais centro"),
-                ("reset",          "RESET",    "padrão"),
-            ],
-        }
-        return banks.get(track, banks["audio"])
+        return _PRESET_BUTTONS.get(track, _PRESET_BUTTONS["audio"])
 
     def _recommended_preset_for_track(self, track):
-        return {
-            "voice": "voice_clean",
-            "sfx":   "sfx_impact",
-            "music": "music_cinema",
-            "audio": "audio_balanced",
-        }.get(track, "audio_balanced")
+        return _PRESET_RECOMMENDED.get(track, "audio_balanced")
 
     def _preset_label_for_key(self, preset_key):
-        return {
-            "voice_clean": "CLEAN", "voice_broadcast": "BROADCAST", "voice_warm": "WARM",
-            "sfx_impact": "IMPACT", "sfx_dry": "DRY", "sfx_space": "SPACE",
-            "music_cinema": "CINEMA", "music_wide": "WIDE", "music_tight": "TIGHT",
-            "audio_balanced": "BALANCED", "audio_air": "AIR", "audio_focus": "FOCUS",
-            "reset": "RESET",
-        }.get(preset_key, "RESET")
+        return _PRESET_LABELS.get(preset_key, "RESET")
 
     def _preset_values_for_track(self, track):
-        common = {"reset": {"volume": 80, "pan": 0, "fade_in": 0, "fade_out": 0,
-                             "reverb": 0, "room": 0, "speed": 100}}
-        banks = {
-            "voice": {**common,
-                "voice_clean":     {"volume": 94, "pan": 0, "fade_in": 0,  "fade_out": 2,  "reverb": 0,  "room": 0,  "speed": 100},
-                "voice_broadcast": {"volume": 92, "pan": 0, "fade_in": 0,  "fade_out": 6,  "reverb": 3,  "room": 5,  "speed": 100},
-                "voice_warm":      {"volume": 88, "pan": 0, "fade_in": 2,  "fade_out": 4,  "reverb": 10, "room": 16, "speed": 100},
-            },
-            "sfx": {**common,
-                "sfx_impact": {"volume": 110, "pan": 0, "fade_in": 0, "fade_out": 2, "reverb": 6,  "room": 8,  "speed": 100},
-                "sfx_dry":    {"volume": 100, "pan": 0, "fade_in": 0, "fade_out": 0, "reverb": 0,  "room": 0,  "speed": 100},
-                "sfx_space":  {"volume": 92,  "pan": 8, "fade_in": 0, "fade_out": 4, "reverb": 18, "room": 30, "speed": 100},
-            },
-            "music": {**common,
-                "music_cinema": {"volume": 78, "pan": 0,  "fade_in": 6, "fade_out": 8, "reverb": 16, "room": 24, "speed": 100},
-                "music_wide":   {"volume": 75, "pan": 10, "fade_in": 4, "fade_out": 6, "reverb": 12, "room": 18, "speed": 100},
-                "music_tight":  {"volume": 84, "pan": 0,  "fade_in": 2, "fade_out": 4, "reverb": 4,  "room": 6,  "speed": 100},
-            },
-            "audio": {**common,
-                "audio_balanced": {"volume": 80, "pan": 0, "fade_in": 0, "fade_out": 0, "reverb": 0, "room": 0,  "speed": 100},
-                "audio_air":      {"volume": 82, "pan": 0, "fade_in": 2, "fade_out": 6, "reverb": 8, "room": 12, "speed": 100},
-                "audio_focus":    {"volume": 84, "pan": 0, "fade_in": 0, "fade_out": 2, "reverb": 2, "room": 4,  "speed": 100},
-            },
-        }
-        return banks.get(track, banks["audio"])
+        return _PRESET_VALUES.get(track, _PRESET_VALUES["audio"])
 
     # ── action row ────────────────────────────────────────────────────────────
 
@@ -491,14 +500,17 @@ class LayerWidget(QFrame):
         )
         self._cut_confirm.hide()
 
-        row = _ResponsiveActionGrid()
-        row.add_widget(self._play_btn)
-        row.add_widget(dup_btn)
-        row.add_widget(self._cut_btn)
-        row.add_widget(self._cut_confirm)
-        row.finalize()
-        self._action_row = row
-        self._content_l.addWidget(row)
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(8)
+        row_layout.addWidget(self._play_btn)
+        row_layout.addWidget(dup_btn)
+        row_layout.addWidget(self._cut_btn)
+        row_layout.addWidget(self._cut_confirm)
+        self._action_row = row_widget
+        self._action_layout = row_layout
+        self._content_l.addWidget(row_widget)
 
     def _on_undo_cut(self):
         """Limpa seleções de corte sem aplicar."""
@@ -540,7 +552,6 @@ class LayerWidget(QFrame):
             self._cut_btn.hide()
             self._cut_confirm.show()
             self._cut_confirm.start_glow()
-        self._action_row._relayout()
 
     # ── params card (sliders de mixagem) ──────────────────────────────────────
 
@@ -581,7 +592,6 @@ class LayerWidget(QFrame):
         self._content_l.addWidget(card)
 
     def _add_param_slider(self, layout, label, from_, to, default, unit, color, item, param_key, slot):
-        from PySide6.QtWidgets import QSlider
         box = QFrame()
         box.setStyleSheet(
             "background: rgba(255,255,255,0.04); "
@@ -701,10 +711,10 @@ class LayerWidget(QFrame):
         cl.addWidget(target_lbl)
 
         _btn_style = (
-            f"QPushButton {{ background: rgba(255,255,255,0.06); color: {C['text']}; "
+            "QPushButton { background: rgba(255,255,255,0.06); color: #F3F6FF; "
             "font-size: 12pt; font-weight: bold; border: 1px solid rgba(255,255,255,0.12); "
-            "border-radius: 6px; padding: 0; }}"
-            "QPushButton:hover { background: rgba(255,255,255,0.14); }"
+            "border-radius: 6px; padding: 0; } "
+            "QPushButton:hover { background: rgba(255,255,255,0.14); } "
             "QPushButton:pressed { background: rgba(255,255,255,0.20); }"
         )
         btn_minus = QPushButton("-")
@@ -716,9 +726,9 @@ class LayerWidget(QFrame):
         norm_entry.setFixedWidth(58)
         norm_entry.setAlignment(Qt.AlignCenter)
         norm_entry.setStyleSheet(
-            f"QLineEdit {{ background: rgba(255,255,255,0.06); color: {C['text']}; "
+            "QLineEdit { background: rgba(255,255,255,0.06); color: #F3F6FF; "
             "font-size: 9pt; font-weight: bold; font-family: Consolas; "
-            "border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 0 4px; }}"
+            "border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 0 4px; }"
         )
 
         btn_plus = QPushButton("+")
@@ -794,15 +804,14 @@ class LayerWidget(QFrame):
         entry = QLineEdit(self._item.name)
         entry.setFixedHeight(24)
         entry.setStyleSheet(
-            f"background: {C['input']}; color: {C['text']}; font-weight: bold; "
-            f"font-size: 9pt; border: 1px solid {self._color}; "
-            "border-radius: 4px; padding: 0 6px;"
+            f"QLineEdit {{ background: rgba(10,16,30,0.70); color: #F3F6FF; font-weight: bold; "
+            f"font-size: 9pt; border: 1px solid {self._color}; border-radius: 4px; padding: 0 6px; }}"
         )
         ok_btn = QPushButton("✓")
         ok_btn.setFixedSize(28, 24)
         ok_btn.setStyleSheet(
             f"QPushButton {{ background: {self._color}; color: #000; font-weight: bold; "
-            "font-size: 11pt; border: none; border-radius: 4px; }}"
+            f"font-size: 11pt; border: none; border-radius: 4px; }} "
             f"QPushButton:hover {{ background: {C['secondary']}; }}"
         )
         row = QHBoxLayout()
@@ -844,7 +853,6 @@ class LayerWidget(QFrame):
             "cut_btn":      self._cut_btn,
             "cut_confirm":  self._cut_confirm,
             "cut_waveform": self.waveform,
-            "action_row":   self._action_row,
         })
 
     # ── public helpers ────────────────────────────────────────────────────────

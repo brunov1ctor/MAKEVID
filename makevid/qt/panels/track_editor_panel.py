@@ -28,6 +28,7 @@ from makevid.qt.panels.layer_audio_player import (
     _LayerStreamPlayer, _prepare_audio, _file_exists,
 )
 from makevid.qt.panels.layer_ui_components import _ResponsiveActionGrid
+from makevid.qt.panels.waveform_widget import _DB_FLOOR, _DB_RANGE
 
 TRACK_COLORS = {
     "voice": C["track_voice"], "sfx": C["track_sfx"],
@@ -419,6 +420,7 @@ class TrackEditorPanel(QWidget):
                     return
                 self._playing[item_id] = False
                 waveform.set_playhead(-1)
+                waveform.set_peak_rms(None, None)
                 lw = self._layer_frames.get(item_id)
                 if lw:
                     lw.set_play_state(False)
@@ -429,6 +431,23 @@ class TrackEditorPanel(QWidget):
             audio_ratio  = min(1.0, start_ratio + (elapsed / play_duration) * (1.0 - start_ratio))
             visual_ratio = waveform._audio_ratio_to_visual(audio_ratio)
             waveform._playhead_ratio = visual_ratio
+
+            # Peak / RMS da janela atual (~100ms)
+            try:
+                wd = waveform._waveform_data
+                if wd:
+                    n   = len(wd)
+                    idx = int(audio_ratio * n)
+                    win = wd[max(0, idx - 4): idx + 4] or wd[max(0, idx - 1): idx + 1]
+                    if win:
+                        peak_amp = max(win)
+                        rms_amp  = float(np.sqrt(np.mean(np.array(win) ** 2)))
+                        peak_db  = round(_DB_FLOOR + peak_amp * _DB_RANGE, 1)
+                        rms_db   = round(_DB_FLOOR + rms_amp  * _DB_RANGE, 1)
+                        waveform.set_peak_rms(peak_db, rms_db)
+            except Exception:
+                pass
+
             waveform.update()
             item_dur = float(waveform._item.duration)
             current  = audio_ratio * item_dur

@@ -14,49 +14,56 @@ from makevid.qt.panels.layer_audio_player import _prepare_audio_visual
 
 _log = logging.getLogger(__name__)
 
-# Marcações do eixo dB: (valor_dB, cor, mostrar_no_eixo_lateral)
-_DB_MARKS = [
-    (-3,  QColor(220, 80,  80)),
-    (-6,  QColor(220, 180, 60)),
-    (-12, QColor(100, 200, 120)),
-    (-18, QColor(80,  160, 220)),
-    (-36, QColor(130, 130, 130)),
+# Escala fixa: 0 dB (topo) até -60 dB (base) — igual DAWs profissionais
+_DB_FLOOR = -60.0
+_DB_CEIL  =   0.0
+_DB_RANGE =  60.0
+
+def _db_to_y(db_val: float, h: int) -> int:
+    """Converte valor dB para coordenada Y (0 = topo = 0 dB, h = base = -60 dB)."""
+    ratio = (db_val - _DB_CEIL) / (_DB_FLOOR - _DB_CEIL)   # 0.0 → topo, 1.0 → base
+    return int(ratio * h)
+
+# Linhas principais do grid (db, cor_linha, mostrar_label)
+_GRID_MAJOR = [
+    (  0, QColor(255, 255, 255, 55), True),
+    ( -3, QColor(220,  80,  80, 90), True),
+    ( -6, QColor(220, 180,  60, 80), True),
+    ( -9, QColor(180, 180,  60, 50), True),
+    (-12, QColor(100, 200, 120, 75), True),
+    (-15, QColor(140, 140, 140, 40), True),
+    (-18, QColor( 80, 160, 220, 70), True),
+    (-21, QColor(140, 140, 140, 35), True),
+    (-24, QColor(140, 140, 140, 50), True),
+    (-30, QColor(120, 120, 120, 40), True),
+    (-36, QColor(120, 120, 120, 55), True),
+    (-42, QColor(100, 100, 100, 35), True),
+    (-48, QColor(100, 100, 100, 35), True),
+    (-54, QColor( 90,  90,  90, 30), True),
+    (-60, QColor( 80,  80,  80, 40), True),
 ]
 
-# Marcações internas da waveform (mais sutis)
-_DB_MARKS_INTERNAL = [
-    (-3,  QColor(220, 80,  80,  60)),
-    (-6,  QColor(220, 180, 60,  50)),
-    (-12, QColor(100, 200, 120, 45)),
-    (-18, QColor(80,  160, 220, 40)),
-    (-24, QColor(160, 160, 160, 30)),
-    (-36, QColor(160, 160, 160, 20)),
-]
+# Linhas secundárias (pontilhadas, entre as principais)
+_GRID_MINOR = [-1, -2, -4, -5, -7, -8, -10, -11, -13, -14, -16, -17,
+               -19, -20, -22, -23, -25, -27, -33, -39, -45, -51, -57]
 
 
 class _DbAxisWidget(QWidget):
-    """Eixo Y de dB lateral — coluna estreita com labels legíveis."""
+    """Eixo Y de dB lateral — escala fixa 0 → -60 dB, igual DAWs."""
 
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, False)
         w, h = self.width(), self.height()
-        p.fillRect(0, 0, w, h, QColor(11, 18, 32, 180))
-        mid = h / 2
+        p.fillRect(0, 0, w, h, QColor(11, 18, 32, 200))
         p.setFont(QFont("Consolas", 6, QFont.Bold))
-        for db_val, color in _DB_MARKS:
-            ratio = max(0.0, min(1.0, (db_val + 60.0) / 60.0))
-            bar_h = ratio * mid * 0.9
-            y = int(mid - bar_h)
+        for db_val, color, _ in _GRID_MAJOR:
+            y = _db_to_y(db_val, h)
             p.setPen(QPen(color, 1))
             p.drawLine(w - 4, y, w, y)
-            p.setPen(QPen(color.lighter(130)))
-            p.drawText(0, y - 6, w - 6, 12, Qt.AlignRight | Qt.AlignVCenter, f"{db_val}")
-            y2 = int(mid + bar_h)
-            p.setPen(QPen(color, 1))
-            p.drawLine(w - 4, y2, w, y2)
-        p.setPen(QPen(QColor(255, 255, 255, 40), 1))
-        p.drawLine(w - 4, int(mid), w, int(mid))
+            p.setPen(QPen(color.lighter(150)))
+            label = "0" if db_val == 0 else str(db_val)
+            p.drawText(0, y - 7, w - 5, 14, Qt.AlignRight | Qt.AlignVCenter, label)
         p.end()
 
 
@@ -79,6 +86,8 @@ class _WaveformWidget(QWidget):
         self._cut_press_pos  = None
         self._cut_edge_drag  = None
         self._wip_end_preview = None
+        self._peak_db        = None
+        self._rms_db         = None
         self.setCursor(Qt.PointingHandCursor)
         self.setMouseTracking(True)
         self._ensure_default_keyframes()
@@ -105,6 +114,12 @@ class _WaveformWidget(QWidget):
         self._playhead_ratio = self._audio_ratio_to_visual(ratio)
         self.update()
 
+    def set_peak_rms(self, peak_db: float | None, rms_db: float | None):
+        """Atualiza os valores de Peak e RMS exibidos no badge durante a reprodução."""
+        self._peak_db = peak_db
+        self._rms_db  = rms_db
+        self.update()
+
     def reload_waveform(self):
         self._load_waveform()
         self.update()
@@ -125,15 +140,16 @@ class _WaveformWidget(QWidget):
         if data is None or len(data) < 10:
             return
         try:
-            mono    = data.mean(axis=1) if len(data.shape) > 1 else data
-            chunk   = max(1, len(mono) // 200)
+            mono  = data.mean(axis=1) if len(data.shape) > 1 else data
+            chunk = max(1, len(mono) // 400)
             rms_values = [
                 max(float(np.sqrt(np.mean(mono[i:i+chunk] ** 2))), 1e-9)
                 for i in range(0, len(mono), chunk)
             ]
             db = np.array([20 * np.log10(v) for v in rms_values])
-            db_floor, db_ceil = -60.0, max(db.max(), -59.0)
-            self._waveform_data = list(np.clip((db - db_floor) / (db_ceil - db_floor), 0.0, 1.0))
+            # escala fixa -60..0 dB — igual ao eixo lateral
+            db = np.clip(db, _DB_FLOOR, _DB_CEIL)
+            self._waveform_data = list((db - _DB_FLOOR) / _DB_RANGE)
         except Exception:
             _log.exception("Erro ao carregar waveform")
             self._waveform_data = None
@@ -289,38 +305,64 @@ class _WaveformWidget(QWidget):
         w, h = self.width(), self.height()
         p.fillRect(0, 0, w, h, QColor(11, 18, 32, 220))
 
-        # Linhas de referência de dB (sutis, sem labels — labels ficam no _DbAxisWidget)
-        mid = h / 2
-        for db_val, db_color in _DB_MARKS_INTERNAL:
-            ratio = max(0.0, min(1.0, (db_val + 60.0) / 60.0))
-            bar_h = ratio * mid * 0.9
-            y_top = int(mid - bar_h)
-            y_bot = int(mid + bar_h)
-            pen = QPen(db_color, 1)
-            pen.setStyle(Qt.DashLine if db_val <= -18 else Qt.SolidLine)
-            p.setPen(pen)
-            p.drawLine(0, y_top, w, y_top)
-            p.drawLine(0, y_bot, w, y_bot)
+        # Grid secundário (pontilhado, muito sutil)
+        minor_pen = QPen(QColor(255, 255, 255, 10), 1, Qt.DotLine)
+        p.setPen(minor_pen)
+        for db_val in _GRID_MINOR:
+            y = _db_to_y(db_val, h)
+            p.drawLine(0, y, w, y)
 
-        # Waveform
+        # Grid principal (linhas horizontais de dB)
+        for db_val, color, _ in _GRID_MAJOR:
+            y = _db_to_y(db_val, h)
+            pen = QPen(color, 1)
+            pen.setStyle(Qt.DashLine if db_val <= -24 else Qt.SolidLine)
+            p.setPen(pen)
+            p.drawLine(0, y, w, y)
+
+        # Linhas verticais de tempo
+        dur = max(0.001, float(self._item.duration or 1.0))
+        step = 1.0 if dur <= 10 else (2.0 if dur <= 30 else 5.0)
+        t = step
+        p.setFont(QFont("Consolas", 6))
+        while t < dur:
+            x = int(t / dur * w)
+            p.setPen(QPen(QColor(255, 255, 255, 18), 1))
+            p.drawLine(x, 0, x, h)
+            p.setPen(QPen(QColor(255, 255, 255, 55)))
+            p.drawText(x + 2, h - 2, f"{t:.0f}s")
+            t += step
+
+        # Waveform — barras simétricas ancoradas no eixo de amplitude
         if self._waveform_data:
             n     = len(self._waveform_data)
-            bar_w = max(1, w / n)
-            mid   = h / 2
+            bar_w = max(1.0, w / n)
             try:
                 vol_scale = min(2.0, max(0.0, float(self._item.params.get('volume', 100)) / 100.0))
             except (TypeError, ValueError):
                 vol_scale = 1.0
-            color_dark = QColor(self._color)
-            color_dark.setAlpha(180)
+            color_fill = QColor(self._color)
+            color_fill.setAlpha(160)
+            color_top  = QColor(self._color)
+            color_top.setAlpha(220)
+            p.setPen(Qt.NoPen)
             for i, amp in enumerate(self._waveform_data):
-                x     = int(i * bar_w)
-                bar_h = max(1, int(amp * vol_scale * mid * 0.9))
-                p.setPen(Qt.NoPen)
-                p.setBrush(color_dark)
-                p.drawRect(x, int(mid - bar_h), max(1, int(bar_w) - 1), bar_h * 2)
+                # amp em [0,1] onde 1 = 0 dB, 0 = -60 dB
+                # aplicar vol_scale no domínio dB: shift de amplitude
+                scaled = min(1.0, amp * vol_scale)
+                db_val = _DB_FLOOR + scaled * _DB_RANGE          # dB absoluto
+                y_top  = _db_to_y(db_val, h)                     # pixel do pico
+                y_bot  = h - y_top                               # espelho inferior
+                x      = int(i * bar_w)
+                bw     = max(1, int(bar_w) - 1)
+                # barra inferior (espelho)
+                p.setBrush(color_fill)
+                p.drawRect(x, y_top, bw, max(1, y_bot - y_top))
+                # linha de topo (destaque)
+                p.setBrush(color_top)
+                p.drawRect(x, y_top, bw, 1)
         else:
-            p.setPen(QPen(self._color, 1))
+            p.setPen(QPen(QColor(self._color), 1))
             p.drawLine(0, h // 2, w, h // 2)
 
         self._draw_keyframes(p, w, h)
@@ -336,6 +378,27 @@ class _WaveformWidget(QWidget):
         # Modo de recorte
         if self._cut_service is not None:
             self._paint_cut_overlay(p, w, h)
+
+        # Badge Peak / RMS
+        if self._peak_db is not None or self._rms_db is not None:
+            lines = []
+            if self._peak_db is not None:
+                clipping = self._peak_db >= -0.1
+                peak_color = QColor(220, 60, 60) if clipping else QColor(220, 180, 60)
+                lines.append((f"Pk {self._peak_db:+.1f}dB", peak_color))
+            if self._rms_db is not None:
+                lines.append((f"RMS {self._rms_db:+.1f}dB", QColor(100, 200, 120)))
+            badge_w, badge_h = 88, 14 * len(lines) + 6
+            bx = w - badge_w - 4
+            by = 4
+            p.fillRect(bx, by, badge_w, badge_h, QColor(8, 14, 26, 200))
+            p.setPen(QPen(QColor(255, 255, 255, 30), 1))
+            p.drawRect(bx, by, badge_w - 1, badge_h - 1)
+            p.setFont(QFont("Consolas", 7, QFont.Bold))
+            for i, (text, color) in enumerate(lines):
+                p.setPen(QPen(color))
+                p.drawText(bx + 4, by + 4 + i * 14, badge_w - 8, 14,
+                           Qt.AlignLeft | Qt.AlignVCenter, text)
 
         # Playhead
         if 0 <= self._playhead_ratio <= 1:
