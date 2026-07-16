@@ -1,9 +1,8 @@
-"""Track Editor Panel Qt - Editor de layers de audio por track (voice/sfx/music/audio)."""
+"""Track Editor Panel — orquestrador do editor de layers de áudio."""
 
 import logging
 import time as _time
 import threading
-from pathlib import Path
 
 import numpy as np
 import soundfile as sf
@@ -13,168 +12,55 @@ _log = logging.getLogger(__name__)
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QSlider, QScrollArea, QFrame, QLineEdit, QGridLayout,
-    QSizePolicy, QCheckBox
+    QScrollArea, QFrame, QLineEdit, QSizePolicy, QCheckBox,
 )
-from PySide6.QtCore import Qt, Signal, QTimer, QPoint, QMimeData
-from PySide6.QtGui import QFont, QPainter, QColor, QPen, QBrush, QPainterPath, QDrag, QPolygon, QConicalGradient, QLinearGradient
-
-
-class _GlowButton(QPushButton):
-    """Botao com luz girando na borda (efeito Copilot)."""
-
-    def __init__(self, text, glow_colors=None, bg="rgba(255,255,255,0.07)",
-                 fg="#fff", parent=None):
-        super().__init__(text, parent)
-        self._glow_colors = glow_colors or [
-            QColor(0, 220, 255), QColor(180, 80, 255),
-            QColor(0, 180, 255), QColor(255, 80, 180),
-        ]
-        self._bg = bg
-        self._fg = fg
-        self._angle = 0.0
-        self._animating = False
-        self._timer = QTimer(self)
-        self._timer.setInterval(16)  # ~60fps
-        self._timer.timeout.connect(self._tick)
-
-    def start_glow(self):
-        if not self._animating:
-            self._animating = True
-            self._timer.start()
-
-    def stop_glow(self):
-        self._animating = False
-        self._timer.stop()
-        self.update()
-
-    def _tick(self):
-        self._angle = (self._angle + 3.0) % 360.0
-        self.update()
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        w, h = self.width(), self.height()
-        r = 10  # border-radius
-
-        path = QPainterPath()
-        path.addRoundedRect(0, 0, w, h, r, r)
-
-        # Fundo
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(QColor(self._bg) if isinstance(self._bg, str)
-                          else QColor(*self._bg)))
-        p.drawPath(path)
-
-        if self._animating:
-            # Borda com gradiente cônico girando
-            border = 2
-            cg = QConicalGradient(w / 2, h / 2, self._angle)
-            cg.setCoordinateMode(QConicalGradient.CoordinateMode.LogicalMode)
-            n = len(self._glow_colors)
-            for i, c in enumerate(self._glow_colors):
-                cg.setColorAt(i / n, c)
-            cg.setColorAt(1.0, self._glow_colors[0])
-
-            # Desenha borda como anel: path externo - path interno
-            inner = QPainterPath()
-            inner.addRoundedRect(border, border, w - border * 2, h - border * 2, r - 1, r - 1)
-            ring = QPainterPath(path)
-            ring = ring.subtracted(inner)
-            p.setBrush(QBrush(cg))
-            p.drawPath(ring)
-        else:
-            p.setPen(QPen(QColor(80, 80, 100, 80), 1))
-            p.setBrush(Qt.NoBrush)
-            p.drawPath(path)
-
-        # Texto
-        p.setPen(QColor(self._fg))
-        p.setFont(self.font())
-        p.drawText(self.rect(), Qt.AlignCenter, self.text())
-        p.end()
+from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtGui import QFont
 
 from makevid.qt.theme import C
 from makevid.config import PROJECTS_DIR
 from makevid.services.waveform_cut_service import WaveformCutService
 from makevid.core.audio_utils import slice_volume_keyframes
 
-
-def _file_exists(path) -> bool:
-    """Retorna True se path não é None/vazio e o arquivo existe."""
-    return bool(path) and Path(path).exists()
-
-
-def _prepare_audio(item):
-    """Carrega e prepara o array de audio identico ao que a waveform exibe.
-
-    Aplica em ordem: file_offset → limita ao duration → muted_regions.
-    Retorna (data_stereo_float32, sr) ou (None, 0) se falhar.
-    """
-    if not _file_exists(item.file_path):
-        return None, 0
-    try:
-        raw, sr = sf.read(item.file_path, dtype="float32")
-        data = np.array(raw, copy=True)  # sempre gravavel
-        if len(data.shape) == 1:
-            data = np.column_stack([data, data])
-
-        # 1. file_offset
-        offset_sec = float(getattr(item, 'file_offset', 0.0))
-        if offset_sec > 0:
-            data = data[int(offset_sec * sr):]
-
-        # 2. limitar ao duration
-        max_samples = int(float(item.duration) * sr)
-        if max_samples > 0 and len(data) > max_samples:
-            data = data[:max_samples]
-
-        # 3. muted_regions
-        muted = getattr(item, 'muted_regions', [])
-        if muted:
-            n = len(data)
-            for region in muted:
-                ca = int(float(region['start']) * n)
-                cb = int(float(region['end']) * n)
-                if cb > ca:
-                    data[ca:cb] = 0.0
-
-        return data, sr
-    except Exception:
-        _log.exception("Erro ao preparar audio")
-        return None, 0
-
+from makevid.qt.panels.layer_widget import LayerWidget
+from makevid.qt.panels.layer_cut_controller import LayerCutController
+from makevid.qt.panels.layer_audio_player import (
+    _LayerStreamPlayer, _prepare_audio, _file_exists,
+)
+from makevid.qt.panels.layer_ui_components import _ResponsiveActionGrid
 
 TRACK_COLORS = {
     "voice": C["track_voice"], "sfx": C["track_sfx"],
-    "music": C["track_music"], "audio": C["track_audio"]
+    "music": C["track_music"], "audio": C["track_audio"],
 }
 TRACK_TITLES = {
-    "voice": "\U0001f3a4 VOZ", "sfx": "\U0001f50a SFX",
-    "music": "\U0001f3b5 MUSICA", "audio": "\U0001f3a7 AUDIO"
+    "voice": "🎤 VOZ", "sfx": "🔊 SFX",
+    "music": "🎵 MUSICA", "audio": "🎧 AUDIO",
 }
 
 
 class TrackEditorPanel(QWidget):
-    """Editor de layers para tracks de audio."""
+    """Orquestrador do editor de layers — monta o painel e delega para LayerWidget."""
 
-    closed = Signal()
+    closed  = Signal()
     changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._item = None
-        self._project = None
-        self._playing = {}  # item_id -> bool
-        self._paused_state = {}  # item_id -> {"ratio": float, "time": float}
-        self._pending_range_cut = {}  # item_id -> rel time A
-        self._layer_refs = {}
-        self._layer_frames = {}
-        self._layer_headers = {}
-        self._action_grid = None
-        self._cut_service = WaveformCutService()
-        self._pulse_timers = {}  # item_id -> QTimer
+        self._item           = None
+        self._project        = None
+        self._playing        = {}        # item_id -> bool
+        self._paused_state   = {}        # item_id -> {ratio, time}
+        self._layer_refs     = {}        # item_id -> {waveform, time_lbl, play_btn, ...}
+        self._layer_frames   = {}        # item_id -> LayerWidget
+        self._action_grid    = None
+        self._stream_players = {}        # item_id -> _LayerStreamPlayer
+        self._anim_gen       = {}        # item_id -> int
+        self._cut_service    = WaveformCutService()
+        self._cut_ctrl       = LayerCutController(
+            self._cut_service, self._layer_refs,
+            self._commit_layer_edit, self.changed, self._playing,
+        )
         self.setMinimumWidth(0)
         self.setObjectName("trackEditorPanel")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -185,22 +71,26 @@ class TrackEditorPanel(QWidget):
         self._outer.setContentsMargins(0, 0, 0, 0)
         self._outer.setSpacing(0)
 
+    # ── show_item ─────────────────────────────────────────────────────────────
+
     def show_item(self, item, project):
-        """Popula editor com layers do grupo do item."""
-        self._item = item
-        self._project = project
-        self._playing = {}
+        """Popula o editor com os layers do grupo do item."""
+        self._item         = item
+        self._project      = project
+        self._playing      = {}
         self._paused_state = {}
-        self._pending_range_cut = {}
-        self._layer_refs = {}  # item_id -> {waveform, time_lbl, play_btn, color}
+        self._layer_refs   = {}
         self._layer_frames = {}
-        self._layer_headers = {}
-        self._action_grid = None
-        self._slider_slot_index = 0
+        self._action_grid  = None
+        # Recria o controlador de corte com o novo dict de refs
+        self._cut_ctrl = LayerCutController(
+            self._cut_service, self._layer_refs,
+            self._commit_layer_edit, self.changed, self._playing,
+        )
+
         color = TRACK_COLORS.get(item.track, C["cyan"])
         title = TRACK_TITLES.get(item.track, "AUDIO")
 
-        # Limpar tudo
         while self._outer.count():
             child = self._outer.takeAt(0)
             if child.widget():
@@ -210,7 +100,10 @@ class TrackEditorPanel(QWidget):
         hdr_l = QHBoxLayout()
         hdr_l.setContentsMargins(10, 8, 10, 6)
         lbl = QLabel(title)
-        lbl.setStyleSheet(f"color: {color}; font-size: 14pt; font-weight: bold; background: transparent; border: none;")
+        lbl.setStyleSheet(
+            f"color: {color}; font-size: 14pt; font-weight: bold; "
+            "background: transparent; border: none;"
+        )
         hdr_l.addWidget(lbl)
         hdr_l.addStretch()
         close_btn = QPushButton("X")
@@ -220,22 +113,24 @@ class TrackEditorPanel(QWidget):
         hdr_l.addWidget(close_btn)
         self._outer.addLayout(hdr_l)
 
-        # Info
         info = QLabel(f"  {item.name} · {item.duration:.1f}s · Inicio {item.start_time:.1f}s")
-        info.setStyleSheet(f"color: {C['text3']}; font-family: Consolas; font-size: 8pt; border: none;")
+        info.setStyleSheet(
+            f"color: {C['text3']}; font-family: Consolas; font-size: 8pt; border: none;"
+        )
         self._outer.addWidget(info)
 
         summary = QFrame()
         summary.setStyleSheet(
-            "background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;"
+            "background: rgba(255,255,255,0.03); "
+            "border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;"
         )
-        summary_l = QHBoxLayout(summary)
-        summary_l.setContentsMargins(10, 8, 10, 8)
-        summary_l.setSpacing(8)
-        summary_l.addWidget(self._chip("TRACK", title, color))
-        summary_l.addWidget(self._chip("DURAÇÃO", f"{item.duration:.1f}s", C['cyan']))
-        summary_l.addWidget(self._chip("INÍCIO", f"{item.start_time:.1f}s", C['secondary']))
-        summary_l.addStretch()
+        sl = QHBoxLayout(summary)
+        sl.setContentsMargins(10, 8, 10, 8)
+        sl.setSpacing(6)
+        sl.addWidget(self._chip("TRACK", title, color))
+        sl.addWidget(self._chip("DUR", f"{item.duration:.1f}s", C["cyan"]))
+        sl.addWidget(self._chip("IN", f"{item.start_time:.1f}s", C["secondary"]))
+        sl.addStretch()
         self._outer.addWidget(summary)
 
         # Scroll
@@ -250,41 +145,44 @@ class TrackEditorPanel(QWidget):
         scroll.setWidget(content)
         self._outer.addWidget(scroll)
 
-        # Layers
         group = self._get_group(item)
         layers_lbl = QLabel(f"EDITOR DE SOM · {len(group)} layer(s)")
-        layers_lbl.setStyleSheet(f"color: {color}; font-size: 9pt; font-weight: bold; letter-spacing: 1px; border: none;")
+        layers_lbl.setStyleSheet(
+            f"color: {color}; font-size: 9pt; font-weight: bold; "
+            "letter-spacing: 1px; border: none;"
+        )
         L.addWidget(layers_lbl)
 
         for layer_item in sorted(group, key=lambda i: i.start_time):
-            L.addWidget(self._build_layer(layer_item, color))
+            lw = LayerWidget(
+                layer_item, project, color,
+                self._cut_service, self._layer_refs,
+            )
+            lw.play_requested.connect(self._on_play_requested)
+            lw.seek_requested.connect(self._seek_play)
+            lw.cut_applied.connect(self._on_cut_applied)
+            lw.changed.connect(self._on_layer_change)
+            lw.delete_requested.connect(self._delete_layer)
+            lw.duplicate_requested.connect(self._duplicate)
+            self._layer_frames[layer_item.id] = lw
+            L.addWidget(lw)
 
-        # Botões globais
         sep = QFrame()
         sep.setFixedHeight(1)
         sep.setStyleSheet("background: rgba(255,255,255,0.08);")
         L.addWidget(sep)
 
-        # Loop checkbox fora do grid
-        self._loop_cb = QCheckBox("  Loop")
-        self._loop_cb.setStyleSheet(
-            f"QCheckBox {{ color: {C['text2']}; font-size: 9pt; font-weight: bold; spacing: 6px; padding: 6px 0; }}"
-            f"QCheckBox::indicator {{ width: 16px; height: 16px; border-radius: 5px; border: 2px solid {color}; background: rgba(255,255,255,0.04); }}"
-            f"QCheckBox::indicator:checked {{ background: {color}; border: 2px solid {color}; }}"
-            f"QCheckBox::indicator:hover {{ border: 2px solid {C['secondary']}; }}")
-        L.addWidget(self._loop_cb)
-
         action_grid = _ResponsiveActionGrid()
         self._action_grid = action_grid
         L.addWidget(action_grid)
 
-        # Play All
-        play_all_btn = QPushButton("\u25b6 PLAY CONJUNTO")
+        play_all_btn = QPushButton("▶ PLAY CONJUNTO")
         play_all_btn.setFixedHeight(28)
         play_all_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         play_all_btn.setStyleSheet(
-            f"background: rgba(255,255,255,0.05); color: {color}; font-weight: bold; font-size: 10pt; "
-            f"border: 1px solid {color}; border-radius: 10px; padding: 2px 10px;")
+            f"background: rgba(255,255,255,0.05); color: {color}; font-weight: bold; "
+            f"font-size: 10pt; border: 1px solid {color}; border-radius: 10px; padding: 2px 10px;"
+        )
         play_all_btn.clicked.connect(lambda: self._play_all(group, color))
         action_grid.add_widget(play_all_btn)
 
@@ -292,8 +190,9 @@ class TrackEditorPanel(QWidget):
         rename_btn.setFixedHeight(28)
         rename_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         rename_btn.setStyleSheet(
-            f"background: rgba(255,255,255,0.07); color: {color}; font-weight: bold; font-size: 10pt; "
-            f"border: 1px solid {color}; border-radius: 10px; padding: 2px 10px;")
+            f"background: rgba(255,255,255,0.07); color: {color}; font-weight: bold; "
+            f"font-size: 10pt; border: 1px solid {color}; border-radius: 10px; padding: 2px 10px;"
+        )
         rename_btn.clicked.connect(lambda: self._rename_block(item, color))
         action_grid.add_widget(rename_btn)
 
@@ -301,9 +200,12 @@ class TrackEditorPanel(QWidget):
         save_btn.setFixedHeight(28)
         save_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         save_btn.setStyleSheet(
-            f"background: {color}; color: {C['dark_text']}; font-weight: bold; font-size: 10pt; border-radius: 10px; padding: 2px 10px;")
+            f"background: {color}; color: {C['dark_text']}; font-weight: bold; "
+            "font-size: 10pt; border-radius: 10px; padding: 2px 10px;"
+        )
         save_btn.clicked.connect(lambda: project.save(PROJECTS_DIR))
         action_grid.add_widget(save_btn)
+        action_grid.finalize()
 
         L.addStretch()
         self._refresh_action_grid()
@@ -321,544 +223,352 @@ class TrackEditorPanel(QWidget):
     def _chip(self, label, value, color):
         chip = QFrame()
         chip.setStyleSheet(
-            "background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;"
+            "background: rgba(255,255,255,0.04); "
+            "border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;"
         )
-        chip_l = QHBoxLayout(chip)
-        chip_l.setContentsMargins(10, 4, 10, 4)
-        chip_l.setSpacing(6)
+        cl = QHBoxLayout(chip)
+        cl.setContentsMargins(10, 4, 10, 4)
+        cl.setSpacing(6)
         lbl = QLabel(label)
-        lbl.setStyleSheet(f"color: {C['text3']}; font-size: 7pt; font-weight: bold; border: none;")
+        lbl.setStyleSheet(
+            f"color: {C['text3']}; font-size: 7pt; font-weight: bold; border: none;"
+        )
         val = QLabel(value)
-        val.setStyleSheet(f"color: {color}; font-size: 8pt; font-family: Consolas; font-weight: bold; border: none;")
-        chip_l.addWidget(lbl)
-        chip_l.addWidget(val)
+        val.setStyleSheet(
+            f"color: {color}; font-size: 8pt; font-family: Consolas; "
+            "font-weight: bold; border: none;"
+        )
+        cl.addWidget(lbl)
+        cl.addWidget(val)
         return chip
 
-    def _pill(self, label, value, color):
-        pill = QFrame()
-        pill.setStyleSheet(
-            "background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;"
-        )
-        pill_l = QHBoxLayout(pill)
-        pill_l.setContentsMargins(8, 3, 8, 3)
-        pill_l.setSpacing(6)
-        lbl = QLabel(label)
-        lbl.setStyleSheet(f"color: {C['text3']}; font-size: 7pt; font-weight: bold; border: none;")
-        val = QLabel(str(value))
-        val.setStyleSheet(f"color: {color}; font-size: 8pt; font-family: Consolas; font-weight: bold; border: none;")
-        pill_l.addWidget(lbl)
-        pill_l.addWidget(val)
-        return pill
+    # ── signal handlers ───────────────────────────────────────────────────────
 
-    def _build_layer(self, item, color):
-        """Constroi um layer com visual de editor de som."""
-        frame = QFrame()
-        frame.setStyleSheet(
-            "background: rgba(10,16,30,0.94); "
-            "border: 1px solid rgba(255,255,255,0.10); border-radius: 16px;"
-        )
-        frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        frame.setMinimumWidth(0)
-        fl = QVBoxLayout(frame)
-        fl.setContentsMargins(10, 10, 10, 10)
-        fl.setSpacing(8)
-        self._layer_frames[item.id] = frame
+    def _on_play_requested(self, item):
+        """Recebido de LayerWidget.play_requested — toggle play/pause."""
+        lw = self._layer_frames.get(item.id)
+        if self._playing.get(item.id, False):
+            self._pause_play(item)
+        else:
+            self._start_play(item)
 
-        # Header (colapsavel)
-        hdr_frame = QFrame()
-        hdr_frame.setStyleSheet(
-            "background: rgba(255,255,255,0.04); "
-            "border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;"
-        )
-        hdr_layout = QHBoxLayout(hdr_frame)
-        hdr_layout.setContentsMargins(8, 6, 8, 6)
-        hdr_layout.setSpacing(8)
-        collapse_btn = QPushButton("\u25bc")
-        collapse_btn.setFixedSize(24, 24)
-        collapse_btn.setStyleSheet(
-            f"background: rgba(255,255,255,0.06); color: {color}; font-weight: bold; border: none; border-radius: 8px; padding: 0;"
-        )
-        hdr_layout.addWidget(collapse_btn)
-        title_box = QVBoxLayout()
-        title_box.setContentsMargins(0, 0, 0, 0)
-        title_box.setSpacing(0)
+    def _on_cut_applied(self, item, waveform, cut_btn):
+        lw = self._layer_frames.get(item.id)
+        self._cut_ctrl.apply_cut(item, waveform, cut_btn, lw)
 
-        name_lbl = _LayerDragLabel(item.id, item.name[:24])
-        name_lbl.setStyleSheet(f"color: {C['text']}; font-weight: bold; font-size: 10pt; border: none;")
-        name_lbl.setCursor(Qt.PointingHandCursor)
-        name_lbl.mouseDoubleClickEvent = lambda e, i=item, l=name_lbl, f=hdr_frame, c=color: self._inline_rename_layer(i, l, f, c)
-        title_box.addWidget(name_lbl)
-        meta_lbl = QLabel(f"{item.duration:.1f}s · início {item.start_time:.1f}s")
-        meta_lbl.setStyleSheet(f"color: {C['text3']}; font-family: Consolas; font-size: 7pt; border: none;")
-        title_box.addWidget(meta_lbl)
-        hdr_layout.addLayout(title_box)
-        hdr_layout.addStretch()
-
-        mode_chip = QLabel("EDITOR")
-        mode_chip.setAlignment(Qt.AlignCenter)
-        mode_chip.setFixedHeight(22)
-        mode_chip.setStyleSheet(
-            f"background: rgba(255,255,255,0.05); color: {color}; font-size: 7pt; font-weight: bold; padding: 0 8px; border-radius: 11px;"
-        )
-        hdr_layout.addWidget(mode_chip)
-
-        del_btn = QPushButton("✕")
-        del_btn.setFixedSize(24, 24)
-        del_btn.setObjectName("closeBtn")
-        del_btn.setToolTip("Remover layer")
-        del_btn.clicked.connect(lambda checked=False, i=item: self._delete_layer(i))
-        hdr_layout.addWidget(del_btn)
-        fl.addWidget(hdr_frame)
-        self._layer_headers[item.id] = hdr_frame
-
-        waveform_card = QFrame()
-        waveform_card.setStyleSheet(
-            "background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;"
-        )
-        waveform_l = QVBoxLayout(waveform_card)
-        waveform_l.setContentsMargins(8, 8, 8, 8)
-        waveform_l.setSpacing(5)
-        wf_head = QHBoxLayout()
-        wf_lbl = QLabel("FORMA DE ONDA")
-        wf_lbl.setStyleSheet(f"color: {C['text3']}; font-size: 7pt; font-weight: bold; letter-spacing: 1px; border: none;")
-        wf_head.addWidget(wf_lbl)
-        wf_head.addStretch()
-        wf_hint = QLabel("clique / arraste para keyframes")
-        wf_hint.setStyleSheet(f"color: {C['text3']}; font-family: Consolas; font-size: 7pt; border: none;")
-        wf_head.addWidget(wf_hint)
-        waveform_l.addLayout(wf_head)
-
-        # Content (colapsavel)
-        content_widget = QWidget()
-        cl = QVBoxLayout(content_widget)
-        cl.setContentsMargins(0, 0, 0, 0)
-        cl.setSpacing(8)
-
-        # Waveform
-        waveform = _WaveformWidget(item, color)
-        waveform.setFixedHeight(78)
-        waveform.keyframe_changed.connect(lambda commit, i=item: self._on_layer_change(i, commit))
-        waveform.cut_requested.connect(lambda i=item, wf=waveform: self._apply_cut_from_waveform(
-            i, wf, self._layer_refs.get(i.id, {}).get("cut_btn")))
-        waveform.setToolTip("Clique para criar keyframe | Arraste para ajustar | Botao direito remove")
-        waveform_l.addWidget(waveform)
-        cl.addWidget(waveform_card)
-
-        # Quick info row
-        quick = QFrame()
-        quick.setStyleSheet(
-            "background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;"
-        )
-        quick_l = QHBoxLayout(quick)
-        quick_l.setContentsMargins(8, 6, 8, 6)
-        quick_l.setSpacing(8)
-        time_lbl = QLabel(f"00:00.0 / {item.duration:.1f}s")
-        time_lbl.setStyleSheet(f"color: {C['text3']}; font-family: Consolas; font-size: 8pt; border: none;")
-        quick_l.addWidget(time_lbl)
-        quick_l.addStretch()
-        quick_l.addWidget(self._pill("VOL", item.params.get("volume", 80), color))
-        quick_l.addWidget(self._pill("PAN", item.params.get("pan", 0), C['cyan']))
-        quick_l.addWidget(self._pill("SPD", item.params.get("speed", 100), C['accent']))
-        cl.addWidget(quick)
-
-        preset_card = QFrame()
-        preset_card.setStyleSheet(
-            "background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;"
-        )
-        preset_l = QVBoxLayout(preset_card)
-        preset_l.setContentsMargins(8, 8, 8, 8)
-        preset_l.setSpacing(6)
-        preset_head = QHBoxLayout()
-        preset_lbl = QLabel("PRESETS RÁPIDOS")
-        preset_lbl.setStyleSheet(f"color: {C['text3']}; font-size: 7pt; font-weight: bold; letter-spacing: 1px; border: none;")
-        preset_head.addWidget(preset_lbl)
-        preset_head.addStretch()
-        preset_note = QLabel("um clique para ajustar")
-        preset_note.setStyleSheet(f"color: {C['text3']}; font-family: Consolas; font-size: 7pt; border: none;")
-        preset_head.addWidget(preset_note)
-        preset_l.addLayout(preset_head)
-
-        recommended_key = self._recommended_preset_for_track(item.track)
-        recommended_lbl = QLabel(f"Recomendado: {self._preset_label_for_key(recommended_key)}")
-        recommended_lbl.setStyleSheet(
-            f"color: {color}; font-size: 7pt; font-weight: bold; border: none;"
-        )
-        preset_l.addWidget(recommended_lbl)
-
-        preset_row = QHBoxLayout()
-        preset_row.setSpacing(6)
-        preset_row.setContentsMargins(0, 0, 0, 0)
-        for preset_key, preset_label, preset_desc in self._presets_for_track(item.track):
-            btn = QPushButton(preset_label)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setToolTip(preset_desc)
-            btn.setMinimumHeight(28)
-            if preset_key == recommended_key:
-                btn.setStyleSheet(
-                    f"background: rgba(255,255,255,0.08); color: {color}; font-size: 8pt; font-weight: bold; "
-                    f"border: 1px solid {color}; border-radius: 10px; padding: 3px 8px;"
-                )
-            else:
-                btn.setStyleSheet(
-                    f"background: rgba(255,255,255,0.05); color: {C['text2']}; font-size: 8pt; font-weight: bold; "
-                    f"border: 1px solid rgba(255,255,255,0.10); border-radius: 10px; padding: 3px 8px;"
-                )
-            btn.clicked.connect(lambda checked=False, pk=preset_key, i=item, c=color: self._apply_mix_preset(i, pk, c))
-            preset_row.addWidget(btn)
-        preset_l.addLayout(preset_row)
-        cl.addWidget(preset_card)
-
-        # Play + Duplicate row
-        play_row = QHBoxLayout()
-        play_row.setSpacing(8)
-        play_row.setContentsMargins(0, 0, 0, 0)
-        play_btn = QPushButton("\u25b6 Play")
-        play_btn.setMinimumSize(92, 30)
-        play_btn.setStyleSheet(
-            f"background: {color}; color: {C['dark_text']}; font-weight: bold; border-radius: 10px; padding: 4px 12px;"
-        )
-        play_btn.clicked.connect(lambda checked=False, i=item, b=play_btn, c=color: self._toggle_play(i, b, c))
-        play_row.addWidget(play_btn)
-        dup_btn = QPushButton("Duplicar")
-        dup_btn.setMinimumSize(80, 30)
-        dup_btn.setStyleSheet(
-            "background: rgba(255,255,255,0.05); color: #A9B4C8; font-size: 8pt; font-weight: bold; "
-            "border-radius: 10px; padding: 4px 12px;"
-        )
-        dup_btn.clicked.connect(lambda checked=False, i=item: self._duplicate(i))
-        play_row.addWidget(dup_btn)
-
-        cut_btn = QPushButton("✂ Recortar")
-        cut_btn.setMinimumSize(96, 30)
-        cut_btn.setCheckable(True)
-        cut_btn.setStyleSheet(
-            "background: rgba(255,255,255,0.05); color: #A9B4C8; font-size: 8pt; font-weight: bold; "
-            "border-radius: 10px; padding: 4px 12px;"
-        )
-        cut_btn.clicked.connect(lambda checked, i=item, b=cut_btn, wf=waveform: self._cut_btn_clicked(i, b, wf))
-
-        # Botoes Desfazer / Aplicar (ficam ocultos ate haver selecao)
-        undo_btn = _GlowButton(
-            "↩ Desfazer",
-            glow_colors=[QColor(255,60,60), QColor(255,120,80), QColor(200,30,30), QColor(255,80,80)],
-            bg="rgba(180,30,30,0.25)", fg="#ff6060",
-        )
-        undo_btn.setMinimumSize(80, 30)
-        undo_btn.setFont(QFont("Segoe UI", 8, QFont.Bold))
-        undo_btn.hide()
-        undo_btn.clicked.connect(lambda: self._undo_cut_selection(item))
-
-        apply_btn = _GlowButton(
-            "✅ Aplicar",
-            glow_colors=[QColor(0,220,255), QColor(180,80,255), QColor(0,180,255), QColor(255,80,180)],
-            bg=C['secondary'], fg="#fff",
-        )
-        apply_btn.setMinimumSize(80, 30)
-        apply_btn.setFont(QFont("Segoe UI", 8, QFont.Bold))
-        apply_btn.hide()
-        apply_btn.clicked.connect(lambda: self._apply_cut_from_waveform(item, waveform, cut_btn))
-
-        play_row.addWidget(cut_btn)
-        play_row.addWidget(undo_btn)
-        play_row.addWidget(apply_btn)
-
-        self._layer_refs.setdefault(item.id, {})
-        self._layer_refs[item.id]["cut_btn"] = cut_btn
-        self._layer_refs[item.id]["cut_undo_btn"] = undo_btn
-        self._layer_refs[item.id]["cut_apply_btn"] = apply_btn
-        self._layer_refs[item.id]["cut_waveform"] = waveform
-
-        play_row.addStretch()
-        start_lbl = QLabel(f"Inicio: {item.start_time:.1f}s")
-        start_lbl.setStyleSheet(f"color: {C['text3']}; font-family: Consolas; font-size: 8pt; border: none;")
-        play_row.addWidget(start_lbl)
-        cl.addLayout(play_row)
-
-        # Sliders: VOL, PAN, FADE IN, FADE OUT, REVERB, ROOM, SPEED
-        params_frame = QFrame()
-        params_frame.setStyleSheet(
-            "background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;"
-        )
-        pl = QVBoxLayout(params_frame)
-        pl.setContentsMargins(8, 8, 8, 8)
-        pl.setSpacing(8)
-        params_lbl = QLabel("CONTROLES DE MIXAGEM")
-        params_lbl.setStyleSheet(f"color: {C['text3']}; font-size: 7pt; font-weight: bold; letter-spacing: 1px; border: none;")
-        pl.addWidget(params_lbl)
-        sliders_grid = QGridLayout()
-        sliders_grid.setHorizontalSpacing(8)
-        sliders_grid.setVerticalSpacing(8)
-        pl.addLayout(sliders_grid)
-        vol = int(item.params.get("volume", 80))
-        self._add_param_slider(sliders_grid, "VOL", 0, 200, vol, "%", color, item, "volume")
-        pan = int(item.params.get("pan", 0))
-        self._add_param_slider(sliders_grid, "PAN", -100, 100, pan, "", color, item, "pan")
-        fi = int(item.params.get("fade_in", 0))
-        self._add_param_slider(sliders_grid, "FADE IN", 0, 100, fi, "%", C["secondary"], item, "fade_in")
-        fo = int(item.params.get("fade_out", 0))
-        self._add_param_slider(sliders_grid, "FADE OUT", 0, 100, fo, "%", C["secondary"], item, "fade_out")
-        reverb = int(item.params.get("reverb", 0))
-        self._add_param_slider(sliders_grid, "REVERB", 0, 100, reverb, "%", C["primary"], item, "reverb")
-        room = int(item.params.get("room", 0))
-        self._add_param_slider(sliders_grid, "ROOM", 0, 100, room, "%", C["primary"], item, "room")
-        speed = int(item.params.get("speed", 100))
-        self._add_param_slider(sliders_grid, "SPEED", 50, 200, speed, "%", C["accent"], item, "speed")
-        sliders_grid.setColumnStretch(0, 1)
-        sliders_grid.setColumnStretch(1, 1)
-        cl.addWidget(params_frame)
-
-        fl.addWidget(content_widget)
-
-        # Collapse toggle
-        def _toggle_collapse():
-            if content_widget.isVisible():
-                content_widget.hide()
-                collapse_btn.setText("\u25b6")
-            else:
-                content_widget.show()
-                collapse_btn.setText("\u25bc")
-        collapse_btn.clicked.connect(_toggle_collapse)
-
-        # Store refs for playhead animation
-        self._layer_refs[item.id].update({
-            "waveform": waveform, "time_lbl": time_lbl,
-            "play_btn": play_btn, "color": color,
-            "current_time": 0.0,
-        })
-
-        return frame
-
-    def _on_layer_change(self, item, commit=False):
-        """Atualiza a timeline quando um layer muda e salva quando a edicao foi concluida."""
+    def _on_layer_change(self, item, commit):
         if commit and self._project is not None:
             self._project.save(PROJECTS_DIR)
         self.changed.emit()
 
-    def _add_param_slider(self, layout, label, from_, to, default, unit, color, item, param_key):
-        """Slider compacto em card, distribuido em grade de duas colunas."""
-        box = QFrame()
-        box.setStyleSheet(
-            "background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;"
+    # ── play / pause / stop ───────────────────────────────────────────────────
+
+    def _pause_play(self, item):
+        stream = self._stream_players.pop(item.id, None)
+        if stream:
+            stream.stop()
+        try:
+            sd.stop()
+        except Exception:
+            _log.debug("Erro ao parar sd (pause)", exc_info=True)
+        self._playing[item.id] = False
+        refs = self._layer_refs.get(item.id, {})
+        if refs:
+            wf = refs.get("waveform")
+            self._paused_state[item.id] = {
+                "ratio": max(0.0, min(1.0, wf._playhead_ratio if wf and wf._playhead_ratio >= 0 else 0.0)),
+                "time":  float(refs.get("current_time", 0.0)),
+            }
+        lw = self._layer_frames.get(item.id)
+        if lw:
+            lw.set_play_state(False)
+
+    def _start_play(self, item):
+        if not _file_exists(item.file_path):
+            return
+        try:
+            data, sr = _prepare_audio(item)
+            if data is None or len(data) == 0:
+                return
+
+            if self._cut_service.is_active(item.id) and self._cut_service.has_selection():
+                keep, prev = [], 0
+                for cut_a, cut_b in sorted(self._cut_service.get_selections()):
+                    ca = max(0, min(int(cut_a * len(data)), len(data)))
+                    cb = max(ca, min(int(cut_b * len(data)), len(data)))
+                    if ca > prev:
+                        keep.append(data[prev:ca])
+                    prev = cb
+                if prev < len(data):
+                    keep.append(data[prev:])
+                data = np.concatenate(keep) if keep else np.zeros((0, 2), dtype=np.float32)
+
+            if len(data) == 0:
+                return
+
+            paused      = self._paused_state.pop(item.id, None)
+            start_ratio = max(0.0, min(1.0, float(paused["ratio"]) if paused else 0.0))
+            speed       = int(item.params.get("speed", 100)) / 100.0
+            play_sr     = int(sr * speed) if speed > 0 else sr
+
+            lw   = self._layer_frames.get(item.id)
+            loop = lw.is_loop() if lw else False
+
+            old = self._stream_players.pop(item.id, None)
+            if old:
+                old.stop()
+            sd.stop()
+
+            single_duration = len(data) / max(1, play_sr)
+
+            if loop:
+                stream = _LayerStreamPlayer(data, play_sr, item)
+                stream.start(start_ratio)
+                self._stream_players[item.id] = stream
+            else:
+                vol = int(item.params.get("volume", 80)) / 100.0
+                pan = int(item.params.get("pan", 0)) / 100.0
+                out = data[int(start_ratio * len(data)):].copy()
+                out *= vol
+                if pan != 0.0:
+                    angle = (pan + 1.0) * np.pi / 4.0
+                    out[:, 0] *= float(np.cos(angle))
+                    out[:, 1] *= float(np.sin(angle))
+                sd.play(np.ascontiguousarray(np.clip(out, -1, 1).astype(np.float32)), samplerate=play_sr)
+
+            self._playing[item.id] = True
+            if lw:
+                lw.set_play_state(True)
+            self._animate_playhead(item.id, start_ratio, single_duration, loop=loop)
+        except Exception:
+            _log.exception("Erro ao reproduzir audio")
+
+    def _stop_play(self, item_id):
+        stream = self._stream_players.pop(item_id, None)
+        if stream:
+            stream.stop()
+        try:
+            sd.stop()
+        except Exception:
+            _log.debug("Erro ao parar sd (stop)", exc_info=True)
+        self._playing[item_id] = False
+        refs = self._layer_refs.get(item_id, {})
+        wf   = refs.get("waveform")
+        if wf:
+            wf.set_playhead(-1)
+        lw = self._layer_frames.get(item_id)
+        color = refs.get("color", C["cyan"])
+        if lw:
+            lw.set_play_state(False)
+
+    def _play_all(self, group, color):
+        def run():
+            try:
+                sr   = 44100
+                base = min(i.start_time for i in group)
+                end  = max(i.start_time + i.duration for i in group)
+                total_samples = int((end - base) * sr)
+                if total_samples <= 0:
+                    return
+                mix = np.zeros((total_samples, 2), dtype=np.float32)
+                for it in group:
+                    if not _file_exists(it.file_path):
+                        continue
+                    data, item_sr = sf.read(it.file_path, dtype="float32")
+                    if len(data.shape) == 1:
+                        data = np.column_stack([data, data])
+                    if item_sr != sr:
+                        new_len = int(len(data) * sr / item_sr)
+                        data = np.column_stack([
+                            np.interp(np.linspace(0, len(data)-1, new_len), np.arange(len(data)), data[:, 0]),
+                            np.interp(np.linspace(0, len(data)-1, new_len), np.arange(len(data)), data[:, 1]),
+                        ])
+                    vol = int(it.params.get("volume", 80)) / 100.0
+                    data *= vol
+                    s = int((it.start_time - base) * sr)
+                    e = min(s + len(data), total_samples)
+                    mix[s:e] += data[:e-s]
+                sd.stop()
+                sd.play(np.ascontiguousarray(np.clip(mix, -1, 1).astype(np.float32)), samplerate=sr)
+            except Exception:
+                _log.exception("Erro ao reproduzir audio (play all)")
+        threading.Thread(target=run, daemon=True).start()
+
+    # ── playhead animation ────────────────────────────────────────────────────
+
+    def _animate_playhead(self, item_id, start_ratio, play_duration, loop=False):
+        refs = self._layer_refs.get(item_id)
+        if not refs:
+            return
+        gen = self._anim_gen.get(item_id, 0) + 1
+        self._anim_gen[item_id] = gen
+        waveform   = refs["waveform"]
+        time_lbl   = refs["time_lbl"]
+        start_time = _time.time()
+
+        def _tick():
+            if self._anim_gen.get(item_id, 0) != gen:
+                return
+            if not self._playing.get(item_id, False):
+                waveform.set_playhead(-1)
+                return
+            elapsed = _time.time() - start_time
+            if elapsed >= play_duration:
+                if loop:
+                    self._animate_playhead(item_id, 0.0, play_duration, loop=True)
+                    return
+                self._playing[item_id] = False
+                waveform.set_playhead(-1)
+                lw = self._layer_frames.get(item_id)
+                if lw:
+                    lw.set_play_state(False)
+                item_dur = float(waveform._item.duration)
+                refs["current_time"] = item_dur
+                time_lbl.setText(f"{item_dur:.1f}s / {item_dur:.1f}s")
+                return
+            audio_ratio  = min(1.0, start_ratio + (elapsed / play_duration) * (1.0 - start_ratio))
+            visual_ratio = waveform._audio_ratio_to_visual(audio_ratio)
+            waveform._playhead_ratio = visual_ratio
+            waveform.update()
+            item_dur = float(waveform._item.duration)
+            current  = audio_ratio * item_dur
+            refs["current_time"] = current
+            lw = self._layer_frames.get(item_id)
+            if lw:
+                lw.update_time_label(current, item_dur)
+            QTimer.singleShot(33, _tick)
+
+        QTimer.singleShot(33, _tick)
+
+    # ── seek ──────────────────────────────────────────────────────────────────
+
+    def _seek_play(self, item, ratio):
+        if not _file_exists(item.file_path):
+            return
+        try:
+            data, sr = _prepare_audio(item)
+            if data is None or len(data) == 0:
+                return
+            refs     = self._layer_refs.get(item.id, {})
+            waveform = refs.get("waveform")
+            audio_ratio  = waveform._visual_ratio_to_audio(ratio) if waveform else ratio
+            audio_ratio  = max(0.0, min(1.0, audio_ratio))
+            start_sample = int(audio_ratio * len(data))
+            if start_sample >= len(data):
+                start_sample, audio_ratio = 0, 0.0
+            data = data[start_sample:]
+            play_duration = len(data) / max(1, sr)
+            sd.stop()
+            sd.play(np.ascontiguousarray(np.clip(data, -1.0, 1.0).astype(np.float32)), samplerate=sr)
+            self._playing[item.id] = True
+            lw = self._layer_frames.get(item.id)
+            if lw:
+                lw.set_play_state(True)
+            self._animate_playhead(item.id, audio_ratio, play_duration)
+        except Exception:
+            _log.exception("Erro ao reproduzir audio (seek)")
+
+    # ── layer actions ─────────────────────────────────────────────────────────
+
+    def _duplicate(self, item):
+        self._project.add_track_item(
+            name=item.name, track=item.track,
+            start_time=item.start_time, duration=item.duration,
+            file_path=item.file_path, params=dict(item.params),
+            clip_index=item.clip_index,
         )
-        box_l = QVBoxLayout(box)
-        box_l.setContentsMargins(8, 6, 8, 6)
-        box_l.setSpacing(4)
+        self._project.save(PROJECTS_DIR)
+        self.show_item(self._item, self._project)
 
-        top = QHBoxLayout()
-        top.setContentsMargins(0, 0, 0, 0)
-        top.setSpacing(6)
-        lbl = QLabel(label)
-        lbl.setStyleSheet(f"color: {C['text3']}; font-family: Consolas; font-size: 8pt; font-weight: bold; border: none;")
-        top.addWidget(lbl)
-        top.addStretch()
+    def _delete_layer(self, item):
+        lw  = self._layer_frames.get(item.id)
+        if lw is None:
+            self._do_delete_layer(item)
+            return
 
-        slider = QSlider(Qt.Horizontal)
-        slider.setRange(from_, to)
-        slider.setValue(default)
-        slider.setFixedHeight(16)
-        slider.setFocusPolicy(Qt.StrongFocus)
-        slider.wheelEvent = lambda e: e.ignore()
-        slider.setStyleSheet(
-            f"QSlider::groove:horizontal {{ background: rgba(255,255,255,0.08); height: 4px; border-radius: 2px; }}"
-            f"QSlider::handle:horizontal {{ background: {color}; width: 12px; height: 12px; margin: -5px 0; border-radius: 6px; border: 2px solid rgba(255,255,255,0.18); }}"
-            f"QSlider::sub-page:horizontal {{ background: {color}; border-radius: 2px; }}")
+        confirm = QFrame()
+        confirm.setStyleSheet(
+            f"background: rgba(180,30,30,0.18); border: 1px solid {C['danger']}; border-radius: 10px;"
+        )
+        cl = QHBoxLayout(confirm)
+        cl.setContentsMargins(10, 6, 10, 6)
+        cl.setSpacing(8)
+        lbl = QLabel(f"Remover <b>{item.name[:20]}</b>?")
+        lbl.setStyleSheet(
+            f"color: {C['text']}; font-size: 9pt; border: none; background: transparent;"
+        )
+        cl.addWidget(lbl)
+        cl.addStretch()
+        yes_btn = QPushButton("Remover")
+        yes_btn.setFixedHeight(26)
+        yes_btn.setStyleSheet(
+            f"background: {C['danger']}; color: #fff; font-size: 8pt; "
+            "font-weight: bold; border-radius: 8px; padding: 2px 12px;"
+        )
+        no_btn = QPushButton("Cancelar")
+        no_btn.setFixedHeight(26)
+        no_btn.setStyleSheet(
+            "background: rgba(255,255,255,0.07); color: #A9B4C8; font-size: 8pt; "
+            "font-weight: bold; border-radius: 8px; padding: 2px 12px;"
+        )
+        cl.addWidget(no_btn)
+        cl.addWidget(yes_btn)
 
-        val_lbl = QLabel(f"{default}{unit}")
-        val_lbl.setFixedWidth(48)
-        val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        val_lbl.setStyleSheet(f"color: {C['text']}; font-family: Consolas; font-size: 8pt; font-weight: bold; border: none;")
-        top.addWidget(val_lbl)
+        lw.layout().insertWidget(0, confirm)
+        yes_btn.clicked.connect(lambda: (confirm.deleteLater(), self._do_delete_layer(item)))
+        no_btn.clicked.connect(confirm.deleteLater)
 
-        box_l.addLayout(top)
-        box_l.addWidget(slider)
-
-        def on_change(v):
-            val_lbl.setText(f"{v}{unit}")
-            item.params[param_key] = str(v)
-
-        slider.valueChanged.connect(on_change)
-        if isinstance(layout, QGridLayout):
-            slot = getattr(self, "_slider_slot_index", 0)
-            row = slot // 2
-            col = slot % 2
-            layout.addWidget(box, row, col)
-            self._slider_slot_index = slot + 1
+    def _do_delete_layer(self, item):
+        stream = self._stream_players.pop(item.id, None)
+        if stream:
+            stream.stop()
+        try:
+            sd.stop()
+        except Exception:
+            _log.debug("Erro ao parar sd (delete)", exc_info=True)
+        self._project.remove_track_item(item.id)
+        self._project.save(PROJECTS_DIR)
+        self.changed.emit()
+        remaining = self._project.get_track_items(item.track)
+        if remaining:
+            self.show_item(remaining[0], self._project)
         else:
-            layout.addWidget(box)
+            self._close()
 
-    def _apply_mix_preset(self, item, preset_key, color):
-        """Aplica presets rápidos e recarrega o painel para refletir os novos valores."""
-        presets = self._preset_values_for_track(item.track)
-        values = presets.get(preset_key, presets["reset"])
-        for key, value in values.items():
-            item.params[key] = str(value)
-
+    def _commit_layer_edit(self, item):
         if self._project is not None:
             self._project.save(PROJECTS_DIR)
         self.changed.emit()
-        if self._item is not None and self._project is not None:
-            self.show_item(self._item, self._project)
 
-    def _presets_for_track(self, track):
-        """Retorna os presets visiveis para cada track."""
-        banks = {
-            "voice": [
-                ("voice_clean", "CLEAN", "voz seca e clara"),
-                ("voice_broadcast", "BROADCAST", "voz mais presente"),
-                ("voice_warm", "WARM", "mais corpo e sala leve"),
-                ("reset", "RESET", "padrão"),
-            ],
-            "sfx": [
-                ("sfx_impact", "IMPACT", "mais punch"),
-                ("sfx_dry", "DRY", "sem sala"),
-                ("sfx_space", "SPACE", "mais ambiente"),
-                ("reset", "RESET", "padrão"),
-            ],
-            "music": [
-                ("music_cinema", "CINEMA", "largura e profundidade"),
-                ("music_wide", "WIDE", "abertura estéreo"),
-                ("music_tight", "TIGHT", "mais focado"),
-                ("reset", "RESET", "padrão"),
-            ],
-            "audio": [
-                ("audio_balanced", "BALANCED", "equilíbrio geral"),
-                ("audio_air", "AIR", "brilho e leveza"),
-                ("audio_focus", "FOCUS", "mais centro"),
-                ("reset", "RESET", "padrão"),
-            ],
-        }
-        return banks.get(track, banks["audio"])
-
-    def _recommended_preset_for_track(self, track):
-        """Retorna o preset principal recomendado para a faixa atual."""
-        return {
-            "voice": "voice_clean",
-            "sfx": "sfx_impact",
-            "music": "music_cinema",
-            "audio": "audio_balanced",
-        }.get(track, "audio_balanced")
-
-    def _preset_label_for_key(self, preset_key):
-        """Retorna o rótulo amigável de um preset pelo identificador interno."""
-        labels = {
-            "voice_clean": "CLEAN",
-            "voice_broadcast": "BROADCAST",
-            "voice_warm": "WARM",
-            "sfx_impact": "IMPACT",
-            "sfx_dry": "DRY",
-            "sfx_space": "SPACE",
-            "music_cinema": "CINEMA",
-            "music_wide": "WIDE",
-            "music_tight": "TIGHT",
-            "audio_balanced": "BALANCED",
-            "audio_air": "AIR",
-            "audio_focus": "FOCUS",
-            "reset": "RESET",
-        }
-        return labels.get(preset_key, "RESET")
-
-    def _preset_values_for_track(self, track):
-        """Mapa de valores por preset e track."""
-        common = {
-            "reset": {
-                "volume": 80, "pan": 0, "fade_in": 0, "fade_out": 0,
-                "reverb": 0, "room": 0, "speed": 100,
-            }
-        }
-        banks = {
-            "voice": {
-                **common,
-                "voice_clean": {
-                    "volume": 94, "pan": 0, "fade_in": 0, "fade_out": 2,
-                    "reverb": 0, "room": 0, "speed": 100,
-                },
-                "voice_broadcast": {
-                    "volume": 92, "pan": 0, "fade_in": 0, "fade_out": 6,
-                    "reverb": 3, "room": 5, "speed": 100,
-                },
-                "voice_warm": {
-                    "volume": 88, "pan": 0, "fade_in": 2, "fade_out": 4,
-                    "reverb": 10, "room": 16, "speed": 100,
-                },
-            },
-            "sfx": {
-                **common,
-                "sfx_impact": {
-                    "volume": 110, "pan": 0, "fade_in": 0, "fade_out": 2,
-                    "reverb": 6, "room": 8, "speed": 100,
-                },
-                "sfx_dry": {
-                    "volume": 100, "pan": 0, "fade_in": 0, "fade_out": 0,
-                    "reverb": 0, "room": 0, "speed": 100,
-                },
-                "sfx_space": {
-                    "volume": 92, "pan": 8, "fade_in": 0, "fade_out": 4,
-                    "reverb": 18, "room": 30, "speed": 100,
-                },
-            },
-            "music": {
-                **common,
-                "music_cinema": {
-                    "volume": 78, "pan": 0, "fade_in": 6, "fade_out": 8,
-                    "reverb": 16, "room": 24, "speed": 100,
-                },
-                "music_wide": {
-                    "volume": 75, "pan": 10, "fade_in": 4, "fade_out": 6,
-                    "reverb": 12, "room": 18, "speed": 100,
-                },
-                "music_tight": {
-                    "volume": 84, "pan": 0, "fade_in": 2, "fade_out": 4,
-                    "reverb": 4, "room": 6, "speed": 100,
-                },
-            },
-            "audio": {
-                **common,
-                "audio_balanced": {
-                    "volume": 80, "pan": 0, "fade_in": 0, "fade_out": 0,
-                    "reverb": 0, "room": 0, "speed": 100,
-                },
-                "audio_air": {
-                    "volume": 82, "pan": 0, "fade_in": 2, "fade_out": 6,
-                    "reverb": 8, "room": 12, "speed": 100,
-                },
-                "audio_focus": {
-                    "volume": 84, "pan": 0, "fade_in": 0, "fade_out": 2,
-                    "reverb": 2, "room": 4, "speed": 100,
-                },
-            },
-        }
-        return banks.get(track, banks["audio"])
+    # ── rename block ──────────────────────────────────────────────────────────
 
     def _rename_block(self, item, color):
-        """Substitui o botão RENOMEAR por um campo inline no próprio painel."""
-        if getattr(self, '_rename_block_widget', None):
+        if getattr(self, "_rename_block_widget", None):
             self._rename_block_widget.deleteLater()
             self._rename_block_widget = None
 
         current = item.params.get("block_name", item.name)
-        entry = QLineEdit(current)
+        entry   = QLineEdit(current)
         entry.setFixedHeight(28)
         entry.setStyleSheet(
-            f"background: {C['input']}; color: {C['text']}; font-weight: bold; font-size: 10pt; "
-            f"border: 1px solid {color}; border-radius: 6px; padding: 0 8px;")
-
-        ok_btn = QPushButton("\u2713")
+            f"background: {C['input']}; color: {C['text']}; font-weight: bold; "
+            f"font-size: 10pt; border: 1px solid {color}; border-radius: 6px; padding: 0 8px;"
+        )
+        ok_btn = QPushButton("✓")
         ok_btn.setFixedSize(28, 28)
         ok_btn.setStyleSheet(
-            f"QPushButton {{ background: {color}; color: #000; font-weight: bold; font-size: 12pt; border: none; border-radius: 6px; }}"
-            f"QPushButton:hover {{ background: {C['secondary']}; }}")
-
+            f"QPushButton {{ background: {color}; color: #000; font-weight: bold; "
+            f"font-size: 12pt; border: none; border-radius: 6px; }}"
+            f"QPushButton:hover {{ background: {C['secondary']}; }}"
+        )
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
         row.addWidget(entry)
         row.addWidget(ok_btn)
-
         container = QWidget()
         container.setLayout(row)
         self._rename_block_widget = container
-
-        # Insere logo abaixo do summary (índice 3)
         self._outer.insertWidget(3, container)
         entry.setFocus()
         entry.selectAll()
@@ -866,8 +576,7 @@ class TrackEditorPanel(QWidget):
         def _confirm():
             new_name = entry.text().strip()
             if new_name:
-                group = self._get_group(item)
-                for gi in group:
+                for gi in self._get_group(item):
                     gi.params["block_name"] = new_name
                 if self._project:
                     self._project.save(PROJECTS_DIR)
@@ -878,1107 +587,23 @@ class TrackEditorPanel(QWidget):
         ok_btn.clicked.connect(_confirm)
         entry.returnPressed.connect(_confirm)
 
-    def _inline_rename_layer(self, item, name_lbl, hdr_frame, color):
-        """Double-click no nome: substitui label por entry inline para renomear o layer."""
-        name_lbl.hide()
-        entry = QLineEdit(item.name)
-        entry.setFixedHeight(24)
-        entry.setStyleSheet(
-            f"background: {C['input']}; color: {C['text']}; font-weight: bold; font-size: 9pt; "
-            f"border: 1px solid {color}; border-radius: 4px; padding: 0 6px;")
-
-        ok_btn = QPushButton("\u2713")
-        ok_btn.setFixedSize(28, 24)
-        ok_btn.setStyleSheet(
-            f"QPushButton {{ background: {color}; color: #000000; font-weight: bold; font-size: 11pt; "
-            f"border: none; border-radius: 4px; }}"
-            f"QPushButton:hover {{ background: {C['secondary']}; }}")
-
-        row = QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(4)
-        row.addWidget(entry)
-        row.addWidget(ok_btn)
-
-        container = QWidget()
-        container.setLayout(row)
-        hdr_frame.layout().insertWidget(1, container)
-        entry.setFocus()
-        entry.selectAll()
-
-        def _confirm():
-            new_name = entry.text().strip()
-            if new_name:
-                item.name = new_name  # só renomeia o layer, não o block_name da timeline
-                if self._project:
-                    self._project.save(PROJECTS_DIR)
-            container.deleteLater()
-            name_lbl.setText(f"\u266b {item.name[:24]}")
-            name_lbl.show()
-
-        ok_btn.clicked.connect(_confirm)
-        entry.returnPressed.connect(_confirm)
-
-    # ============================================================
-    # ACTIONS
-    # ============================================================
-
-    def _toggle_play(self, item, btn, color):
-        """Play/Pause de um layer individual. Pause mantém posição."""
-        item_id = item.id
-        if self._playing.get(item_id, False):
-            # PAUSE: para imediatamente sem resetar
-            try:
-                sd.stop()
-            except Exception:
-                _log.exception("Erro ao parar sounddevice (pause)")
-            self._playing[item_id] = False
-            refs = self._layer_refs.get(item_id)
-            if refs:
-                self._paused_state[item_id] = {
-                    "ratio": max(0.0, min(1.0, refs["waveform"]._playhead_ratio if refs["waveform"]._playhead_ratio >= 0 else 0.0)),
-                    "time": float(refs.get("current_time", 0.0)),
-                }
-            btn.setText("\u25b6 Play")
-            btn.setStyleSheet(f"background: {color}; color: {C['dark_text']}; font-weight: bold; border-radius: 4px;")
-            # NÃO reseta playhead — mantém posição visual
-        else:
-            self._start_play(item, btn, color)
-
-    def _start_play(self, item, btn, color):
-        if not _file_exists(item.file_path):
-            return
-        try:
-            data, sr = _prepare_audio(item)
-            if data is None:
-                return
-
-            # Seleções pendentes do modo de corte (preview antes de aplicar)
-            if self._cut_service.is_active(item.id) and self._cut_service.has_selection():
-                n = len(data)
-                for cut_a, cut_b in self._cut_service.get_selections():
-                    ca, cb = int(cut_a * n), int(cut_b * n)
-                    if cb > ca:
-                        data[ca:cb] = 0.0
-
-            paused = self._paused_state.pop(item.id, None)
-            start_ratio = max(0.0, min(1.0, float(paused.get("ratio", 0.0)) if paused else 0.0))
-            start_sample = int(start_ratio * len(data))
-            if start_sample >= len(data):
-                start_sample = 0
-                start_ratio = 0.0
-
-            data = data[start_sample:]
-
-            vol = int(item.params.get("volume", 80)) / 100.0
-            data = data * vol
-            pan = int(item.params.get("pan", 0)) / 100.0
-            if pan != 0:
-                data[:, 0] *= max(0.0, 1.0 - pan)
-                data[:, 1] *= max(0.0, 1.0 + pan)
-
-            speed = int(item.params.get("speed", 100)) / 100.0
-            play_sr = int(sr * speed) if speed > 0 else sr
-
-            loop = getattr(self, '_loop_cb', None) and self._loop_cb.isChecked()
-            if loop:
-                repeats = max(2, int(60.0 / max(0.1, len(data) / play_sr)))
-                data = np.tile(data, (repeats, 1))
-
-            sd.stop()
-            sd.play(np.ascontiguousarray(np.clip(data, -1, 1).astype(np.float32)), samplerate=play_sr)
-
-            self._playing[item.id] = True
-            btn.setText("\u25a0 Stop")
-            btn.setStyleSheet(f"background: {C['danger']}; color: {C['text']}; font-weight: bold; border-radius: 4px;")
-            self._animate_playhead(item.id, start_ratio, item.duration * (1 - start_ratio))
-        except Exception:
-            _log.exception("Erro ao reproduzir audio")
-
-    def _stop_play(self, item_id, btn, color):
-        try:
-            sd.stop()
-        except Exception:
-            _log.exception("Erro ao parar sounddevice (stop)")
-        self._playing[item_id] = False
-        btn.setText("\u25b6 Play")
-        btn.setStyleSheet(f"background: {color}; color: {C['dark_text']}; font-weight: bold; border-radius: 4px;")
-        # Limpar playhead
-        refs = self._layer_refs.get(item_id)
-        if refs:
-            refs["waveform"].set_playhead(-1)
-
-    def _play_all(self, group, color):
-        """Reproduz todos os layers mixados."""
-        def run():
-            try:
-                sr = 44100
-                base = min(i.start_time for i in group)
-                end = max(i.start_time + i.duration for i in group)
-                total_samples = int((end - base) * sr)
-                if total_samples <= 0:
-                    return
-                mix = np.zeros((total_samples, 2), dtype=np.float32)
-                for item in group:
-                    if not _file_exists(item.file_path):
-                        continue
-                    data, item_sr = sf.read(item.file_path, dtype="float32")
-                    if len(data.shape) == 1:
-                        data = np.column_stack([data, data])
-                    if item_sr != sr:
-                        new_len = int(len(data) * sr / item_sr)
-                        data = np.column_stack([
-                            np.interp(np.linspace(0, len(data)-1, new_len), np.arange(len(data)), data[:, 0]),
-                            np.interp(np.linspace(0, len(data)-1, new_len), np.arange(len(data)), data[:, 1]),
-                        ])
-                    vol = int(item.params.get("volume", 80)) / 100.0
-                    data *= vol
-                    s = int((item.start_time - base) * sr)
-                    e = min(s + len(data), total_samples)
-                    mix[s:e] += data[:e-s]
-                sd.stop()
-                sd.play(np.ascontiguousarray(np.clip(mix, -1, 1).astype(np.float32)), samplerate=sr)
-            except Exception:
-                _log.exception("Erro ao reproduzir audio (play all)")
-        threading.Thread(target=run, daemon=True).start()
-
-    def _duplicate(self, item):
-        """Duplica layer."""
-        self._project.add_track_item(
-            name=item.name, track=item.track,
-            start_time=item.start_time, duration=item.duration,
-            file_path=item.file_path, params=dict(item.params),
-            clip_index=item.clip_index)
-        self._project.save(PROJECTS_DIR)
-        self.show_item(self._item, self._project)
-
-    def _get_playhead_rel_time(self, item):
-        """Retorna tempo relativo do playhead no layer selecionado."""
-        app = self.window()
-        abs_time = item.start_time + (item.duration / 2.0)
-        if hasattr(app, "timeline"):
-            abs_time = float(getattr(app.timeline, "playhead_pos", abs_time))
-        rel = abs_time - item.start_time
-        return max(0.0, min(float(item.duration), rel))
-
-    def _commit_layer_edit(self, item):
-        self._project.save(PROJECTS_DIR)
-        self.changed.emit()
-
-    def _cut_btn_clicked(self, item, btn, waveform):
-        """Clique no botao Recortar: ativa o modo de corte."""
-        self._toggle_cut_mode(item, btn, waveform)
-
-    def _toggle_cut_mode(self, item, btn, waveform):
-        """Ativa/desativa modo de recorte interativo na waveform."""
-        if self._cut_service.is_active(item.id):
-            self._cut_service.deactivate()
-            btn.setChecked(False)
-            btn.setText("✂ Recortar")
-            btn.setStyleSheet(
-                "background: rgba(255,255,255,0.05); color: #A9B4C8; font-size: 8pt; font-weight: bold; "
-                "border-radius: 10px; padding: 4px 12px;"
-            )
-            waveform.set_cut_mode(None)
-            self._set_cut_container_mode(item, "idle")
-        else:
-            self._cut_service.activate(item.id)
-            btn.setChecked(True)
-            btn.setText("✂ Recortar")
-            btn.setStyleSheet(
-                f"background: {C['danger']}; color: #fff; font-size: 8pt; font-weight: bold; "
-                "border-radius: 10px; padding: 4px 12px;"
-            )
-            waveform.set_cut_mode(self._cut_service)
-            waveform.selection_changed.connect(lambda: self._on_cut_selection_changed(item))
-
-    def _on_cut_selection_changed(self, item):
-        """Alterna o container entre [Recortar] e [Desfazer | Aplicar]."""
-        if self._cut_service.has_selection():
-            self._set_cut_container_mode(item, "confirm")
-        else:
-            self._set_cut_container_mode(item, "active")
-        # Se estiver tocando, reinicia para aplicar o silencio imediatamente
-        if self._playing.get(item.id, False):
-            refs = self._layer_refs.get(item.id, {})
-            btn = refs.get("play_btn")
-            color = refs.get("color", C["cyan"])
-            if btn:
-                self._start_play(item, btn, color)
-
-    def _set_cut_container_mode(self, item, mode):
-        """
-        mode='idle'    -> Recortar (inativo)
-        mode='active'  -> Recortar (vermelho)
-        mode='confirm' -> [Desfazer | Aplicar]
-        """
-        refs = self._layer_refs.get(item.id, {})
-        cut_btn   = refs.get("cut_btn")
-        undo_btn  = refs.get("cut_undo_btn")
-        apply_btn = refs.get("cut_apply_btn")
-        if cut_btn is None:
-            return
-
-        if mode == "idle" or mode == "active":
-            cut_btn.setChecked(mode == "active")
-            cut_btn.setText("✂ Recortar")
-            cut_btn.setStyleSheet(
-                "background: rgba(255,255,255,0.05); color: #A9B4C8; font-size: 8pt; font-weight: bold; "
-                "border-radius: 10px; padding: 4px 12px;"
-                if mode == "idle" else
-                f"background: {C['danger']}; color: #fff; font-size: 8pt; font-weight: bold; "
-                "border-radius: 10px; padding: 4px 12px;"
-            )
-            cut_btn.show()
-            if undo_btn:  undo_btn.hide()
-            if apply_btn: apply_btn.hide()
-            self._stop_pulse(item.id)
-        else:  # confirm
-            cut_btn.hide()
-            if undo_btn:  undo_btn.show()
-            if apply_btn: apply_btn.show()
-            self._start_pulse(item.id, undo_btn, apply_btn)
-
-    def _start_pulse(self, item_id, undo_btn, apply_btn):
-        """Inicia luz girando nos botoes Desfazer e Aplicar."""
-        self._stop_pulse(item_id)
-        if isinstance(undo_btn, _GlowButton):
-            undo_btn.start_glow()
-        if isinstance(apply_btn, _GlowButton):
-            apply_btn.start_glow()
-        # Guarda refs para poder parar depois
-        self._pulse_timers[item_id] = (undo_btn, apply_btn)
-
-    def _stop_pulse(self, item_id):
-        refs = self._pulse_timers.pop(item_id, None)
-        if refs:
-            undo_btn, apply_btn = refs
-            if isinstance(undo_btn, _GlowButton):
-                undo_btn.stop_glow()
-            if isinstance(apply_btn, _GlowButton):
-                apply_btn.stop_glow()
-
-    def _undo_cut_selection(self, item):
-        """Limpa todas as selecoes sem aplicar o corte."""
-        self._cut_service.clear_selection()
-        refs = self._layer_refs.get(item.id, {})
-        wf = refs.get("cut_waveform")
-        if wf:
-            wf.update()
-        self._set_cut_container_mode(item, "active")
-
-    def _apply_cut_from_waveform(self, item, waveform, cut_btn):
-        """Aplica todos os cortes e restaura o botao Recortar."""
-        applied = self._cut_service.apply_cut(
-            item, self._project,
-            self._slice_volume_keyframes,
-            self._commit_layer_edit,
-        )
-        if applied:
-            self._set_cut_container_mode(item, "idle")
-            waveform._load_waveform()
-            waveform.update()
-
-    def _trim_start_to_playhead(self, item):
-        """Remove o começo do layer até o playhead."""
-        cut = self._get_playhead_rel_time(item)
-        self._trim_start(item, cut)
-
-    def _trim_end_to_playhead(self, item):
-        """Remove o fim do layer a partir do playhead."""
-        end_at = self._get_playhead_rel_time(item)
-        self._trim_end(item, end_at)
-
-    def _range_cut_action(self, item, btn, info_lbl):
-        """Recorte entre dois pontos: primeiro clique marca A, segundo remove A-B."""
-        cur = self._get_playhead_rel_time(item)
-        mark_a = self._pending_range_cut.get(item.id)
-        if mark_a is None:
-            self._pending_range_cut[item.id] = cur
-            btn.setText("A marcado")
-            info_lbl.setText(f"A={cur:.2f}s")
-            return
-
-        self._pending_range_cut.pop(item.id, None)
-        btn.setText("Recorte A-B")
-        info_lbl.setText("")
-        a, b = sorted((float(mark_a), float(cur)))
-        if b - a < 0.05:
-            return
-
-        dur = float(item.duration)
-        if a <= 0.01:
-            self._trim_start(item, b)
-            return
-        if b >= dur - 0.01:
-            self._trim_end(item, a)
-            return
-
-        left_dur = round(max(0.05, a), 3)
-        right_dur = round(max(0.05, dur - b), 3)
-        params_b = dict(item.params)
-
-        left_kf = self._slice_volume_keyframes(item.volume_keyframes, dur, 0.0, a)
-        right_kf = self._slice_volume_keyframes(item.volume_keyframes, dur, b, dur)
-
-        item.duration = left_dur
-        item.volume_keyframes = left_kf
-
-        new_item = self._project.add_track_item(
-            name=f"{item.name} (parte 2)",
-            track=item.track,
-            start_time=round(item.start_time + left_dur, 3),
-            duration=right_dur,
-            file_path=item.file_path,
-            params=params_b,
-            clip_index=item.clip_index,
-        )
-        new_item.volume_keyframes = right_kf
-        self._commit_layer_edit(item)
-
-    def _trim_start(self, item, cut):
-        dur = float(item.duration)
-        cut = max(0.0, min(dur, float(cut)))
-        if cut < 0.05 or cut >= dur - 0.01:
-            return
-        item.start_time = round(item.start_time + cut, 3)
-        item.duration = round(max(0.05, dur - cut), 3)
-        item.volume_keyframes = slice_volume_keyframes(item.volume_keyframes, dur, cut, dur)
-        self._commit_layer_edit(item)
-
-    def _trim_end(self, item, end_at):
-        dur = float(item.duration)
-        end_at = max(0.0, min(dur, float(end_at)))
-        if end_at <= 0.05 or end_at >= dur - 0.01:
-            return
-        item.duration = round(max(0.05, end_at), 3)
-        item.volume_keyframes = slice_volume_keyframes(item.volume_keyframes, dur, 0.0, end_at)
-        self._commit_layer_edit(item)
-
-    def _slice_volume_keyframes(self, keyframes, duration, seg_start, seg_end):
-        return slice_volume_keyframes(keyframes, duration, seg_start, seg_end)
-
-    def _delete_layer(self, item):
-        """Mostra confirmacao inline no card do layer antes de remover."""
-        frame = self._layer_frames.get(item.id)
-        hdr = self._layer_headers.get(item.id)
-        if frame is None or hdr is None:
-            self._do_delete_layer(item)
-            return
-
-        # Esconde o header e insere card de confirmacao no lugar
-        hdr.hide()
-        confirm = QFrame()
-        confirm.setStyleSheet(
-            f"background: rgba(180,30,30,0.18); border: 1px solid {C['danger']}; border-radius: 10px;"
-        )
-        cl = QHBoxLayout(confirm)
-        cl.setContentsMargins(10, 6, 10, 6)
-        cl.setSpacing(8)
-        lbl = QLabel(f"Remover <b>{item.name[:20]}</b>?")
-        lbl.setStyleSheet(f"color: {C['text']}; font-size: 9pt; border: none; background: transparent;")
-        cl.addWidget(lbl)
-        cl.addStretch()
-        yes_btn = QPushButton("Remover")
-        yes_btn.setFixedHeight(26)
-        yes_btn.setStyleSheet(
-            f"background: {C['danger']}; color: #fff; font-size: 8pt; font-weight: bold; "
-            "border-radius: 8px; padding: 2px 12px;"
-        )
-        no_btn = QPushButton("Cancelar")
-        no_btn.setFixedHeight(26)
-        no_btn.setStyleSheet(
-            "background: rgba(255,255,255,0.07); color: #A9B4C8; font-size: 8pt; font-weight: bold; "
-            "border-radius: 8px; padding: 2px 12px;"
-        )
-        cl.addWidget(no_btn)
-        cl.addWidget(yes_btn)
-
-        # Insere o card logo acima do header no layout do frame
-        fl = frame.layout()
-        fl.insertWidget(0, confirm)
-
-        def _cancel():
-            confirm.deleteLater()
-            hdr.show()
-
-        def _confirm():
-            confirm.deleteLater()
-            self._do_delete_layer(item)
-
-        yes_btn.clicked.connect(_confirm)
-        no_btn.clicked.connect(_cancel)
-
-    def _do_delete_layer(self, item):
-        """Efetiva a remocao do layer."""
-        try:
-            sd.stop()
-        except Exception:
-            _log.exception("Erro ao parar sounddevice (delete layer)")
-        self._project.remove_track_item(item.id)
-        self._project.save(PROJECTS_DIR)
-        self.changed.emit()
-        remaining = self._project.get_track_items(item.track)
-        if remaining:
-            self.show_item(remaining[0], self._project)
-        else:
-            self._close()
+    # ── close ─────────────────────────────────────────────────────────────────
 
     def _close(self):
+        for stream in self._stream_players.values():
+            stream.stop()
+        self._stream_players.clear()
         try:
             sd.stop()
         except Exception:
-            _log.exception("Erro ao parar sounddevice (close)")
+            _log.debug("Erro ao parar sd (close)", exc_info=True)
         self.closed.emit()
         self.hide()
 
-    # ============================================================
-    # HELPERS
-    # ============================================================
+    # ── helpers ───────────────────────────────────────────────────────────────
 
     def _get_group(self, item):
-        """Retorna items do mesmo grupo — sempre restrito à mesma track."""
         all_track = self._project.get_track_items(item.track)
         if item.clip_index >= 0:
             return [i for i in all_track if i.clip_index == item.clip_index]
         return [item]
-
-    def _seek_play(self, item, ratio, color):
-        """Play a partir de uma posição na waveform."""
-        if not _file_exists(item.file_path):
-            return
-        try:
-            data, sr = sf.read(item.file_path, dtype="float32")
-            if len(data.shape) == 1:
-                data = np.column_stack([data, data])
-            vol = int(item.params.get("volume", 80)) / 100.0
-            data *= vol
-            start_sample = int(ratio * len(data))
-            audio = np.ascontiguousarray(np.clip(data[start_sample:], -1, 1).astype(np.float32))
-            sd.stop()
-            sd.play(audio, samplerate=sr)
-            self._playing[item.id] = True
-            refs = self._layer_refs.get(item.id)
-            if refs:
-                refs["play_btn"].setText("\u25a0 Stop")
-                refs["play_btn"].setStyleSheet(f"background: {C['danger']}; color: {C['text']}; font-weight: bold; border-radius: 4px;")
-                self._animate_playhead(item.id, ratio, item.duration * (1 - ratio))
-        except Exception:
-            _log.exception("Erro ao reproduzir audio (seek)")
-
-    def _animate_playhead(self, item_id, start_ratio, duration):
-        """Anima playhead na waveform em tempo real."""
-        refs = self._layer_refs.get(item_id)
-        if not refs:
-            return
-        waveform = refs["waveform"]
-        time_lbl = refs["time_lbl"]
-        start_time = _time.time()
-        total_dur = duration
-
-        def _tick():
-            if not self._playing.get(item_id, False):
-                waveform.set_playhead(-1)
-                return
-            elapsed = _time.time() - start_time
-            if elapsed >= total_dur:
-                self._playing[item_id] = False
-                refs["current_time"] = waveform._item.duration
-                waveform.set_playhead(-1)
-                refs["play_btn"].setText("\u25b6 Play")
-                refs["play_btn"].setStyleSheet(f"background: {refs['color']}; color: {C['dark_text']}; font-weight: bold; border-radius: 4px;")
-                time_lbl.setText(f"{waveform._item.duration:.1f}s / {waveform._item.duration:.1f}s")
-                return
-            ratio = start_ratio + (elapsed / waveform._item.duration)
-            waveform.set_playhead(min(1.0, ratio))
-            current = start_ratio * waveform._item.duration + elapsed
-            refs["current_time"] = current
-            time_lbl.setText(f"{current:.1f}s / {waveform._item.duration:.1f}s")
-            QTimer.singleShot(33, _tick)
-
-        QTimer.singleShot(33, _tick)
-
-    def _rename_item(self, item, layout):
-        """Mostra campo inline para renomear."""
-        rename_frame = QFrame()
-        rename_frame.setStyleSheet(f"background: {C['card']}; border-radius: 4px;")
-        rl = QHBoxLayout(rename_frame)
-        rl.setContentsMargins(4, 4, 4, 4)
-        entry = QLineEdit(item.name)
-        entry.setStyleSheet(f"background: {C['input']}; color: {C['text']}; border: 1px solid {TRACK_COLORS.get(item.track, C['cyan'])}; border-radius: 3px; padding: 2px;")
-        rl.addWidget(entry)
-        ok_btn = QPushButton("OK")
-        ok_btn.setFixedSize(30, 24)
-        ok_btn.setStyleSheet(f"background: {TRACK_COLORS.get(item.track, C['accent'])}; color: {C['dark_text']}; font-weight: bold; border-radius: 3px;")
-
-        def _confirm():
-            new_name = entry.text().strip()
-            if new_name:
-                group = self._get_group(item)
-                rep = sorted(group, key=lambda i: i.start_time)[0] if group else item
-                rep.name = new_name
-                self._project.save(PROJECTS_DIR)
-            rename_frame.deleteLater()
-            self.show_item(self._item, self._project)
-
-        ok_btn.clicked.connect(_confirm)
-        entry.returnPressed.connect(_confirm)
-        rl.addWidget(ok_btn)
-        # Inserir antes do stretch
-        count = layout.count()
-        layout.insertWidget(count - 1, rename_frame)
-        entry.setFocus()
-        entry.selectAll()
-
-
-# ============================================================
-# WAVEFORM WIDGET
-# ============================================================
-
-class _WaveformWidget(QWidget):
-    """Widget que desenha waveform do audio com keyframes de volume."""
-
-    keyframe_changed = Signal(bool)  # commit=True quando a edicao termina
-    cut_requested = Signal()         # emitido ao soltar o mouse no modo recorte
-    selection_changed = Signal()     # emitido quando a selecao de corte muda
-
-    def __init__(self, item, color, parent=None):
-        super().__init__(parent)
-        self._item = item
-        self._color = QColor(color)
-        self._waveform_data = None
-        self._playhead_ratio = -1  # -1 = hidden
-        self._dragging = None
-        self._cut_service = None
-        self._cut_dragging = False
-        self._cut_press_pos = None
-        self._cut_edge_drag = None  # None | "start" | "end"
-        self._wip_end_preview = None  # ratio do ponto B em movimento (segundo clique+drag)
-        self.setCursor(Qt.PointingHandCursor)
-        self.setMouseTracking(True)
-        self._ensure_default_keyframes()
-        self._load_waveform()
-
-    _EDGE_HIT = 8  # pixels de tolerancia para detectar borda
-
-    def _hit_edge(self, x):
-        """Retorna (index, 'start'|'end') ou None."""
-        if self._cut_service is None:
-            return None
-        return self._cut_service.hit_edge(x / max(1, self.width()), self._EDGE_HIT, self.width())
-
-    def set_cut_mode(self, service):
-        """Ativa (service != None) ou desativa o modo de recorte."""
-        self._cut_service = service
-        self._cut_dragging = False
-        self._cut_press_pos = None
-        self._wip_end_preview = None
-        if service is None:
-            self.setCursor(Qt.PointingHandCursor)
-            self.setToolTip("Clique para criar keyframe | Arraste para ajustar | Botao direito remove")
-        else:
-            self.setCursor(Qt.CrossCursor)
-            self.setToolTip("Clique e arraste para selecionar a regi\u00e3o a recortar")
-        self.update()
-
-    def _ensure_default_keyframes(self):
-        if self._item.volume_keyframes:
-            self._item.volume_keyframes.sort(key=lambda k: k.get("time", 0.0))
-
-    def _load_waveform(self):
-        """Carrega waveform usando os mesmos dados que o play usa."""
-        data, sr = _prepare_audio(self._item)
-        if data is None or len(data) < 10:
-            return
-        try:
-            mono = data.mean(axis=1) if len(data.shape) > 1 else data
-            n_points = 200
-            chunk = max(1, len(mono) // n_points)
-            rms_values = [
-                max(float(np.sqrt(np.mean(mono[i:i+chunk] ** 2))), 1e-9)
-                for i in range(0, len(mono), chunk)
-            ]
-            db = np.array([20 * np.log10(v) for v in rms_values])
-            db_floor, db_ceil = -60.0, max(db.max(), -59.0)
-            self._waveform_data = list(
-                np.clip((db - db_floor) / (db_ceil - db_floor), 0.0, 1.0)
-            )
-        except Exception:
-            _log.exception("Erro ao carregar waveform")
-            self._waveform_data = None
-
-    def set_playhead(self, ratio):
-        """Define o playhead. ratio refere-se ao audio sem as regioes cortadas."""
-        self._playhead_ratio = self._audio_ratio_to_visual(ratio)
-        self.update()
-
-    def _audio_ratio_to_visual(self, ratio):
-        """Converte ratio do audio (sem cortes) para ratio visual (waveform original)."""
-        if ratio < 0 or self._cut_service is None:
-            return ratio
-        selections = self._cut_service.get_selections()
-        if not selections:
-            return ratio
-        # Monta lista de segmentos mantidos: [(vis_start, vis_end), ...]
-        kept = []
-        prev = 0.0
-        for a, b in sorted(selections):
-            if a > prev:
-                kept.append((prev, a))
-            prev = b
-        if prev < 1.0:
-            kept.append((prev, 1.0))
-        if not kept:
-            return ratio
-        total = sum(b - a for a, b in kept)
-        if total <= 0:
-            return ratio
-        # Encontrar em qual segmento o ratio do audio cai
-        audio_pos = ratio * total
-        acc = 0.0
-        for vis_a, vis_b in kept:
-            seg_len = vis_b - vis_a
-            if audio_pos <= acc + seg_len:
-                return vis_a + (audio_pos - acc)
-            acc += seg_len
-        return kept[-1][1]
-
-    def _draw_keyframes(self, p, w, h):
-        kfs = list(enumerate(self._item.volume_keyframes))
-        if len(kfs) < 2:
-            return
-
-        dur = max(0.001, float(self._item.duration or 1.0))
-        pad_x = 6
-        top = 6
-        bottom = h - 6
-        band_h = max(8, bottom - top)
-        draw_w = max(1, w - pad_x * 2)
-
-        sorted_kfs = sorted(kfs, key=lambda pair: pair[1]["time"])
-        path = QPainterPath()
-        pts = []
-        for idx, kf in sorted_kfs:
-            ratio = max(0.0, min(1.0, float(kf.get("time", 0.0)) / dur))
-            value = max(0.0, min(2.0, float(kf.get("value", 1.0)))) / 2.0
-            x = pad_x + ratio * draw_w
-            y = bottom - value * band_h
-            pts.append((idx, x, y, value))
-
-        if len(pts) < 2:
-            return
-
-        path.moveTo(pts[0][1], pts[0][2])
-        for _, x, y, _ in pts[1:]:
-            path.lineTo(x, y)
-
-        fill = QPainterPath(path)
-        fill.lineTo(pts[-1][1], bottom)
-        fill.lineTo(pts[0][1], bottom)
-        fill.closeSubpath()
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(QColor(self._color.red(), self._color.green(), self._color.blue(), 42)))
-        p.drawPath(fill)
-
-        curve_color = QColor(self._color)
-        curve_color.setAlpha(220)
-        p.setPen(QPen(curve_color, 2))
-        p.setBrush(Qt.NoBrush)
-        p.drawPath(path)
-
-        for idx, x, y, value in pts:
-            active = self._dragging == idx
-            r = 5 if active else 4
-            p.setPen(QPen(QColor("#ffffff"), 1))
-            p.setBrush(QBrush(QColor("#00ffee") if active else QColor(self._color)))
-            p.drawEllipse(int(x) - r, int(y) - r, r * 2, r * 2)
-            p.setPen(QPen(QColor(C["text"])))
-            p.setFont(QFont("Consolas", 6))
-            p.drawText(int(x) - 10, int(y) - 7, f"{value * 200:.0f}%")
-
-    def _find_nearest_keyframe(self, pos, threshold=10):
-        dur = max(0.001, float(self._item.duration or 1.0))
-        w, h = self.width(), self.height()
-        pad_x = 6
-        top = 6
-        bottom = h - 6
-        band_h = max(8, bottom - top)
-        draw_w = max(1, w - pad_x * 2)
-
-        best = None
-        best_dist = threshold
-        for idx, kf in enumerate(self._item.volume_keyframes):
-            ratio = max(0.0, min(1.0, float(kf.get("time", 0.0)) / dur))
-            value = max(0.0, min(2.0, float(kf.get("value", 1.0)))) / 2.0
-            x = pad_x + ratio * draw_w
-            y = bottom - value * band_h
-            dist = ((pos.x() - x) ** 2 + (pos.y() - y) ** 2) ** 0.5
-            if dist < best_dist:
-                best = idx
-                best_dist = dist
-        return best
-
-    def _pos_to_kf(self, pos):
-        w, h = self.width(), self.height()
-        pad_x = 6
-        top = 6
-        bottom = h - 6
-        band_h = max(8, bottom - top)
-        draw_w = max(1, w - pad_x * 2)
-        dur = max(0.001, float(self._item.duration or 1.0))
-        t = max(0.0, min(dur, ((pos.x() - pad_x) / draw_w) * dur))
-        v = max(0.0, min(2.0, (bottom - pos.y()) / band_h * 2.0))
-        return t, v
-
-    def _normalize_keyframes(self):
-        self._item.volume_keyframes.sort(key=lambda k: k.get("time", 0.0))
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing, False)
-        w, h = self.width(), self.height()
-
-        # Fundo
-        p.fillRect(0, 0, w, h, QColor(11, 18, 32, 220))
-
-        # Waveform
-        if self._waveform_data:
-            n = len(self._waveform_data)
-            bar_w = max(1, w / n)
-            mid = h / 2
-            color_dark = QColor(self._color)
-            color_dark.setAlpha(180)
-            for i, amp in enumerate(self._waveform_data):
-                x = int(i * bar_w)
-                bar_h = max(1, int(amp * mid * 0.9))
-                p.setPen(Qt.NoPen)
-                p.setBrush(color_dark)
-                p.drawRect(x, int(mid - bar_h), max(1, int(bar_w) - 1), bar_h * 2)
-        else:
-            p.setPen(QPen(self._color, 1))
-            p.drawLine(0, h // 2, w, h // 2)
-
-        self._draw_keyframes(p, w, h)
-
-        # Selecao de recorte
-        if self._cut_service is not None:
-            w_sel = max(1, w)
-            # Seleções confirmadas
-            for sel_a, sel_b in self._cut_service.get_selections():
-                xa, xb = int(sel_a * w_sel), int(sel_b * w_sel)
-                p.fillRect(xa, 0, xb - xa, h, QColor(220, 50, 50, 70))
-                p.setPen(QPen(QColor(220, 50, 50, 110), 1))
-                spacing = 8
-                for x in range(xa - h, xb, spacing):
-                    p.drawLine(x, h, x + h, 0)
-                p.setPen(QPen(QColor(220, 50, 50, 220), 2))
-                p.drawLine(xa, 0, xa, h)
-                p.drawLine(xb, 0, xb, h)
-            # Indicadores de borda da faixa (amarelo)
-            if self._cut_service.touches_start():
-                p.fillRect(0, 0, 4, h, QColor(255, 200, 0, 200))
-            if self._cut_service.touches_end():
-                p.fillRect(w - 4, 0, 4, h, QColor(255, 200, 0, 200))
-            # WIP (seleção em construção)
-            wip_a, wip_b = self._cut_service.get_wip()
-            if wip_a is not None and wip_b > wip_a:
-                xa, xb = int(wip_a * w_sel), int(wip_b * w_sel)
-                p.fillRect(xa, 0, xb - xa, h, QColor(220, 50, 50, 40))
-                p.setPen(QPen(QColor(220, 50, 50, 160), 1, Qt.DashLine))
-                p.drawLine(xa, 0, xa, h)
-                p.drawLine(xb, 0, xb, h)
-            # Ponto A pendente (aguardando segundo clique)
-            pending = self._cut_service.get_pending_point()
-            if pending is not None:
-                px = int(pending * w_sel)
-                p.setPen(QPen(QColor(255, 180, 0, 220), 2))
-                p.drawLine(px, 0, px, h)
-                p.setBrush(QColor(255, 180, 0, 200))
-                p.setPen(Qt.NoPen)
-                p.drawEllipse(px - 5, h // 2 - 5, 10, 10)
-                p.setPen(QPen(QColor("#fff")))
-                p.setFont(QFont("Consolas", 7))
-                p.drawText(px + 4, 14, "A")
-                # Preview do ponto B em movimento
-                if self._wip_end_preview is not None:
-                    bx = int(self._wip_end_preview * w_sel)
-                    xa, xb = (min(px, bx), max(px, bx))
-                    p.fillRect(xa, 0, xb - xa, h, QColor(220, 50, 50, 40))
-                    p.setPen(QPen(QColor(220, 50, 50, 180), 2, Qt.DashLine))
-                    p.drawLine(bx, 0, bx, h)
-                    p.setBrush(QColor(220, 50, 50, 200))
-                    p.setPen(Qt.NoPen)
-                    p.drawEllipse(bx - 5, h // 2 - 5, 10, 10)
-                    p.setPen(QPen(QColor("#fff")))
-                    p.setFont(QFont("Consolas", 7))
-                    p.drawText(bx + 4, 14, "B")
-
-        # Playhead
-        if 0 <= self._playhead_ratio <= 1:
-            px = int(self._playhead_ratio * w)
-            p.setPen(QPen(QColor(C["playhead"]), 2))
-            p.drawLine(px, 0, px, h)
-            p.setBrush(QColor(C["playhead"]))
-            p.setPen(Qt.NoPen)
-            p.drawPolygon(QPolygon([QPoint(px - 4, 0), QPoint(px + 4, 0), QPoint(px, 5)]))
-
-    def mousePressEvent(self, event):
-        if self._cut_service is not None and event.button() == Qt.LeftButton:
-            x = event.position().x()
-            edge = self._hit_edge(x)
-            if edge is not None:
-                self._cut_edge_drag = edge
-                self._cut_service.begin_edge_drag(edge[0], edge[1])
-                self._cut_press_pos = None
-                self._cut_dragging = False
-            elif self._cut_service.get_pending_point() is not None:
-                # Ponto A ja marcado: press ja mostra ponto B na posicao do clique
-                ratio = max(0.0, min(1.0, x / max(1, self.width())))
-                self._wip_end_preview = ratio
-                self._cut_press_pos = x
-                self._cut_dragging = False
-                self._cut_edge_drag = None
-            else:
-                self._cut_press_pos = x
-                self._cut_dragging = False
-                self._cut_edge_drag = None
-            self.update()
-            event.accept()
-            return
-        if event.button() == Qt.LeftButton:
-            idx = self._find_nearest_keyframe(event.position())
-            if idx is None:
-                t, v = self._pos_to_kf(event.position())
-                new_kf = {"time": round(t, 2), "value": round(v, 3)}
-                self._item.volume_keyframes.append(new_kf)
-                self._normalize_keyframes()
-                self._dragging = self._item.volume_keyframes.index(new_kf)
-                self.keyframe_changed.emit(False)
-            else:
-                self._dragging = idx
-            self.setCursor(Qt.SizeAllCursor)
-            self.update()
-            event.accept()
-        elif event.button() == Qt.RightButton:
-            idx = self._find_nearest_keyframe(event.position(), threshold=14)
-            if idx is not None:
-                self._item.volume_keyframes.pop(idx)
-                self._normalize_keyframes()
-                self.keyframe_changed.emit(True)
-                self.update()
-            event.accept()
-
-    def mouseMoveEvent(self, event):
-        if self._cut_service is not None:
-            x = event.position().x()
-            # Drag de borda existente
-            if self._cut_edge_drag is not None:
-                ratio = max(0.0, min(1.0, x / max(1, self.width())))
-                self._cut_service.update_edge_drag(ratio)
-                self.update()
-                return
-            if self._cut_press_pos is not None:
-                dx = abs(x - self._cut_press_pos)
-                if self._cut_service.get_pending_point() is not None:
-                    # Ponto A marcado: mover ponto B em tempo real sem threshold
-                    ratio = max(0.0, min(1.0, x / max(1, self.width())))
-                    self._wip_end_preview = ratio
-                    self._cut_dragging = True
-                    self.update()
-                elif not self._cut_dragging and dx > 4:
-                    # Novo arrasto sem ponto A pendente
-                    ratio = max(0.0, min(1.0, self._cut_press_pos / max(1, self.width())))
-                    self._cut_service.begin_selection(ratio)
-                    self._cut_dragging = True
-                    if self._cut_dragging:
-                        ratio = max(0.0, min(1.0, x / max(1, self.width())))
-                        self._cut_service.update_selection(ratio)
-                        self.update()
-                elif self._cut_dragging:
-                    ratio = max(0.0, min(1.0, x / max(1, self.width())))
-                    self._cut_service.update_selection(ratio)
-                    self.update()
-                return
-            # Hover: mudar cursor ao passar perto de borda
-            edge = self._hit_edge(x)
-            if edge is not None:
-                self.setCursor(Qt.SizeHorCursor)
-            else:
-                self.setCursor(Qt.CrossCursor)
-            return
-        if self._dragging is not None:
-            t, v = self._pos_to_kf(event.position())
-            kf = self._item.volume_keyframes[self._dragging]
-            kf["time"] = round(t, 2)
-            kf["value"] = round(v, 3)
-            self._normalize_keyframes()
-            self._dragging = self._item.volume_keyframes.index(kf)
-            self.keyframe_changed.emit(False)
-            self.update()
-
-    def mouseReleaseEvent(self, event):
-        if self._cut_service is not None and event.button() == Qt.LeftButton:
-            ratio = max(0.0, min(1.0, event.position().x() / max(1, self.width())))
-            if self._cut_edge_drag is not None:
-                self._cut_service.end_edge_drag()
-                self._cut_edge_drag = None
-                self.update()
-                self.selection_changed.emit()
-            elif self._cut_press_pos is not None and self._cut_service.get_pending_point() is not None:
-                # Segundo clique (com ou sem arrasto): fecha selecao A->B
-                self._wip_end_preview = None
-                self._cut_service.click_point(ratio)
-                self._cut_press_pos = None
-                self._cut_dragging = False
-                self.update()
-                self.selection_changed.emit()
-            elif self._cut_dragging:
-                self._cut_dragging = False
-                self._cut_press_pos = None
-                self._cut_service.commit_wip()
-                self.update()
-                self.selection_changed.emit()
-            else:
-                # Primeiro clique simples: marca ponto A
-                self._cut_service.click_point(ratio)
-                self._cut_press_pos = None
-                self.update()
-                self.selection_changed.emit()
-            event.accept()
-            return
-        if self._dragging is not None:
-            self._dragging = None
-            self.setCursor(Qt.PointingHandCursor)
-            self.keyframe_changed.emit(True)
-            self.update()
-        event.accept()
-
-    def mouseDoubleClickEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            idx = self._find_nearest_keyframe(event.position(), threshold=14)
-            if idx is not None:
-                self._dragging = idx
-                self.setCursor(Qt.SizeAllCursor)
-                self.update()
-            event.accept()
-
-
-class _LayerDragLabel(QLabel):
-    """Label de layer que permite arrastar o item para outra posição/track na timeline."""
-
-    def __init__(self, item_id, display_name, parent=None):
-        super().__init__(f"\u266b {display_name}", parent)
-        self._item_id = item_id
-        self._drag_start = QPoint()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self._drag_start = event.position().toPoint()
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if not (event.buttons() & Qt.LeftButton):
-            super().mouseMoveEvent(event)
-            return
-        if (event.position().toPoint() - self._drag_start).manhattanLength() < 8:
-            super().mouseMoveEvent(event)
-            return
-
-        mime = QMimeData()
-        mime.setData("application/x-makevid-track-item", self._item_id.encode("utf-8"))
-        drag = QDrag(self)
-        drag.setMimeData(mime)
-        drag.exec(Qt.MoveAction)
-
-
-class _ResponsiveLayerGrid(QWidget):
-    """Grid responsivo que redistribui cards conforme a largura disponível."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._cards = []
-        self._grid = QGridLayout(self)
-        self._grid.setContentsMargins(0, 0, 0, 0)
-        self._grid.setHorizontalSpacing(8)
-        self._grid.setVerticalSpacing(8)
-
-    def add_card(self, card):
-        self._cards.append(card)
-        card.setParent(self)
-        card.show()
-        self._relayout()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._relayout()
-
-    def _relayout(self):
-        while self._grid.count():
-            item = self._grid.takeAt(0)
-            if item.widget():
-                item.widget().setParent(self)
-
-        if not self._cards:
-            return
-
-        available = max(1, self.width())
-        card_min = max(280, max(card.minimumWidth() or 280 for card in self._cards))
-        cols = max(1, available // (card_min + self._grid.horizontalSpacing()))
-        cols = min(cols, len(self._cards))
-
-        for index, card in enumerate(self._cards):
-            row = index // cols
-            col = index % cols
-            self._grid.addWidget(card, row, col)
-
-        for col in range(cols):
-            self._grid.setColumnStretch(col, 1)
-
-
-class _ResponsiveActionGrid(QWidget):
-    """Grid responsivo para a barra de ações do editor."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self._widgets = []
-        self._grid = QGridLayout(self)
-        self._grid.setContentsMargins(0, 0, 0, 0)
-        self._grid.setHorizontalSpacing(8)
-        self._grid.setVerticalSpacing(8)
-        self._grid.setAlignment(Qt.AlignTop)
-
-    def add_widget(self, widget):
-        self._widgets.append(widget)
-        widget.setParent(self)
-        widget.show()
-        widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self._relayout()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._relayout()
-
-    def _relayout(self):
-        while self._grid.count():
-            item = self._grid.takeAt(0)
-            if item.widget():
-                item.widget().setParent(self)
-
-        if not self._widgets:
-            return
-
-        available = max(1, self.width())
-        min_w = 110
-        cols = max(1, available // (min_w + self._grid.horizontalSpacing()))
-        cols = min(cols, len(self._widgets))
-
-        for index, widget in enumerate(self._widgets):
-            row = index // cols
-            col = index % cols
-            self._grid.addWidget(widget, row, col)
-
-        for col in range(cols):
-            self._grid.setColumnStretch(col, 1)
-
-        self._grid.invalidate()

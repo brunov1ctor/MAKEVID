@@ -35,9 +35,13 @@ class TimelinePlayerQt(QObject):
         self._total_dur = 0.0
         self._clips = []
         self._clip_starts = []
+        self._audio_stream = None
 
         self._project = None
         self._master_volume = 1.0
+        # Niveis RMS por faixa, atualizados pelo callback de audio em tempo real
+        # {"voice": db_float, "sfx": db_float, ...}  (dBFS, 0 = silencio)
+        self.track_levels: dict = {"voice": -60.0, "sfx": -60.0, "music": -60.0, "audio": -60.0}
 
     @property
     def is_playing(self):
@@ -296,7 +300,7 @@ class TimelinePlayerQt(QObject):
 
         try:
             import numpy as np
-            import soundfile as sf
+            from makevid.core.audio_utils import render_audio_item
 
             all_audio_items = []
             for track_name in ("voice", "sfx", "music", "audio"):
@@ -310,25 +314,16 @@ class TimelinePlayerQt(QObject):
             if total_samples <= 0:
                 return
 
-            mix = np.zeros((total_samples, 2), dtype=np.float32)
-            loaded = 0
-
+            # Monta as faixas base SEM volume/pan (serao aplicados no callback)
+            # Cada entrada: (base_stereo, start_sample, item_ref)
+            tracks = []
             for item in all_audio_items:
-                if not item.file_path:
+                if not item.file_path or not Path(item.file_path).exists():
                     continue
-                p = Path(item.file_path)
-                if not p.exists():
-                    log.warning(f"Arquivo de audio nao encontrado: {p}")
-                    continue
-                track_vol = self._project.track_volumes.get(item.track, 1.0)
                 try:
-                    data, item_sr = sf.read(str(p), dtype="float32")
-                    if data.ndim == 1:
-                        raw = np.column_stack([data, data])
-                    elif data.shape[1] >= 2:
-                        raw = data[:, :2]
-                    else:
-                        raw = np.column_stack([data[:, 0], data[:, 0]])
+                    raw, item_sr = render_audio_item(item)
+                    if raw is None or len(raw) == 0:
+                        continue
                     if item_sr != sr:
                         new_len = int(len(raw) * sr / item_sr)
                         xs = np.linspace(0, len(raw) - 1, new_len)
@@ -336,50 +331,19 @@ class TimelinePlayerQt(QObject):
                             np.interp(xs, np.arange(len(raw)), raw[:, 0]),
                             np.interp(xs, np.arange(len(raw)), raw[:, 1]),
                         ])
-                    item_vol = float(item.params.get("volume", 100)) / 100.0
-                    raw = raw * (track_vol * item_vol)
-                    pan = float(item.params.get("pan", 0)) / 100.0
-                    if pan != 0:
-                        raw[:, 0] *= max(0.0, 1.0 - pan)
-                        raw[:, 1] *= max(0.0, 1.0 + pan)
-                    fade_in = float(item.params.get("fade_in", 0)) / 100.0
-                    if fade_in > 0:
-                        n = int(len(raw) * fade_in)
-                        if n > 0:
-                            raw[:n] *= np.linspace(0, 1, n).reshape(-1, 1)
-                    fade_out = float(item.params.get("fade_out", 0)) / 100.0
-                    if fade_out > 0:
-                        n = int(len(raw) * fade_out)
-                        if n > 0:
-                            raw[-n:] *= np.linspace(1, 0, n).reshape(-1, 1)
-                    if item.volume_keyframes and len(item.volume_keyframes) >= 2:
-                        from makevid.core.audio_utils import apply_volume_keyframes
-                        raw = apply_volume_keyframes(raw, sr, item.volume_keyframes, item.duration)
+                    # Desfaz volume/pan que render_audio_item ja aplicou
+                    # para poder reaplicar em tempo real no callback
+                    vol = float(item.params.get('volume', 100)) / 100.0
+                    if vol > 1e-6:
+                        raw = raw / vol
+                    tracks.append((raw, int(item.start_time * sr), item))
                 except Exception as e:
-                    log.warning(f"Erro ao ler {p.name}: {e}")
+                    log.warning(f"Erro ao processar {item.file_path}: {e}")
                     continue
 
-                start_s = int(item.start_time * sr)
-                max_s = int(item.duration * sr)
-                if len(raw) > max_s:
-                    raw = raw[:max_s]
-                end_s = min(start_s + len(raw), total_samples)
-                n = end_s - start_s
-                if n > 0:
-                    mix[start_s:end_s] += raw[:n]
-                    loaded += 1
-
-            if loaded == 0:
+            if not tracks:
                 return
 
-            mix = np.clip(mix, -1.0, 1.0)
-            mix = mix * max(0.0, float(getattr(self, '_master_volume', 1.0)))
-            start_s = int(self._start_offset * sr)
-            remaining = mix[start_s:]
-            if len(remaining) == 0:
-                return
-
-            # Verificar dispositivo de saida disponivel
             try:
                 sd.query_devices(kind='output')
             except Exception as e:
@@ -389,29 +353,95 @@ class TimelinePlayerQt(QObject):
             play_sr = int(sr / max(self._speed, 0.1))
             sd.stop()
 
-            # Garantir dispositivo de saida compativel com stereo (2ch)
             out_device = None
             try:
                 dev_info = sd.query_devices(kind='output')
                 if int(dev_info.get('max_output_channels', 2)) < 2:
                     raise ValueError("dispositivo padrao sem stereo")
-                out_device = None  # padrao ok
             except Exception:
-                # Fallback: primeiro dispositivo MME com >= 2 canais de saida
                 for i, d in enumerate(sd.query_devices()):
                     if d['max_output_channels'] >= 2 and 'MME' in d['name']:
                         out_device = i
                         break
 
-            sd.play(np.ascontiguousarray(remaining), samplerate=play_sr, device=out_device)
-            log.debug(
-                f"Audio play iniciado: {loaded} item(s), offset={self._start_offset:.1f}s, sr={play_sr}, device={out_device}"
+            # Posicao de leitura em samples (relativa ao inicio do mix)
+            start_s = int(self._start_offset * sr)
+            # Agrupa tracks por nome para calcular nivel por faixa
+            track_groups: dict = {}
+            for base, item_start, item in tracks:
+                track_groups.setdefault(item.track, []).append((base, item_start, item))
+
+            player_ref = self
+            pos = [start_s]
+            project_ref = self._project
+            master_vol_ref = self
+
+            BLOCK = 1024
+
+            def _callback(outdata, frames, time_info, status):
+                block = np.zeros((frames, 2), dtype=np.float32)
+                cur = pos[0]
+
+                for track_name, items in track_groups.items():
+                    track_block = np.zeros((frames, 2), dtype=np.float32)
+                    for base, item_start, item in items:
+                        item_end = item_start + len(base)
+                        if cur >= item_end or cur + frames <= item_start:
+                            continue
+                        src_start = max(0, cur - item_start)
+                        dst_start = max(0, item_start - cur)
+                        n = min(frames - dst_start, len(base) - src_start)
+                        if n <= 0:
+                            continue
+                        chunk = base[src_start:src_start + n].copy()
+                        try:
+                            vol = float(item.params.get('volume', 100)) / 100.0
+                            pan = float(item.params.get('pan', 0)) / 100.0
+                            track_vol = project_ref.track_volumes.get(item.track, 1.0)
+                        except Exception:
+                            vol, pan, track_vol = 1.0, 0.0, 1.0
+                        chunk *= vol * track_vol
+                        if pan != 0.0:
+                            angle = (pan + 1.0) * np.pi / 4.0
+                            chunk[:, 0] *= float(np.cos(angle))
+                            chunk[:, 1] *= float(np.sin(angle))
+                        track_block[dst_start:dst_start + n] += chunk
+
+                    # Nivel RMS da faixa em dBFS
+                    rms = float(np.sqrt(np.mean(track_block ** 2)))
+                    db = 20.0 * np.log10(max(rms, 1e-9))
+                    player_ref.track_levels[track_name] = max(-60.0, db)
+                    block += track_block
+
+                mv = max(0.0, float(getattr(master_vol_ref, '_master_volume', 1.0)))
+                block *= mv
+                np.clip(block, -1.0, 1.0, out=block)
+                outdata[:] = block
+                pos[0] += frames
+
+            self._audio_stream = sd.OutputStream(
+                samplerate=play_sr,
+                channels=2,
+                dtype='float32',
+                blocksize=BLOCK,
+                device=out_device,
+                callback=_callback,
             )
+            self._audio_stream.start()
+            log.debug(f"Audio stream iniciado: {len(tracks)} faixa(s), offset={self._start_offset:.1f}s")
 
         except Exception as e:
             log.exception(f"_start_audio erro: {e}")
 
     def _stop_audio(self):
+        stream = getattr(self, '_audio_stream', None)
+        if stream is not None:
+            try:
+                stream.stop()
+                stream.close()
+            except Exception:
+                pass
+            self._audio_stream = None
         try:
             import sounddevice as sd
             sd.stop()

@@ -227,6 +227,7 @@ class SceneInteraction:
                 self._drag_mode = "item_trim_left"
                 self._drag_orig = found.duration
                 self._drag_orig_start = found.start_time
+                self._drag_orig_file_offset = float(getattr(found, 'file_offset', 0.0))
             elif (iw - local_x) <= 6:
                 self._drag_mode = "item_trim_right"
                 self._drag_orig = found.duration
@@ -311,8 +312,9 @@ class SceneInteraction:
 
         if self._drag_mode == "item_trim_left":
             trim = max(0.0, min(self._drag_orig - 0.5, dt))
-            self._drag_target.start_time = round(self._drag_orig_start + trim, 2)
-            self._drag_target.duration = max(0.5, self._drag_orig - trim)
+            self._drag_target.start_time = round(self._drag_orig_start + trim, 3)
+            self._drag_target.file_offset = round(self._drag_orig_file_offset + trim, 3)
+            self._drag_target.duration = max(0.5, round(self._drag_orig - trim, 3))
             self.tl.rebuild_scene()
             return True
 
@@ -330,7 +332,8 @@ class SceneInteraction:
             self._drag_target.duration = max(0.5, float(self._drag_orig))
 
         elif self._drag_mode == "item_trim_left" and self._drag_target:
-            self._drag_target.start_time = max(0.0, round(self._drag_orig_start, 2))
+            self._drag_target.start_time = max(0.0, round(self._drag_orig_start, 3))
+            self._drag_target.file_offset = round(getattr(self, '_drag_orig_file_offset', 0.0), 3)
             self._drag_target.duration = max(0.5, float(self._drag_orig))
 
         elif self._drag_mode in ("clip_trim_left", "clip_trim_right") and self._drag_target:

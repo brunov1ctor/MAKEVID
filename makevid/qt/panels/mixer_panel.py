@@ -10,7 +10,6 @@ from PySide6.QtCore import Qt, Signal
 
 from makevid.qt.theme import C
 from makevid.config import PROJECTS_DIR
-from makevid.core.audio_utils import process_audio_item
 
 
 class MixerPanel(QWidget):
@@ -132,20 +131,22 @@ class MixerPanel(QWidget):
     def _preview(self):
         if not self._item:
             return
-        audio, sr = process_audio_item(
-            self._item.file_path,
-            self._collect_params(),
-            self._item.volume_keyframes,
-            self._item.duration,
-            muted_regions=getattr(self._item, 'muted_regions', []),
-        )
-        if audio is not None:
-            try:
-                import sounddevice as sd
+        try:
+            import sounddevice as sd
+            import numpy as np
+            from makevid.core.audio_utils import render_audio_item
+
+            # Aplica os parametros dos sliders temporariamente sobre o item
+            saved = dict(self._item.params)
+            self._item.params.update(self._collect_params())
+            audio, sr = render_audio_item(self._item)
+            self._item.params = saved
+
+            if audio is not None and len(audio) > 0:
                 sd.stop()
-                sd.play(audio, samplerate=sr)
-            except Exception:
-                pass
+                sd.play(np.ascontiguousarray(np.clip(audio, -1.0, 1.0).astype(np.float32)), samplerate=sr)
+        except Exception:
+            pass
 
     def _collect_params(self) -> dict:
         """Converte os sliders para o formato esperado por process_audio_item."""

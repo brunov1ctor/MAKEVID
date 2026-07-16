@@ -454,24 +454,19 @@ class TimelineScene(QGraphicsScene):
                 self._track_pos[key] = (y, h)
                 y += h + gap
 
+        # _label_pos espelha _track_pos para tracks visiveis
+        # e usa altura minima para colapsadas
         lbl_y = rh + 2
-        lbl_gap = 4
         lbl_h_collapsed = 14
-        if n > 0 and total_weight > 0:
-            lbl_available = vh - rh - 2 - lbl_gap * (len(_TRACKS) - 1) - lbl_h_collapsed * len(collapsed)
-            for t in _TRACKS:
-                key = t[0]
-                if key in collapsed:
-                    self._label_pos[key] = (lbl_y, lbl_h_collapsed)
-                    lbl_y += lbl_h_collapsed + lbl_gap
-                else:
-                    h = max(lbl_h_collapsed, int(lbl_available * t[3] / total_weight))
-                    self._label_pos[key] = (lbl_y, h)
-                    lbl_y += h + lbl_gap
-        else:
-            for t in _TRACKS:
-                self._label_pos[t[0]] = (lbl_y, lbl_h_collapsed)
-                lbl_y += lbl_h_collapsed + lbl_gap
+        for t in _TRACKS:
+            key = t[0]
+            if key in collapsed:
+                self._label_pos[key] = (lbl_y, lbl_h_collapsed)
+                lbl_y += lbl_h_collapsed + gap
+            elif key in self._track_pos:
+                _, h = self._track_pos[key]
+                self._label_pos[key] = (lbl_y, h)
+                lbl_y += h + gap
 
     # ── draw ──────────────────────────────────────────────────────────────────
 

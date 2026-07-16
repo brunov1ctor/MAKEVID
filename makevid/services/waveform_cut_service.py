@@ -206,15 +206,18 @@ class WaveformCutService:
 
     def apply_cut(self, item, project, slice_keyframes_fn, commit_fn):
         """Salva as regioes selecionadas como zonas de silencio no item.
-        O item nao muda de tamanho nem de posicao — as regioes sao apenas
-        silenciadas na reproducao e no export.
+        As regioes sao salvas em segundos relativos ao inicio do item.
         """
         if not self._selections:
             return False
 
+        duration = float(getattr(item, 'duration', 1.0))
         existing = list(item.muted_regions) if hasattr(item, 'muted_regions') and item.muted_regions else []
         for a, b in self._selections:
-            existing.append({"start": round(a, 4), "end": round(b, 4)})
+            existing.append({
+                "start": round(a * duration, 4),
+                "end": round(b * duration, 4),
+            })
         item.muted_regions = existing
 
         commit_fn(item)

@@ -25,7 +25,7 @@ class TimelineActionsMixin:
                 cap.release()
                 if ret:
                     self.inpaint_panel.set_frame(frame[:, :, ::-1])
-                    self._left_stack.setCurrentWidget(self.inpaint_panel)
+                    self.panels.show("inpaint")
                     return
             current += clip.duration
         self.generator._status.setText("Nenhum frame no playhead")

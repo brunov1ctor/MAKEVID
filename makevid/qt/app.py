@@ -53,6 +53,52 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
     def _selected_clip(self, v):
         self.state.selected_clip = v
 
+    # ── Atalhos de acesso a painéis (compatibilidade) ─────────────────────────
+
+    @property
+    def generator(self):
+        return self.panels.get("generator")
+
+    @property
+    def mixer(self):
+        return self.panels.get("mixer")
+
+    @property
+    def fx_editor(self):
+        return self.panels.get("fx")
+
+    @property
+    def track_editor(self):
+        return self.panels.get("track_editor")
+
+    @property
+    def export_panel(self):
+        return self.panels.get("export")
+
+    @property
+    def recorder(self):
+        return self.panels.get("recorder")
+
+    @property
+    def tts_panel(self):
+        return self.panels.get("tts")
+
+    @property
+    def video_browser(self):
+        return self.panels.get("video_browser")
+
+    @property
+    def audio_browser(self):
+        return self.panels.get("audio_browser")
+
+    @property
+    def track_menu(self):
+        return self.panels.get("track_menu")
+
+    @property
+    def inpaint_panel(self):
+        return self.panels.get("inpaint")
+
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
@@ -60,7 +106,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         central.setObjectName("AppRoot")
         self.setCentralWidget(central)
         self.setStyleSheet("QMainWindow, QMainWindow > QWidget { background: transparent; }")
-        central.lower()  # garante que AmbientBackground fica na base da pilha Z
+        central.lower()
 
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(14, 14, 14, 14)
@@ -74,7 +120,6 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         if hasattr(self, '_preview_shell'):
             central.set_preview_shell(self._preview_shell)
         self._ambient = central
-        # propaga set_has_media do preview para o fundo global
         _orig_set_has_media = self.preview.set_has_media
         def _set_has_media_global(value):
             _orig_set_has_media(value)
@@ -110,9 +155,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.inpaint_panel.inpaint_requested.connect(self._do_inpaint)
         self.track_editor.changed.connect(lambda: self.timeline.redraw())
 
-        self.project_changed.connect(self.generator._on_project_changed)
-        self.project_changed.connect(self.export_panel._on_project_changed)
-        self.project_changed.connect(self._sync_browsers_if_visible)
+        self.project_changed.connect(self._on_project_changed_all)
         self.project_changed.connect(self.timeline._on_project_changed)
         self.project_changed.connect(self.preview._on_project_changed)
         self.project_changed.connect(self._sync_style_panel_if_visible)
@@ -128,16 +171,22 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.timeline.export_config_requested.connect(self._show_export)
         self.timeline.keyPressEvent = self._timeline_key_handler
 
-    def _sync_browsers_if_visible(self, proj):
-        if self.video_browser.isVisible():
-            self.video_browser._on_project_changed(proj)
-        else:
-            self.video_browser.project = proj
-
-        if self.audio_browser.isVisible():
-            self.audio_browser._on_project_changed(proj)
-        else:
-            self.audio_browser.project = proj
+    def _on_project_changed_all(self, proj):
+        """Propaga mudança de projeto via PanelManager."""
+        self.panels.notify_project_changed(proj)
+        # Browsers precisam de tratamento especial (só refresh se visível)
+        if self.panels.registry.is_loaded("video_browser"):
+            vb = self.video_browser
+            if self.panels.current_name == "video_browser":
+                vb._on_project_changed(proj)
+            else:
+                vb.project = proj
+        if self.panels.registry.is_loaded("audio_browser"):
+            ab = self.audio_browser
+            if self.panels.current_name == "audio_browser":
+                ab._on_project_changed(proj)
+            else:
+                ab.project = proj
 
     def _sync_style_panel_if_visible(self, proj):
         if self.style_panel.isVisible():
@@ -152,49 +201,41 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
 
     # ── Panel switching ───────────────────────────────────────────────────────
 
-    def _switch_panel(self, widget):
-        """Troca o painel ativo."""
-        self._left_stack.setCurrentWidget(widget)
-        self._left_stack.repaint()
-
     def _show_generator(self):
         self.timeline.clear_active_track()
-        self._switch_panel(self.generator)
+        self.panels.show("generator")
         self.timeline._scene.select_track_item(self.timeline._selected_track_item_id)
 
     def _return_to_prev(self):
         self.timeline.redraw()
-        prev = getattr(self, "_prev_panel", self.generator)
-        self._switch_panel(prev)
-        if prev is self.audio_browser:
+        self.panels.show_previous(fallback="generator")
+        if self.panels.current_name == "audio_browser":
             self.audio_browser.refresh()
 
     def _show_track_editor(self, item):
         self.timeline.set_active_track(item.track)
         self.track_editor.show_item(item, self.project)
-        self._switch_panel(self.track_editor)
+        self.panels.show("track_editor")
 
     def _show_fx_editor(self, item):
         self.timeline.set_active_track("fx")
         self.fx_editor.show_item(item, self.project)
-        self._switch_panel(self.fx_editor)
+        self.panels.show("fx")
 
     def _show_export(self):
-        self._switch_panel(self.export_panel)
+        self.panels.show("export")
 
     def _do_export_direct(self):
-        self._switch_panel(self.export_panel)
+        self.panels.show("export")
         self.export_panel._do_export()
 
     def _show_recorder(self, track="voice"):
-        self._prev_panel = self._left_stack.currentWidget()
         self.recorder.set_context(self.project, self.timeline, track)
-        self._switch_panel(self.recorder)
+        self.panels.show("recorder")
 
     def _show_tts(self):
-        self._prev_panel = self._left_stack.currentWidget()
         self.tts_panel.set_context(self.project, self.timeline)
-        self._switch_panel(self.tts_panel)
+        self.panels.show("tts")
 
     def _show_video_browser(self):
         self.preview.show_video_browser()
@@ -213,15 +254,14 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
             self._show_track_editor(track_item)
 
     def _on_item_moved(self, track_item):
-        """Atualiza o painel aberto após drag/trim na timeline."""
-        if track_item.track == "fx" and self._left_stack.currentWidget() is self.fx_editor:
+        if track_item.track == "fx" and self.panels.current_name == "fx":
             self.fx_editor.show_item(track_item, self.project)
-        elif track_item.track != "fx" and self._left_stack.currentWidget() is self.track_editor:
+        elif track_item.track != "fx" and self.panels.current_name == "track_editor":
             self.track_editor.show_item(track_item, self.project)
 
     def _show_mixer(self, item):
         self.mixer.show_item(item, self.project)
-        self._switch_panel(self.mixer)
+        self.panels.show("mixer")
 
     def _on_clip_clicked(self, clip):
         self.generator.set_clip_data(clip)
@@ -233,7 +273,7 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.timeline._selected_clip_id = None
         self.timeline.set_active_track(track_name)
         self.track_menu.show_track(track_name, self.project)
-        self._switch_panel(self.track_menu)
+        self.panels.show("track_menu")
 
     def _show_style_tab(self, tab_index):
         if not self.style_panel.isVisible():

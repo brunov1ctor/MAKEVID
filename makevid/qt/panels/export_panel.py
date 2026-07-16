@@ -345,9 +345,10 @@ class ExportPanel(QWidget):
         self._load_export_prefs_from_project()
 
     def _mix_audio(self, project, total_dur, safe_name):
-        """Mixa audio de todas as tracks habilitadas."""
+        """Mixa audio de todas as tracks habilitadas usando render_audio_item."""
         import numpy as np
         import wave
+        from makevid.core.audio_utils import render_audio_item
 
         enabled = self.get_enabled_tracks()
         all_items = []
@@ -364,22 +365,15 @@ class ExportPanel(QWidget):
             if not item.file_path or not Path(item.file_path).exists():
                 continue
             try:
-                import soundfile as sf
-                data, item_sr = sf.read(item.file_path, dtype="float32")
-                if len(data.shape) == 1:
-                    raw = np.column_stack([data, data])
-                else:
-                    raw = data if data.shape[1] == 2 else np.column_stack([data[:, 0], data[:, 0]])
+                raw, item_sr = render_audio_item(item)
+                if raw is None or len(raw) == 0:
+                    continue
                 if item_sr != sr:
                     new_len = int(len(raw) * sr / item_sr)
                     raw = np.column_stack([
                         np.interp(np.linspace(0, len(raw)-1, new_len), np.arange(len(raw)), raw[:, 0]),
                         np.interp(np.linspace(0, len(raw)-1, new_len), np.arange(len(raw)), raw[:, 1]),
                     ])
-                # Volume keyframes
-                if item.volume_keyframes and len(item.volume_keyframes) >= 2:
-                    from makevid.core.audio_utils import apply_volume_keyframes
-                    raw = apply_volume_keyframes(raw, sr, item.volume_keyframes, item.duration)
                 start_sample = int(item.start_time * sr)
                 end_sample = min(start_sample + len(raw), total_samples)
                 audio_len = end_sample - start_sample

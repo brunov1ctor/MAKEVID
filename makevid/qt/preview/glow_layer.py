@@ -79,8 +79,9 @@ class PreviewGlowPanel(GlassPanel):
         # ── glow local — nasce da tela ────────────────────────────────────────
         cx = dr.center().x()
         cy = dr.center().y()
-        _radial(cx, cy, dr.width() * 0.75,  58, 216, 255, 35)
-        _radial(cx, cy, dr.width() * 0.55, 108,  99, 255, 28)
+        _radial(cx, cy, dr.width() * 1.20,  58, 216, 255, 70)
+        _radial(cx, cy, dr.width() * 0.90, 108,  99, 255, 55)
+        _radial(cx, cy, dr.width() * 0.55,  58, 216, 255, 45)
 
         p.end()
 

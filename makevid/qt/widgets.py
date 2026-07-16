@@ -71,6 +71,21 @@ class GlassPanel(QWidget):
         self._shadow        = shadow
         self._shadow_dy     = shadow_dy
 
+    def resizeEvent(self, event):
+        """Aplica máscara arredondada para recortar filhos nas quinas."""
+        super().resizeEvent(event)
+        # Usa bitmap mask para recortar filhos — evita quinas pretas
+        from PySide6.QtGui import QBitmap, QPainter as _P
+        bm = QBitmap(self.size())
+        bm.fill(Qt.color0)
+        bp = _P(bm)
+        bp.setRenderHint(_P.Antialiasing)
+        bp.setBrush(Qt.color1)
+        bp.setPen(Qt.NoPen)
+        bp.drawRoundedRect(self.rect(), self._radius, self._radius)
+        bp.end()
+        self.setMask(bm)
+
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
@@ -958,20 +973,20 @@ class AmbientBackground(QWidget):
             p.fillPath(path, gr)
 
         # ── glows estáticos de base ─────────────────────────────────────────────
-        _radial(w * 0.14, h * 0.40, base * 0.50,  20,  80, 200, 28)   # azul — painel esquerdo
-        _radial(w * 0.50, h * 0.88, base * 0.70,  60,  40, 200, 25)   # roxo — timeline
-        _radial(w * 0.85, h * 0.55, base * 0.45,  20, 120, 220, 20)   # azul direita
+        _radial(w * 0.14, h * 0.40, base * 0.60,  20,  80, 200, 55)   # azul — painel esquerdo
+        _radial(w * 0.50, h * 0.88, base * 0.85,  60,  40, 200, 50)   # roxo — timeline
+        _radial(w * 0.85, h * 0.55, base * 0.55,  20, 120, 220, 45)   # azul direita
 
         # ── glow dinâmico centrado no preview — espalha por todo o app ──────────
         px, py = self._preview_center()
-        dyn_a = int(a * 255)
-        _radial(px, py, base * 1.10, 40, 180, 255, int(38 * a))   # ciano
-        _radial(px, py, base * 0.95, 90,  70, 255, int(30 * a))   # roxo
+        _radial(px, py, base * 1.30, 40, 180, 255, int(70 * a))   # ciano largo
+        _radial(px, py, base * 1.05, 90,  70, 255, int(55 * a))   # roxo
+        _radial(px, py, base * 0.65, 20, 220, 255, int(45 * a))   # ciano concentrado
 
         # ── vinheta ─────────────────────────────────────────────────────────────
         vig = QRadialGradient(QPointF(w / 2, h / 2), max(w, h) * 0.68)
         vig.setColorAt(0.40, QColor(0, 0, 0, 0))
-        vig.setColorAt(1.0,  QColor(0, 0, 0, 130))
+        vig.setColorAt(1.0,  QColor(0, 0, 0, 110))
         p.setBrush(QBrush(vig))
         p.drawRect(self.rect())
 

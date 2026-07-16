@@ -182,7 +182,7 @@ class TrackItem:
     clip_index: int = -1  # indice do clip/video que gerou este item (-1 = nao associado)
     params: Dict[str, str] = field(default_factory=dict)
     volume_keyframes: List[Dict[str, float]] = field(default_factory=list)
-    # Regioes silenciadas: [{"start": float, "end": float}] em ratio 0..1 relativo ao item
+    # Regioes silenciadas: [{"start": float, "end": float}] em segundos relativos ao inicio do item
     muted_regions: List[Dict[str, float]] = field(default_factory=list)
 
     @classmethod

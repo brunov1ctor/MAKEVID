@@ -50,7 +50,28 @@ def get_audio_duration(file_path: str) -> float:
         return 0.0
 
 
-def process_audio_item(file_path: str, params: dict, volume_keyframes: list, duration: float, muted_regions: list = None) -> Tuple[Optional[np.ndarray], int]:
+def render_audio_item(item) -> Tuple[Optional[np.ndarray], int]:
+    """Função central: renderiza um item de áudio aplicando todos os efeitos em ordem.
+
+    Ordem: file_offset → duration → speed/pitch → muted_regions → volume/keyframes → fades/EQ/reverb
+    Retorna: (stereo_float32, sample_rate) ou (None, 0) em caso de erro.
+    """
+    file_offset = float(getattr(item, 'file_offset', 0.0))
+    duration = float(getattr(item, 'duration', 0.0))
+    muted_regions = list(getattr(item, 'muted_regions', []) or [])
+    volume_keyframes = list(getattr(item, 'volume_keyframes', []) or [])
+    params = dict(getattr(item, 'params', {}) or {})
+    return process_audio_item(
+        file_path=item.file_path,
+        params=params,
+        volume_keyframes=volume_keyframes,
+        duration=duration,
+        muted_regions=muted_regions,
+        file_offset=file_offset,
+    )
+
+
+def process_audio_item(file_path: str, params: dict, volume_keyframes: list, duration: float, muted_regions: list = None, file_offset: float = 0.0) -> Tuple[Optional[np.ndarray], int]:
     """Aplica todos os efeitos de mixagem a um item de audio.
 
     Parametros em `params` (todos opcionais, com defaults):
@@ -70,6 +91,15 @@ def process_audio_item(file_path: str, params: dict, volume_keyframes: list, dur
         audio = np.array(data.mean(axis=1) if len(data.shape) > 1 else data, copy=True)
     except Exception:
         return None, 0
+
+    # Aplicar file_offset e limitar ao duration antes de qualquer efeito
+    if file_offset > 0:
+        offset_samples = int(file_offset * sr)
+        audio = audio[offset_samples:]
+    if duration > 0:
+        duration_samples = int(duration * sr)
+        if len(audio) > duration_samples:
+            audio = audio[:duration_samples]
 
     def _get(key, default, divisor=1):
         try:
@@ -121,14 +151,22 @@ def process_audio_item(file_path: str, params: dict, volume_keyframes: list, dur
     if volume_keyframes and len(volume_keyframes) >= 2:
         audio = apply_volume_keyframes(audio, sr, volume_keyframes, duration)
 
-    # Aplicar regioes silenciadas
+    # Aplicar regioes silenciadas (em segundos relativos ao início do item) — remove os trechos
     muted = muted_regions or params.get('_muted_regions', [])
     if muted:
-        n = len(audio)
-        for region in muted:
-            ca = int(float(region['start']) * n)
-            cb = int(float(region['end']) * n)
-            audio[ca:cb] = 0.0
+        keep = []
+        prev = 0
+        for region in sorted(muted, key=lambda r: r['start']):
+            ca = int(float(region['start']) * sr)
+            cb = int(float(region['end']) * sr)
+            ca = max(0, min(ca, len(audio)))
+            cb = max(ca, min(cb, len(audio)))
+            if ca > prev:
+                keep.append(audio[prev:ca])
+            prev = cb
+        if prev < len(audio):
+            keep.append(audio[prev:])
+        audio = np.concatenate(keep) if keep else np.array([], dtype=np.float32)
 
     if fade_in > 0:
         n = min(int(fade_in * sr), len(audio))
@@ -154,6 +192,49 @@ def process_audio_item(file_path: str, params: dict, volume_keyframes: list, dur
         stereo[:, 1] = stereo[:, 1] * (1 - reverb) + wet_r * reverb
 
     return np.clip(stereo, -1.0, 1.0).astype(np.float32), sr
+
+
+def compute_normalize_gain(file_path: str, mode: str, target: float = -1.0, file_offset: float = 0.0, duration: float = 0.0) -> float:
+    """Calcula o ganho (0..200, escala do slider VOL) necessario para normalizar.
+
+    mode:
+        'peak'  -> normaliza pelo pico para target dBFS
+        'lufs'  -> normaliza pelo loudness integrado para target LUFS (aproximacao RMS)
+
+    Retorna o valor inteiro para o slider VOL (0-200), ou -1 em caso de erro.
+    """
+    try:
+        import soundfile as sf
+        data, sr = sf.read(file_path, dtype="float32")
+        mono = data.mean(axis=1) if data.ndim > 1 else data
+
+        if file_offset > 0:
+            mono = mono[int(file_offset * sr):]
+        if duration > 0:
+            mono = mono[:int(duration * sr)]
+
+        if len(mono) == 0:
+            return -1
+
+        if mode == "peak":
+            peak = float(np.max(np.abs(mono)))
+            if peak < 1e-9:
+                return -1
+            target_linear = 10 ** (target / 20.0)
+            gain_linear = target_linear / peak
+        else:  # lufs — aproximacao via RMS integrado
+            rms = float(np.sqrt(np.mean(mono ** 2)))
+            if rms < 1e-9:
+                return -1
+            rms_db = 20 * np.log10(rms)
+            current_lufs_approx = rms_db + 3.0
+            gain_db = target - current_lufs_approx
+            gain_linear = 10 ** (gain_db / 20.0)
+
+        vol_value = int(round(gain_linear * 100))
+        return max(0, min(200, vol_value))
+    except Exception:
+        return -1
 
 
 def slice_volume_keyframes(keyframes: list, duration: float, seg_start: float, seg_end: float) -> list:
