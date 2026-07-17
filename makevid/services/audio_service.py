@@ -109,7 +109,7 @@ class AudioService:
                     on_done(plan, results)
 
             except Exception as e:
-                logger.error(f"AudioService error: {e}")
+                logger.error(f"AudioService error: {e}", exc_info=True)
                 if on_error:
                     on_error(str(e))
 
@@ -140,14 +140,17 @@ class AudioService:
                     out_dir.mkdir(parents=True, exist_ok=True)
 
                     result = {}
-                    if plan.voices:
-                        result["voices"] = self._generate_voices(plan, out_dir)
-                    if plan.ambience:
-                        result["ambience"] = self._generate_ambience(plan, out_dir)
-                    if plan.sfx:
-                        result["sfx"] = self._generate_sfx(plan, out_dir)
-                    if plan.music:
-                        result["music"] = self._generate_music(plan, out_dir)
+                    try:
+                        if plan.voices:
+                            result["voices"] = self._generate_voices(plan, out_dir)
+                        if plan.ambience:
+                            result["ambience"] = self._generate_ambience(plan, out_dir)
+                        if plan.sfx:
+                            result["sfx"] = self._generate_sfx(plan, out_dir)
+                        if plan.music:
+                            result["music"] = self._generate_music(plan, out_dir)
+                    except Exception as e:
+                        logger.warning(f"Cena {i} falhou parcialmente: {e}")
 
                     all_results.append((plan, result))
 
@@ -155,7 +158,7 @@ class AudioService:
                     on_done(all_results)
 
             except Exception as e:
-                logger.error(f"AudioService batch error: {e}")
+                logger.error(f"AudioService batch error: {e}", exc_info=True)
                 if on_error:
                     on_error(str(e))
 

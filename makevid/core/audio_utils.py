@@ -111,12 +111,13 @@ def process_audio_item(file_path: str, params: dict, volume_keyframes: list, dur
     pitch  = _get("pitch",  0)
     volume = _get("volume", 100, 100)
     pan    = _get("pan",    0,   100)
-    fade_in  = _get("fade_in",  0, 10)
-    fade_out = _get("fade_out", 0, 10)
+    fade_in  = _get("fade_in",  0, 100) * float(duration) if duration > 0 else _get("fade_in",  0, 10)
+    fade_out = _get("fade_out", 0, 100) * float(duration) if duration > 0 else _get("fade_out", 0, 10)
     eq_low   = _get("eq_low",  0)
     eq_mid   = _get("eq_mid",  0)
     eq_high  = _get("eq_high", 0)
     reverb   = _get("reverb",  0, 100)
+    room     = _get("room",    0, 100)
 
     if speed != 1.0:
         new_len = max(1, int(len(audio) / speed))
@@ -171,11 +172,11 @@ def process_audio_item(file_path: str, params: dict, volume_keyframes: list, dur
     if fade_in > 0:
         n = min(int(fade_in * sr), len(audio))
         if n > 0:
-            audio[:n] *= np.linspace(0, 1, n)
+            audio[:n] *= np.linspace(0.0, 1.0, n) ** 2
     if fade_out > 0:
         n = min(int(fade_out * sr), len(audio))
         if n > 0:
-            audio[-n:] *= np.linspace(1, 0, n)
+            audio[-n:] *= np.linspace(1.0, 0.0, n) ** 2
 
     stereo = np.column_stack([
         audio * min(1.0, 1.0 - pan),
@@ -183,13 +184,18 @@ def process_audio_item(file_path: str, params: dict, volume_keyframes: list, dur
     ])
 
     if reverb > 0:
-        reverb_len = int(0.3 * sr)
-        impulse = np.exp(-np.linspace(0, 5, reverb_len))
-        impulse = impulse / impulse.sum()
+        # room (0-1) controla o tamanho da cauda: 0 = 0.1s, 1 = 3.0s
+        tail_sec = 0.1 + room * 2.9
+        reverb_len = int(tail_sec * sr)
+        # decaimento exponencial: room maior = cauda mais longa (decay mais lento)
+        decay = 3.0 + room * 9.0   # 3 (sala seca) a 12 (catedral)
+        impulse = np.exp(-np.linspace(0, decay, reverb_len)).astype(np.float32)
+        impulse /= impulse.sum()
         wet_l = np.convolve(stereo[:, 0], impulse)[:len(audio)]
         wet_r = np.convolve(stereo[:, 1], impulse)[:len(audio)]
-        stereo[:, 0] = stereo[:, 0] * (1 - reverb) + wet_l * reverb
-        stereo[:, 1] = stereo[:, 1] * (1 - reverb) + wet_r * reverb
+        # wet aditivo: dry intacto + wet escalado — reverb=1.0 adiciona 100% do wet
+        stereo[:, 0] = np.clip(stereo[:, 0] + wet_l * reverb, -1.0, 1.0)
+        stereo[:, 1] = np.clip(stereo[:, 1] + wet_r * reverb, -1.0, 1.0)
 
     return np.clip(stereo, -1.0, 1.0).astype(np.float32), sr
 
@@ -235,6 +241,159 @@ def compute_normalize_gain(file_path: str, mode: str, target: float = -1.0, file
         return max(0, min(200, vol_value))
     except Exception:
         return -1
+
+
+def make_seamless_loop(data: np.ndarray, sr: int, crossfade_sec: float = 2.0) -> Tuple[Optional[np.ndarray], int]:
+    """Gera versão seamless buscando o ponto ótimo de loop e nivelando amplitude.
+
+    1. Busca o ponto no final onde o conteúdo mais se parece com o início (RMS diff)
+    2. Aplica ganho gradual na região de transição para igualar amplitude fim->início
+    3. Crossfade mínimo (10ms) apenas para eliminar clique de descontinuidade de fase
+
+    Retorna: (stereo_float32, sample_rate) ou (None, 0) em caso de erro.
+    """
+    try:
+        if data is None or len(data) == 0:
+            return None, 0
+        if data.ndim == 1:
+            data = np.column_stack([data, data])
+        data = data.copy().astype(np.float32)
+
+        n  = len(data)
+        # janela de análise: usa crossfade_sec ou 10% do áudio, o que for menor
+        xf_analysis = min(int(crossfade_sec * sr), n // 4, int(sr * 3.0))
+        if xf_analysis < 64:
+            return data, sr
+
+        mono = data.mean(axis=1)
+
+        # --- 1. Busca ponto ótimo ---
+        search_start = max(int(n * 0.50), xf_analysis)
+        search_end   = n - xf_analysis
+        if search_end <= search_start:
+            search_start = n - xf_analysis * 2
+            search_end   = n - xf_analysis
+
+        ref      = mono[:xf_analysis]
+        ref_rms  = float(np.sqrt(np.mean(ref ** 2))) + 1e-9
+        step     = max(1, xf_analysis // 128)
+        best_pos = search_end
+        best_diff = float('inf')
+        for pos in range(search_start, search_end, step):
+            candidate = mono[pos: pos + xf_analysis]
+            if len(candidate) < xf_analysis:
+                break
+            diff = float(np.sqrt(np.mean((candidate - ref) ** 2))) / ref_rms
+            if diff < best_diff:
+                best_diff = diff
+                best_pos  = pos
+
+        # --- 2. Nivelamento de amplitude na região de transição ---
+        # calcula RMS do trecho final (best_pos até best_pos+xf_analysis)
+        end_seg  = mono[best_pos: best_pos + xf_analysis]
+        end_rms  = float(np.sqrt(np.mean(end_seg ** 2))) + 1e-9
+        # ganho necessário para igualar o RMS do fim ao do início
+        gain_target = ref_rms / end_rms
+        # limita o ganho para não distorcer demais (max 6dB de ajuste)
+        gain_target = float(np.clip(gain_target, 0.5, 2.0))
+
+        if abs(gain_target - 1.0) > 0.02:  # só aplica se diferença > ~0.2dB
+            # rampa de ganho: começa em 1.0 no início da região, chega em gain_target no fim
+            # aplicada nos últimos xf_analysis samples antes do best_pos
+            ramp_start = max(0, best_pos - xf_analysis)
+            ramp_len   = best_pos - ramp_start
+            if ramp_len > 0:
+                ramp = np.linspace(1.0, gain_target, ramp_len, dtype=np.float32)[:, np.newaxis]
+                data[ramp_start:best_pos] *= ramp
+
+        # --- 3. Crossfade real para junção suave ---
+        # usa até 30% do xf_analysis ou 500ms, o que for menor
+        xf_len = min(int(sr * 0.500), xf_analysis * 3 // 10, best_pos)
+        xf_len = max(xf_len, min(int(sr * 0.050), best_pos))  # minimo 50ms
+        if xf_len >= 4:
+            t = np.linspace(0.0, 1.0, xf_len, dtype=np.float32)[:, np.newaxis]
+            # curva equal-power (cos²/sin²) — preserva volume na junção
+            fade_out = np.cos(t * np.pi / 2) ** 2
+            fade_in  = np.sin(t * np.pi / 2) ** 2
+            blend = data[best_pos - xf_len: best_pos] * fade_out + data[:xf_len] * fade_in
+            result = np.concatenate([data[:best_pos - xf_len], blend])
+        else:
+            result = data[:best_pos]
+
+        return np.clip(result, -1.0, 1.0).astype(np.float32), sr
+    except Exception:
+        return None, 0
+
+
+def build_seamless_file(item) -> str:
+    """Gera (ou regenera) o arquivo seamless para o item e retorna o caminho.
+
+    Leva em conta muted_regions, file_offset e duration — igual ao playback.
+    Salva como <original_stem>_seamless.wav ao lado do arquivo original.
+    Retorna o caminho do arquivo gerado, ou string vazia em caso de erro.
+    """
+    import logging
+    import soundfile as sf
+    from pathlib import Path as _Path
+    _log = logging.getLogger(__name__)
+
+    src = _Path(getattr(item, 'file_path', ''))
+    if not src.exists():
+        _log.warning("[BUILD_SEAMLESS] arquivo nao encontrado: %s", src)
+        return ''
+    try:
+        raw, sr = sf.read(str(src), dtype='float32')
+        data = np.array(raw, copy=True)
+        if data.ndim == 1:
+            data = np.column_stack([data, data])
+
+        offset = float(getattr(item, 'file_offset', 0.0))
+        if offset > 0:
+            data = data[int(offset * sr):]
+        # usa file_duration (duracao real do arquivo antes de cortes) como base
+        # item.duration pode ter sido reduzido pelo apply_cut
+        file_dur = float((getattr(item, 'params', {}) or {}).get('file_duration', 0.0))
+        dur = file_dur if file_dur > 0 else float(getattr(item, 'duration', 0.0))
+        if dur > 0:
+            data = data[:int(dur * sr)]
+
+        muted = list(getattr(item, 'muted_regions', []) or [])
+        _log.info(
+            "[BUILD_SEAMLESS] id=%s sr=%d samples_antes=%d dur=%.3f file_dur=%.3f muted=%s",
+            getattr(item, 'id', '?'), sr, len(data), dur, file_dur, muted,
+        )
+        if muted:
+            keep, prev = [], 0
+            for region in sorted(muted, key=lambda r: r['start']):
+                ca = max(0, min(int(float(region['start']) * sr), len(data)))
+                cb = max(ca, min(int(float(region['end']) * sr), len(data)))
+                if ca > prev:
+                    keep.append(data[prev:ca])
+                prev = cb
+            if prev < len(data):
+                keep.append(data[prev:])
+            data = np.concatenate(keep) if keep else np.zeros((0, 2), dtype=np.float32)
+            _log.info("[BUILD_SEAMLESS] apos muted_regions: samples=%d (%.3fs)", len(data), len(data)/max(1,sr))
+
+        if len(data) == 0:
+            _log.warning("[BUILD_SEAMLESS] dados vazios apos aplicar muted_regions")
+            return ''
+
+        duration_clean = len(data) / sr
+        xf = max(0.5, min(4.0, duration_clean * 0.10))
+        _log.info("[BUILD_SEAMLESS] duration_clean=%.3fs crossfade=%.3fs", duration_clean, xf)
+        result, sr_out = make_seamless_loop(data, sr, crossfade_sec=xf)
+        if result is None:
+            _log.warning("[BUILD_SEAMLESS] make_seamless_loop retornou None")
+            return ''
+
+        out_path = src.parent / (src.stem + '_seamless.wav')
+        sf.write(str(out_path), result, sr_out)
+        _log.info("[BUILD_SEAMLESS] salvo em %s (%d samples, %.3fs)", out_path, len(result), len(result)/max(1,sr_out))
+        return str(out_path)
+    except Exception:
+        _log.exception("[BUILD_SEAMLESS] erro inesperado")
+        return ''
 
 
 def slice_volume_keyframes(keyframes: list, duration: float, seg_start: float, seg_end: float) -> list:

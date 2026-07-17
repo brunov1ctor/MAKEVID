@@ -16,7 +16,7 @@ from makevid.qt.panels.layer_ui_components import (
     _GlowButton, _SplitConfirmWidget, _LayerDragLabel, _ResponsiveActionGrid,
 )
 from makevid.qt.panels.waveform_widget import _WaveformWidget, _DbAxisWidget
-from makevid.core.audio_utils import compute_normalize_gain
+from makevid.core.audio_utils import compute_normalize_gain, make_seamless_loop, build_seamless_file
 from makevid.qt.panels.layer_audio_player import _file_exists
 
 _log = logging.getLogger(__name__)
@@ -93,17 +93,69 @@ _PRESET_VALUES: dict[str, dict] = {
 }
 
 
+def _make_collapsible_card(title: str, color: str, expanded: bool = True):
+    """Retorna (card_frame, content_layout, toggle_fn) com header colapsável."""
+    card = QFrame()
+    card.setStyleSheet(
+        "background: rgba(255,255,255,0.03); "
+        "border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;"
+    )
+    root = QVBoxLayout(card)
+    root.setContentsMargins(8, 8, 8, 8)
+    root.setSpacing(5)
+
+    # header
+    hdr = QHBoxLayout()
+    hdr.setContentsMargins(0, 0, 0, 0)
+    hdr.setSpacing(4)
+    lbl = QLabel(title)
+    lbl.setStyleSheet(
+        f"color: {C['text3']}; font-size: 7pt; font-weight: bold; "
+        "letter-spacing: 1px; border: none;"
+    )
+    arrow = QPushButton("▼" if expanded else "▶")
+    arrow.setFixedSize(18, 18)
+    arrow.setStyleSheet(
+        f"QPushButton {{ border: none; border-radius: 4px; font-size: 8pt; "
+        f"color: {C['text3']}; background: transparent; padding: 0; }}"
+        f"QPushButton:hover {{ background: rgba(255,255,255,0.08); color: {color}; }}"
+    )
+    hdr.addWidget(lbl)
+    hdr.addStretch()
+    hdr.addWidget(arrow)
+    root.addLayout(hdr)
+
+    # body
+    body = QWidget()
+    body.setStyleSheet("background: transparent; border: none;")
+    body_l = QVBoxLayout(body)
+    body_l.setContentsMargins(0, 0, 0, 0)
+    body_l.setSpacing(5)
+    root.addWidget(body)
+    body.setVisible(expanded)
+
+    def _toggle():
+        vis = not body.isVisible()
+        body.setVisible(vis)
+        arrow.setText("▼" if vis else "▶")
+
+    arrow.clicked.connect(_toggle)
+    return card, body_l, _toggle
+
+
 class LayerWidget(QFrame):
     """UI completa de um layer de áudio — extraída de _build_layer."""
 
     # Sinais públicos — eliminam closures capturando item
-    play_requested    = Signal(object)   # item
-    seek_requested    = Signal(object, float)  # item, ratio
-    cut_applied       = Signal(object, object, object)  # item, waveform, cut_btn
-    changed           = Signal(object, bool)   # item, commit
-    delete_requested  = Signal(object)   # item
-    duplicate_requested = Signal(object) # item
-    rename_requested  = Signal(object)   # item (inline rename do layer)
+    play_requested      = Signal(object)          # item
+    seek_requested      = Signal(object, float)   # item, ratio
+    cut_applied         = Signal(object, object, object)  # item, waveform, cut_btn
+    toggle_cut_requested = Signal(object)         # item
+    undo_cut_requested  = Signal(object)          # item
+    changed             = Signal(object, bool)    # item, commit
+    delete_requested    = Signal(object)          # item
+    duplicate_requested = Signal(object)          # item
+    rename_requested    = Signal(object)          # item (inline rename do layer)
 
     def __init__(self, item, project, color, cut_service, layer_refs, parent=None):
         super().__init__(parent)
@@ -135,8 +187,8 @@ class LayerWidget(QFrame):
 
         self._build_waveform_card()
         self._build_quick_row()
-        self._build_preset_card()
         self._build_action_row()
+        self._build_preset_card()
         self._build_params_card()
         self._build_norm_card()
 
@@ -212,29 +264,13 @@ class LayerWidget(QFrame):
     # ── waveform card ─────────────────────────────────────────────────────────
 
     def _build_waveform_card(self):
-        card = QFrame()
-        card.setStyleSheet(
-            "background: rgba(255,255,255,0.03); "
-            "border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;"
-        )
-        cl = QVBoxLayout(card)
-        cl.setContentsMargins(8, 8, 8, 8)
-        cl.setSpacing(5)
+        card, cl, _ = _make_collapsible_card("FORMA DE ONDA", self._color, expanded=True)
 
-        head = QHBoxLayout()
-        wf_lbl = QLabel("FORMA DE ONDA")
-        wf_lbl.setStyleSheet(
-            f"color: {C['text3']}; font-size: 7pt; font-weight: bold; "
-            "letter-spacing: 1px; border: none;"
-        )
-        head.addWidget(wf_lbl)
-        head.addStretch()
         hint = QLabel("clique / arraste para keyframes")
         hint.setStyleSheet(
             f"color: {C['text3']}; font-family: Consolas; font-size: 7pt; border: none;"
         )
-        head.addWidget(hint)
-        cl.addLayout(head)
+        cl.addWidget(hint)
 
         wf_row = QHBoxLayout()
         wf_row.setSpacing(2)
@@ -294,11 +330,33 @@ class LayerWidget(QFrame):
         )
         ql.addWidget(self._loop_cb)
 
-        for pill_lbl, pill_val, pill_color in [
-            ("VOL", self._item.params.get("volume", 80), self._color),
-            ("PAN", self._item.params.get("pan", 0), C["cyan"]),
+        _cb_style = (
+            f"QCheckBox {{ color: {C['text3']}; font-size: 7pt; font-weight: bold; "
+            f"spacing: 4px; border: none; }}"
+            f"QCheckBox::indicator {{ width: 13px; height: 13px; border-radius: 4px; "
+            f"border: 1px solid {self._color}; background: rgba(255,255,255,0.04); }}"
+            f"QCheckBox::indicator:checked {{ background: {self._color}; "
+            f"border: 1px solid {self._color}; }}"
+        )
+        self._seamless_cb = QCheckBox("∞ Seamless")
+        self._seamless_cb.setStyleSheet(_cb_style)
+        self._seamless_cb.setToolTip(
+            "Mistura o final com o início via crossfade para loop infinito sem clique.\n"
+            "Respeita os recortes ativos. Desmarque para voltar ao original."
+        )
+        self._seamless_cb.setChecked(str(self._item.params.get('seamless', '0')) == '1')
+        self._seamless_cb.toggled.connect(self._toggle_seamless)
+        ql.addWidget(self._seamless_cb)
+
+        self._vol_pill_val = None
+        self._pan_pill_val = None
+        for pill_lbl, pill_param, pill_color, attr in [
+            ("VOL", "volume", self._color, "_vol_pill_val"),
+            ("PAN", "pan",    C["cyan"],   "_pan_pill_val"),
         ]:
-            ql.addWidget(self._pill(pill_lbl, pill_val, pill_color))
+            pill, val_lbl = self._pill(pill_lbl, self._item.params.get(pill_param, 0 if pill_param == "pan" else 80), pill_color)
+            setattr(self, attr, val_lbl)
+            ql.addWidget(pill)
 
         # Controle de speed inline: ◀ [x.xx] ▶
         spd_lbl = QLabel("SPD")
@@ -371,34 +429,18 @@ class LayerWidget(QFrame):
         )
         pl.addWidget(lbl)
         pl.addWidget(val)
-        return pill
+        return pill, val
 
     # ── preset card ───────────────────────────────────────────────────────────
 
     def _build_preset_card(self):
-        card = QFrame()
-        card.setStyleSheet(
-            "background: rgba(255,255,255,0.03); "
-            "border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;"
-        )
-        cl = QVBoxLayout(card)
-        cl.setContentsMargins(8, 8, 8, 8)
-        cl.setSpacing(6)
+        card, cl, toggle_fn = _make_collapsible_card("PRESETS RÁPIDOS", self._color, expanded=False)
 
-        head = QHBoxLayout()
-        lbl = QLabel("PRESETS RÁPIDOS")
-        lbl.setStyleSheet(
-            f"color: {C['text3']}; font-size: 7pt; font-weight: bold; "
-            "letter-spacing: 1px; border: none;"
-        )
-        head.addWidget(lbl)
-        head.addStretch()
         note = QLabel("um clique para ajustar")
         note.setStyleSheet(
             f"color: {C['text3']}; font-family: Consolas; font-size: 7pt; border: none;"
         )
-        head.addWidget(note)
-        cl.addLayout(head)
+        cl.addWidget(note)
 
         recommended_key = self._recommended_preset_for_track(self._item.track)
         rec_lbl = QLabel(f"Recomendado: {self._preset_label_for_key(recommended_key)}")
@@ -485,9 +527,7 @@ class LayerWidget(QFrame):
             "font-size: 8pt; font-weight: bold; border-radius: 10px; "
             "padding: 4px 12px; border: none; }"
         )
-        self._cut_btn.clicked.connect(
-            lambda checked: self.cut_applied.emit(self._item, self.waveform, self._cut_btn)
-        )
+        self._cut_btn.clicked.connect(self._on_cut_btn_clicked)
 
         self._cut_confirm = _SplitConfirmWidget(
             left_text="↩ Desfazer", right_text="✅ Aplicar",
@@ -512,11 +552,13 @@ class LayerWidget(QFrame):
         self._action_layout = row_layout
         self._content_l.addWidget(row_widget)
 
+    def _on_cut_btn_clicked(self):
+        """Primeiro clique ativa o modo de recorte; se já ativo, desativa."""
+        self.toggle_cut_requested.emit(self._item)
+
     def _on_undo_cut(self):
-        """Limpa seleções de corte sem aplicar."""
-        self._cut_service.clear_selection()
-        self.waveform.update()
-        self.set_cut_container_mode("active")
+        """Delega ao controller que sabe desfazer tanto selecoes novas quanto muted_regions persistidas."""
+        self.undo_cut_requested.emit(self._item)
 
     def set_cut_container_mode(self, mode):
         """
@@ -556,21 +598,7 @@ class LayerWidget(QFrame):
     # ── params card (sliders de mixagem) ──────────────────────────────────────
 
     def _build_params_card(self):
-        card = QFrame()
-        card.setStyleSheet(
-            "background: rgba(255,255,255,0.03); "
-            "border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;"
-        )
-        cl = QVBoxLayout(card)
-        cl.setContentsMargins(8, 8, 8, 8)
-        cl.setSpacing(8)
-
-        lbl = QLabel("CONTROLES DE MIXAGEM")
-        lbl.setStyleSheet(
-            f"color: {C['text3']}; font-size: 7pt; font-weight: bold; "
-            "letter-spacing: 1px; border: none;"
-        )
-        cl.addWidget(lbl)
+        card, cl, _ = _make_collapsible_card("CONTROLES DE MIXAGEM", self._color, expanded=True)
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(8)
@@ -644,6 +672,11 @@ class LayerWidget(QFrame):
             item.params[param_key] = str(v)
             if param_key == "volume":
                 self.waveform.update()
+                if self._vol_pill_val is not None:
+                    self._vol_pill_val.setText(str(v))
+            if param_key == "pan":
+                if self._pan_pill_val is not None:
+                    self._pan_pill_val.setText(str(v))
             if param_key not in _REALTIME:
                 self.play_requested.emit(item)
 
@@ -656,21 +689,7 @@ class LayerWidget(QFrame):
     # ── normalização card ─────────────────────────────────────────────────────
 
     def _build_norm_card(self):
-        card = QFrame()
-        card.setStyleSheet(
-            "background: rgba(255,255,255,0.03); "
-            "border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;"
-        )
-        cl = QVBoxLayout(card)
-        cl.setContentsMargins(8, 8, 8, 8)
-        cl.setSpacing(6)
-
-        title = QLabel("NORMALIZAR")
-        title.setStyleSheet(
-            f"color: {C['text3']}; font-size: 7pt; font-weight: bold; "
-            "letter-spacing: 1px; border: none;"
-        )
-        cl.addWidget(title)
+        card, cl, _ = _make_collapsible_card("NORMALIZAR", self._color, expanded=False)
 
         method_lbl = QLabel("Método")
         method_lbl.setStyleSheet(
@@ -837,6 +856,42 @@ class LayerWidget(QFrame):
 
         ok_btn.clicked.connect(_confirm)
         entry.returnPressed.connect(_confirm)
+
+    def _toggle_seamless(self, checked: bool):
+        """Ativa ou desativa o modo seamless loop sem tocar no arquivo original."""
+        if checked:
+            _log.info(
+                "[SEAMLESS] gerando para id=%s file=%s muted_regions=%s file_duration=%s duration=%.3f",
+                self._item.id, self._item.file_path,
+                getattr(self._item, 'muted_regions', []),
+                self._item.params.get('file_duration', 'N/A'),
+                self._item.duration,
+            )
+            out_path = build_seamless_file(self._item)
+            if not out_path:
+                _log.warning("[SEAMLESS] falhou para id=%s — build_seamless_file retornou vazio", self._item.id)
+                self._seamless_cb.blockSignals(True)
+                self._seamless_cb.setChecked(False)
+                self._seamless_cb.blockSignals(False)
+                self._seamless_cb.setToolTip(
+                    "Falha ao gerar seamless. Verifique o arquivo de audio."
+                )
+                return
+            _log.info("[SEAMLESS] gerado com sucesso: %s", out_path)
+            self._item.params['seamless_file'] = out_path
+            self._item.params['seamless'] = '1'
+            self._seamless_cb.setToolTip(
+                "Mistura o final com o início via crossfade para loop infinito sem clique.\n"
+                "Respeita os recortes ativos. Desmarque para voltar ao original."
+            )
+        else:
+            _log.info("[SEAMLESS] desativado para id=%s", self._item.id)
+            self._item.params['seamless'] = '0'
+        if self._project:
+            self._project.save(PROJECTS_DIR)
+        self.waveform._load_waveform()
+        self.waveform.update()
+        self.changed.emit(self._item, True)
 
     # ── refs registration ─────────────────────────────────────────────────────
 

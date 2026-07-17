@@ -40,6 +40,9 @@ class ModelManager:
             "wan_v2v": self._load_v2v,
             "ltx_video": self._load_ltx,
         }
+        if name not in loaders:
+            logger.error(f"ModelManager: modelo desconhecido '{name}'")
+            return None
         return loaders[name]()
 
     @property

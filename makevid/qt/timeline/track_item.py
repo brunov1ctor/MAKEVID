@@ -51,18 +51,24 @@ class TrackGraphicsItem(QGraphicsItem):
             if offset_sec > 0:
                 data = data[int(offset_sec * sr):]
 
-            max_samples = int(float(self.track_item.duration) * sr)
+            file_dur = float((getattr(self.track_item, 'params', {}) or {}).get('file_duration', 0.0))
+            trunc_dur = file_dur if file_dur > 0 else float(self.track_item.duration)
+            max_samples = int(trunc_dur * sr)
             if max_samples > 0 and len(data) > max_samples:
                 data = data[:max_samples]
 
             muted = getattr(self.track_item, 'muted_regions', [])
             if muted:
-                n = len(data)
-                for region in muted:
-                    ca = int(float(region['start']) * n)
-                    cb = int(float(region['end']) * n)
-                    if cb > ca:
-                        data[ca:cb] = 0.0
+                keep, prev = [], 0
+                for region in sorted(muted, key=lambda r: r['start']):
+                    ca = max(0, min(int(float(region['start']) * sr), len(data)))
+                    cb = max(ca, min(int(float(region['end']) * sr), len(data)))
+                    if ca > prev:
+                        keep.append(data[prev:ca])
+                    prev = cb
+                if prev < len(data):
+                    keep.append(data[prev:])
+                data = np.concatenate(keep) if keep else np.array([], dtype=np.float32)
 
             if len(data) < 10:
                 return

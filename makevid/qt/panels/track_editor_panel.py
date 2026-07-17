@@ -50,17 +50,19 @@ class TrackEditorPanel(QWidget):
         super().__init__(parent)
         self._item           = None
         self._project        = None
-        self._playing        = {}        # item_id -> bool
-        self._paused_state   = {}        # item_id -> {ratio, time}
-        self._layer_refs     = {}        # item_id -> {waveform, time_lbl, play_btn, ...}
-        self._layer_frames   = {}        # item_id -> LayerWidget
+        self._playing        = {}
+        self._paused_state   = {}
+        self._layer_refs     = {}
+        self._layer_frames   = {}
         self._action_grid    = None
-        self._stream_players = {}        # item_id -> _LayerStreamPlayer
-        self._anim_gen       = {}        # item_id -> int
+        self._stream_players = {}
+        self._anim_gen       = {}
+        self._restart_timers = {}
         self._cut_service    = WaveformCutService()
         self._cut_ctrl       = LayerCutController(
             self._cut_service, self._layer_refs,
             self._commit_layer_edit, self.changed, self._playing,
+            restart_play_fn=self._restart_play,
         )
         self.setMinimumWidth(0)
         self.setObjectName("trackEditorPanel")
@@ -78,15 +80,16 @@ class TrackEditorPanel(QWidget):
         """Popula o editor com os layers do grupo do item."""
         self._item         = item
         self._project      = project
-        self._playing      = {}
-        self._paused_state = {}
-        self._layer_refs   = {}
+        self._playing.clear()
+        self._paused_state.clear()
+        self._layer_refs.clear()
         self._layer_frames = {}
         self._action_grid  = None
-        # Recria o controlador de corte com o novo dict de refs
+        # Recria o controlador mantendo os mesmos dicts por referência
         self._cut_ctrl = LayerCutController(
             self._cut_service, self._layer_refs,
             self._commit_layer_edit, self.changed, self._playing,
+            restart_play_fn=self._restart_play,
         )
 
         color = TRACK_COLORS.get(item.track, C["cyan"])
@@ -161,6 +164,8 @@ class TrackEditorPanel(QWidget):
             )
             lw.play_requested.connect(self._on_play_requested)
             lw.seek_requested.connect(self._seek_play)
+            lw.toggle_cut_requested.connect(self._on_toggle_cut)
+            lw.undo_cut_requested.connect(self._on_undo_cut)
             lw.cut_applied.connect(self._on_cut_applied)
             lw.changed.connect(self._on_layer_change)
             lw.delete_requested.connect(self._delete_layer)
@@ -245,6 +250,25 @@ class TrackEditorPanel(QWidget):
 
     # ── signal handlers ───────────────────────────────────────────────────────
 
+    def _restart_play(self, item):
+        """Para e reinicia o play com debounce de 150ms para evitar spam durante arrasto."""
+        _log.debug("[RESTART] id=%s agendando debounce 150ms", item.id)
+        existing = getattr(self, '_restart_timers', {})
+        if item.id in existing:
+            existing[item.id].stop()
+        if not hasattr(self, '_restart_timers'):
+            self._restart_timers = {}
+        timer = QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(lambda: self._do_restart_play(item))
+        self._restart_timers[item.id] = timer
+        timer.start(150)
+
+    def _do_restart_play(self, item):
+        _log.debug("[RESTART] executando restart id=%s", item.id)
+        self._stop_play(item.id)
+        self._start_play(item)
+
     def _on_play_requested(self, item):
         """Recebido de LayerWidget.play_requested — toggle play/pause."""
         lw = self._layer_frames.get(item.id)
@@ -253,9 +277,36 @@ class TrackEditorPanel(QWidget):
         else:
             self._start_play(item)
 
-    def _on_cut_applied(self, item, waveform, cut_btn):
+    def _on_toggle_cut(self, item):
+        _log.info("[CUT] toggle modo recorte id=%s cut_active=%s", item.id, self._cut_service.is_active(item.id))
         lw = self._layer_frames.get(item.id)
+        if lw:
+            self._cut_ctrl.toggle_cut_mode(item, lw)
+
+    def _on_undo_cut(self, item):
+        lw = self._layer_frames.get(item.id)
+        if lw:
+            # para o audio atual antes do undo para evitar que o stream antigo continue
+            was_playing = self._playing.get(item.id, False)
+            if was_playing:
+                self._stop_play(item.id)
+            self._cut_ctrl.undo_selection(item, lw)
+            # se estava tocando, reinicia com o audio atualizado
+            if was_playing:
+                self._start_play(item)
+
+    def _on_cut_applied(self, item, waveform, cut_btn):
+        _log.info(
+            "[CUT] aplicando cortes id=%s selections=%s muted_regions_antes=%s",
+            item.id, self._cut_service.get_selections(), getattr(item, 'muted_regions', []),
+        )
+        lw = self._layer_frames.get(item.id)
+        was_playing = self._playing.get(item.id, False)
         self._cut_ctrl.apply_cut(item, waveform, cut_btn, lw)
+        _log.info("[CUT] apos corte: muted_regions=%s duration=%.3f", getattr(item, 'muted_regions', []), item.duration)
+        if was_playing:
+            self._stop_play(item.id)
+            self._start_play(item)
 
     def _on_layer_change(self, item, commit):
         if commit and self._project is not None:
@@ -271,49 +322,85 @@ class TrackEditorPanel(QWidget):
         try:
             sd.stop()
         except Exception:
-            _log.debug("Erro ao parar sd (pause)", exc_info=True)
+            _log.debug("[PAUSE] erro ao parar sd", exc_info=True)
         self._playing[item.id] = False
         refs = self._layer_refs.get(item.id, {})
         if refs:
             wf = refs.get("waveform")
+            ratio = max(0.0, min(1.0, wf._playhead_ratio if wf and wf._playhead_ratio >= 0 else 0.0))
             self._paused_state[item.id] = {
-                "ratio": max(0.0, min(1.0, wf._playhead_ratio if wf and wf._playhead_ratio >= 0 else 0.0)),
+                "ratio": ratio,
                 "time":  float(refs.get("current_time", 0.0)),
             }
+            _log.debug("[PAUSE] id=%s playhead_ratio=%.3f current_time=%.3f", item.id, ratio, refs.get("current_time", 0.0))
         lw = self._layer_frames.get(item.id)
         if lw:
             lw.set_play_state(False)
 
     def _start_play(self, item):
         if not _file_exists(item.file_path):
+            _log.warning("[PLAY] arquivo nao encontrado: %s", item.file_path)
             return
         try:
+            seamless_on = str(item.params.get('seamless', '0')) == '1'
+            lw_pre = self._layer_frames.get(item.id)
+            loop_pre = lw_pre.is_loop() if lw_pre else False
+            _log.debug(
+                "[PLAY START] id=%s name=%r seamless=%s loop=%s speed=%s "
+                "duration=%.3f file_duration=%s muted_regions=%s cut_active=%s",
+                item.id, item.name, seamless_on, loop_pre,
+                item.params.get('speed', 100), item.duration,
+                item.params.get('file_duration', 'N/A'),
+                getattr(item, 'muted_regions', []),
+                self._cut_service.is_active(item.id),
+            )
+            # Constrói lista completa de regiões silenciadas em segundos do arquivo bruto
+            # (muted_regions salvas + seleções ativas do cut_service)
+            all_muted = list(getattr(item, 'muted_regions', []) or [])
+            if self._cut_service.is_active(item.id):
+                # usa file_duration como base para converter ratios visuais em segundos
+                file_dur = float((getattr(item, 'params', {}) or {}).get('file_duration', 0.0))
+                dur = file_dur if file_dur > 0 else float(item.duration)
+                for a, b in self._cut_service.get_selections():
+                    all_muted.append({"start": round(a * dur, 4), "end": round(b * dur, 4)})
+                wip_a, wip_b = self._cut_service.get_wip()
+                if wip_a is not None and wip_b is not None and wip_b - wip_a >= 0.01:
+                    all_muted.append({"start": round(wip_a * dur, 4), "end": round(wip_b * dur, 4)})
+
+            orig_muted = list(getattr(item, 'muted_regions', []) or [])
+            _log.debug("[PLAY] all_muted para reproducao: %s", all_muted)
+            item.muted_regions = all_muted
             data, sr = _prepare_audio(item)
+            item.muted_regions = orig_muted
+
             if data is None or len(data) == 0:
+                _log.warning("[PLAY] _prepare_audio retornou vazio para item=%s", item.id)
                 return
 
-            if self._cut_service.is_active(item.id) and self._cut_service.has_selection():
-                keep, prev = [], 0
-                for cut_a, cut_b in sorted(self._cut_service.get_selections()):
-                    ca = max(0, min(int(cut_a * len(data)), len(data)))
-                    cb = max(ca, min(int(cut_b * len(data)), len(data)))
-                    if ca > prev:
-                        keep.append(data[prev:ca])
-                    prev = cb
-                if prev < len(data):
-                    keep.append(data[prev:])
-                data = np.concatenate(keep) if keep else np.zeros((0, 2), dtype=np.float32)
-
-            if len(data) == 0:
-                return
-
-            paused      = self._paused_state.pop(item.id, None)
-            start_ratio = max(0.0, min(1.0, float(paused["ratio"]) if paused else 0.0))
-            speed       = int(item.params.get("speed", 100)) / 100.0
-            play_sr     = int(sr * speed) if speed > 0 else sr
+            paused = self._paused_state.pop(item.id, None)
+            if paused:
+                refs = self._layer_refs.get(item.id, {})
+                wf   = refs.get("waveform")
+                vis_ratio = max(0.0, min(1.0, float(paused["ratio"])))
+                start_ratio = wf._visual_ratio_to_audio(vis_ratio) if wf else vis_ratio
+                _log.debug("[PLAY] retomando de pausa: vis_ratio=%.3f -> audio_ratio=%.3f", vis_ratio, start_ratio)
+            else:
+                start_ratio = 0.0
+            speed       = float(item.params.get("speed", 100)) / 100.0
+            seamless_on = str(item.params.get('seamless', '0')) == '1'
+            # seamless file já foi gerado com speed aplicado — não duplicar
+            play_sr = int(sr * speed) if speed > 0 and not seamless_on else sr
 
             lw   = self._layer_frames.get(item.id)
             loop = lw.is_loop() if lw else False
+
+            _log.debug(
+                "[PLAY] sr=%d play_sr=%d speed=%.2f samples=%d single_duration=%.3fs "
+                "start_ratio=%.3f loop=%s seamless=%s",
+                sr, int(sr * speed) if not seamless_on else sr,
+                speed, len(data), len(data) / max(1, play_sr),
+                start_ratio, loop, seamless_on,
+            )
 
             old = self._stream_players.pop(item.id, None)
             if old:
@@ -323,7 +410,7 @@ class TrackEditorPanel(QWidget):
             single_duration = len(data) / max(1, play_sr)
 
             if loop:
-                stream = _LayerStreamPlayer(data, play_sr, item)
+                stream = _LayerStreamPlayer(data, play_sr, item, loop=True)
                 stream.start(start_ratio)
                 self._stream_players[item.id] = stream
             else:
@@ -340,18 +427,27 @@ class TrackEditorPanel(QWidget):
             self._playing[item.id] = True
             if lw:
                 lw.set_play_state(True)
-            self._animate_playhead(item.id, start_ratio, single_duration, loop=loop)
+            refs = self._layer_refs.get(item.id, {})
+            wf   = refs.get("waveform")
+            snap_muted = wf._get_all_muted_ratios() if wf else []
+            _log.debug("[PLAY] snap_muted para playhead: %s", snap_muted)
+            _log.info(
+                "[PLAY] tocando id=%s | %.3fs | loop=%s seamless=%s speed=%.0f%%",
+                item.id, single_duration, loop, seamless_on, speed * 100,
+            )
+            self._animate_playhead(item.id, start_ratio, single_duration, loop=loop, muted_ratios=snap_muted)
         except Exception:
-            _log.exception("Erro ao reproduzir audio")
+            _log.exception("[PLAY] erro ao reproduzir audio item=%s", item.id)
 
     def _stop_play(self, item_id):
+        _log.debug("[STOP] id=%s", item_id)
         stream = self._stream_players.pop(item_id, None)
         if stream:
             stream.stop()
         try:
             sd.stop()
         except Exception:
-            _log.debug("Erro ao parar sd (stop)", exc_info=True)
+            _log.debug("[STOP] erro ao parar sd", exc_info=True)
         self._playing[item_id] = False
         refs = self._layer_refs.get(item_id, {})
         wf   = refs.get("waveform")
@@ -397,7 +493,7 @@ class TrackEditorPanel(QWidget):
 
     # ── playhead animation ────────────────────────────────────────────────────
 
-    def _animate_playhead(self, item_id, start_ratio, play_duration, loop=False):
+    def _animate_playhead(self, item_id, start_ratio, play_duration, loop=False, muted_ratios=None):
         refs = self._layer_refs.get(item_id)
         if not refs:
             return
@@ -406,6 +502,28 @@ class TrackEditorPanel(QWidget):
         waveform   = refs["waveform"]
         time_lbl   = refs["time_lbl"]
         start_time = _time.time()
+        if muted_ratios is None:
+            muted_ratios = waveform._get_all_muted_ratios()
+        _log.debug(
+            "[ANIM] id=%s gen=%d start_ratio=%.3f play_duration=%.3fs loop=%s muted_ratios=%s",
+            item_id, gen, start_ratio, play_duration, loop, muted_ratios,
+        )
+
+        def _audio_to_visual(ratio):
+            if not muted_ratios:
+                return ratio
+            kept  = waveform._kept_segments(muted_ratios)
+            total = sum(b - a for a, b in kept)
+            if total <= 0:
+                return ratio
+            audio_pos = ratio * total
+            acc = 0.0
+            for vis_a, vis_b in kept:
+                seg = vis_b - vis_a
+                if audio_pos <= acc + seg:
+                    return vis_a + (audio_pos - acc)
+                acc += seg
+            return kept[-1][1]
 
         def _tick():
             if self._anim_gen.get(item_id, 0) != gen:
@@ -413,23 +531,28 @@ class TrackEditorPanel(QWidget):
             if not self._playing.get(item_id, False):
                 waveform.set_playhead(-1)
                 return
-            elapsed = _time.time() - start_time
-            if elapsed >= play_duration:
-                if loop:
-                    self._animate_playhead(item_id, 0.0, play_duration, loop=True)
+
+            # modo loop com stream: usa position_ratio real do stream (sem drift)
+            stream = self._stream_players.get(item_id)
+            if stream is not None:
+                audio_ratio = stream.position_ratio
+                _log.debug("[ANIM] gen=%d stream.pos=%.4f visual=%.4f", gen, audio_ratio, _audio_to_visual(audio_ratio))
+            else:
+                elapsed = _time.time() - start_time
+                if elapsed >= play_duration:
+                    self._playing[item_id] = False
+                    waveform.set_playhead(-1)
+                    waveform.set_peak_rms(None, None)
+                    lw = self._layer_frames.get(item_id)
+                    if lw:
+                        lw.set_play_state(False)
+                    item_dur = float(waveform._item.duration)
+                    refs["current_time"] = item_dur
+                    time_lbl.setText(f"{item_dur:.1f}s / {item_dur:.1f}s")
                     return
-                self._playing[item_id] = False
-                waveform.set_playhead(-1)
-                waveform.set_peak_rms(None, None)
-                lw = self._layer_frames.get(item_id)
-                if lw:
-                    lw.set_play_state(False)
-                item_dur = float(waveform._item.duration)
-                refs["current_time"] = item_dur
-                time_lbl.setText(f"{item_dur:.1f}s / {item_dur:.1f}s")
-                return
-            audio_ratio  = min(1.0, start_ratio + (elapsed / play_duration) * (1.0 - start_ratio))
-            visual_ratio = waveform._audio_ratio_to_visual(audio_ratio)
+                audio_ratio = min(1.0, start_ratio + (elapsed / play_duration) * (1.0 - start_ratio))
+
+            visual_ratio = _audio_to_visual(audio_ratio)
             waveform._playhead_ratio = visual_ratio
 
             # Peak / RMS da janela atual (~100ms)
@@ -462,7 +585,9 @@ class TrackEditorPanel(QWidget):
     # ── seek ──────────────────────────────────────────────────────────────────
 
     def _seek_play(self, item, ratio):
+        _log.debug("[SEEK] id=%s visual_ratio=%.3f", item.id, ratio)
         if not _file_exists(item.file_path):
+            _log.warning("[SEEK] arquivo nao encontrado: %s", item.file_path)
             return
         try:
             data, sr = _prepare_audio(item)
@@ -483,9 +608,13 @@ class TrackEditorPanel(QWidget):
             lw = self._layer_frames.get(item.id)
             if lw:
                 lw.set_play_state(True)
-            self._animate_playhead(item.id, audio_ratio, play_duration)
+            refs = self._layer_refs.get(item.id, {})
+            wf   = refs.get("waveform")
+            snap_muted = wf._get_all_muted_ratios() if wf else []
+            _log.info("[SEEK] tocando id=%s audio_ratio=%.3f play_duration=%.3fs", item.id, audio_ratio, play_duration)
+            self._animate_playhead(item.id, audio_ratio, play_duration, muted_ratios=snap_muted)
         except Exception:
-            _log.exception("Erro ao reproduzir audio (seek)")
+            _log.exception("[SEEK] erro ao reproduzir audio item=%s", item.id)
 
     # ── layer actions ─────────────────────────────────────────────────────────
 
@@ -500,12 +629,13 @@ class TrackEditorPanel(QWidget):
         self.show_item(self._item, self._project)
 
     def _delete_layer(self, item):
-        lw  = self._layer_frames.get(item.id)
+        lw = self._layer_frames.get(item.id)
         if lw is None:
             self._do_delete_layer(item)
             return
 
-        confirm = QFrame()
+        # insere confirm diretamente no root layout do LayerWidget
+        confirm = QFrame(lw)
         confirm.setStyleSheet(
             f"background: rgba(180,30,30,0.18); border: 1px solid {C['danger']}; border-radius: 10px;"
         )
@@ -533,7 +663,8 @@ class TrackEditorPanel(QWidget):
         cl.addWidget(no_btn)
         cl.addWidget(yes_btn)
 
-        lw.layout().insertWidget(0, confirm)
+        lw._root.insertWidget(0, confirm)
+        confirm.show()
         yes_btn.clicked.connect(lambda: (confirm.deleteLater(), self._do_delete_layer(item)))
         no_btn.clicked.connect(confirm.deleteLater)
 

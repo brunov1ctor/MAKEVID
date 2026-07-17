@@ -823,7 +823,7 @@ class GeneratorPanel(QWidget):
                     self._img_fail_signal.emit(err)
             except Exception as e:
                 import traceback
-                _log.error(f"[IMG] excecao: {e}\n{traceback.format_exc()}")
+                _log.exception(f"[IMG] excecao: {e}")
                 self._img_error_signal.emit(str(e)[:120])
 
         threading.Thread(target=run, daemon=True).start()

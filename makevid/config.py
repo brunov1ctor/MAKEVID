@@ -26,9 +26,15 @@ for d in [DATA_DIR, MODELS_DIR, OUTPUTS_DIR, PROJECTS_DIR, AUDIO_DIR, AMBIENCE_R
 # HARDWARE
 # ============================================================
 
-import torch as _torch
+def _detect_gpu():
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except Exception:
+        return False
 
-HAS_GPU = _torch.cuda.is_available()
+
+HAS_GPU = _detect_gpu()
 DEVICE = "cuda" if HAS_GPU else "cpu"
 MAX_VRAM_GB = 32
 

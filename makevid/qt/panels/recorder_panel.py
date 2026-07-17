@@ -1,6 +1,7 @@
 """Recorder + TTS Qt - Gravação de microfone e geração de voz."""
 
 import time as _time
+import logging
 import threading
 import wave
 import collections
@@ -17,6 +18,9 @@ from PySide6.QtGui import QPainter, QColor, QPen
 from makevid.qt.theme import C
 from makevid.qt.widgets import GlassButton
 from makevid.config import AUDIO_DIR, PROJECTS_DIR
+from makevid.core.logger import log_audio_rec, log_tts, log_error
+
+_log = logging.getLogger("audio")
 
 
 class _LiveWaveformWidget(QWidget):
@@ -232,6 +236,7 @@ class RecorderPanel(QWidget):
         self._rec_btn.setText("■ PARAR")
         self._rec_btn.setStyleSheet("background: transparent; border: none;")
         self._ui_timer.start()
+        _log.info(f"Gravacao iniciada: track={self._target_track}")
 
         def callback(indata, frames, t, status):
             if self._recording:
@@ -314,6 +319,7 @@ class RecorderPanel(QWidget):
         self._time_label.setText(f"{int(duration)//60:02d}:{duration%60:04.1f}")
         self._rec_btn.setText("● GRAVAR NOVO")
         self._rec_btn.setStyleSheet("background: transparent; border: none;")
+        log_audio_rec(self._target_track, duration, str(filepath))
         self.recorded.emit()
         QTimer.singleShot(200, self._refresh_browser)
 
@@ -422,6 +428,7 @@ class TTSPanel(QWidget):
                 out_dir = AUDIO_DIR / self._project.id
                 out_dir.mkdir(parents=True, exist_ok=True)
                 path = out_dir / f"tts_{int(_time.time())}.wav"
+                log_tts(text, 0.0, "generating")
                 result = generate_voice(text, path)
 
                 if result:
@@ -439,10 +446,13 @@ class TTSPanel(QWidget):
                         start_time=start, duration=dur, file_path=str(path),
                         params={"text": text, "block_name": text[:20], "source_type": "tts"})
                     self._project.save(PROJECTS_DIR)
+                    log_tts(text, dur, "done")
                     QTimer.singleShot(0, lambda: self._on_done(dur))
                 else:
+                    log_tts(text, 0.0, "error", "generate_voice retornou None")
                     QTimer.singleShot(0, self._on_error)
             except Exception as e:
+                log_tts(text, 0.0, "error", str(e))
                 QTimer.singleShot(0, lambda: self._on_error(str(e)))
 
         threading.Thread(target=run, daemon=True).start()

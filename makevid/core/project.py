@@ -238,9 +238,14 @@ class Project:
         return next((c for c in self.clips if c.id == clip_id), None)
 
     def total_duration(self) -> float:
-        """Duracao total = max entre fim dos clips e fim dos track items."""
-        video_dur = sum(c.duration for c in self.clips)
-        track_end = max((i.start_time + i.duration for i in self.track_items), default=0)
+        """Duracao total = max entre fim do ultimo clip e fim dos track items.
+        Clips sao posicionados sequencialmente (sem gaps), entao o fim do video
+        e a soma das duracoes. Track items tem start_time absoluto.
+        """
+        video_dur = sum(c.duration for c in self.clips) if self.clips else 0.0
+        # considera apenas track items que nao sao fx (fx nao tem audio/video)
+        audio_items = [i for i in self.track_items if i.track != "fx"]
+        track_end = max((i.start_time + i.duration for i in audio_items), default=0.0)
         return max(video_dur, track_end)
 
     def add_track_item(self, name: str, track: str, start_time: float, duration: float = 2.0, file_path: str = "", params: Dict[str, str] = None, clip_index: int = -1, file_offset: float = 0.0) -> TrackItem:
@@ -265,7 +270,12 @@ class Project:
     def save(self, base_dir: Path):
         path = base_dir / f"{self.id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(asdict(self), indent=2, ensure_ascii=True), encoding="utf-8")
+        try:
+            path.write_text(json.dumps(asdict(self), indent=2, ensure_ascii=True), encoding="utf-8")
+        except Exception as e:
+            import logging
+            logging.getLogger("clip").error(f"Falha ao salvar projeto {self.id}: {e}")
+            raise
 
     @classmethod
     def load(cls, path: Path) -> "Project":

@@ -70,6 +70,10 @@ def setup_logging():
     # Timeline: INFO em producao; DEBUG quando modo debug esta ativo.
     timeline_level = logging.DEBUG if log_level <= logging.DEBUG else logging.INFO
     logging.getLogger("timeline").setLevel(timeline_level)
+    # Track editor e audio player: sempre DEBUG para diagnostico
+    logging.getLogger("makevid.qt.panels.track_editor_panel").setLevel(logging.DEBUG)
+    logging.getLogger("makevid.qt.panels.layer_audio_player").setLevel(logging.DEBUG)
+    logging.getLogger("makevid.services.waveform_cut_service").setLevel(logging.DEBUG)
 
     # Glow: so vai pro arquivo, nao pro console
     glow_log = logging.getLogger("glow")
@@ -132,11 +136,38 @@ def log_clip_action(action: str, clip_id: str, details: str = ""):
     logging.getLogger("clip").info(f"{action} {clip_id} {details}")
 
 
-def log_export(format: str, path: str, duration: float):
+def log_export(format: str, path: str, duration: float, size_mb: float = 0.0):
     """Loga exportacao."""
-    logging.getLogger("export").info(f"{format} {duration:.1f}s | {path}")
+    size_info = f" | {size_mb:.1f}MB" if size_mb > 0 else ""
+    logging.getLogger("export").info(f"{format} {duration:.1f}s{size_info} | {path}")
+
+
+def log_export_error(context: str, error: str):
+    """Loga erro de exportacao."""
+    logging.getLogger("export").error(f"[{context}] {error[:100]}")
+
+
+def log_audio_rec(track: str, duration: float, path: str):
+    """Loga gravacao de microfone."""
+    logging.getLogger("audio").info(f"REC {track.upper()} {duration:.1f}s | {Path(path).name}")
+
+
+def log_tts(text_preview: str, duration: float, status: str, error: str = ""):
+    """Loga geracao TTS."""
+    logger = logging.getLogger("audio")
+    if status == "done":
+        logger.info(f"TTS OK {duration:.1f}s | '{text_preview[:40]}'")
+    elif status == "error":
+        logger.error(f"TTS FALHA | '{text_preview[:30]}' | {error[:60]}")
+    elif status == "generating":
+        logger.info(f"TTS INICIO | '{text_preview[:40]}'")
 
 
 def log_error(context: str, error: str):
     """Loga erro generico para debug."""
     logging.getLogger("error").error(f"[{context}] {error[:100]}")
+
+
+def log_panel(panel: str, action: str, details: str = ""):
+    """Loga acao de painel (abrir, fechar, trocar)."""
+    logging.getLogger("panel").debug(f"{panel} {action} {details}".strip())

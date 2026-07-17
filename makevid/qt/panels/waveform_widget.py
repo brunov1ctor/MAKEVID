@@ -157,7 +157,9 @@ class _WaveformWidget(QWidget):
     # ── ratio mapping ─────────────────────────────────────────────────────────
 
     def _get_all_muted_ratios(self):
-        dur    = max(0.001, float(self._item.duration or 1.0))
+        # usa file_duration se disponivel para converter segundos em ratios corretos
+        file_dur = float((getattr(self._item, 'params', {}) or {}).get('file_duration', 0.0))
+        dur = file_dur if file_dur > 0 else max(0.001, float(self._item.duration or 1.0))
         result = []
         for region in (getattr(self._item, 'muted_regions', []) or []):
             a = float(region['start']) / dur
@@ -524,6 +526,7 @@ class _WaveformWidget(QWidget):
                 elif self._cut_dragging:
                     self._cut_service.update_selection(max(0.0, min(1.0, x / max(1, self.width()))))
                     self.update()
+                    self.selection_changed.emit()
                 return
             edge = self._hit_edge(x)
             self.setCursor(Qt.SizeHorCursor if edge else Qt.CrossCursor)

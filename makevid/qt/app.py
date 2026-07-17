@@ -153,7 +153,9 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
         self.track_menu.action_add_fx.connect(self._add_fx_to_timeline)
         self.inpaint_panel.closed.connect(self._show_generator)
         self.inpaint_panel.inpaint_requested.connect(self._do_inpaint)
-        self.track_editor.changed.connect(lambda: self.timeline.redraw())
+        self.track_editor.changed.connect(self._on_timeline_content_changed)
+        self.audio_browser.audio_added.connect(self._on_timeline_content_changed)
+        self.recorder.recorded.connect(self._on_timeline_content_changed)
 
         self.project_changed.connect(self._on_project_changed_all)
         self.project_changed.connect(self.timeline._on_project_changed)
@@ -258,6 +260,13 @@ class MakeVidWindow(ActionsMixin, QMainWindow):
             self.fx_editor.show_item(track_item, self.project)
         elif track_item.track != "fx" and self.panels.current_name == "track_editor":
             self.track_editor.show_item(track_item, self.project)
+        self._on_timeline_content_changed()
+
+    def _on_timeline_content_changed(self):
+        """Chamado sempre que conteudo da timeline muda — atualiza timeline e export."""
+        self.timeline.redraw()
+        if self.panels.registry.is_loaded("export"):
+            self.export_panel.refresh()
 
     def _show_mixer(self, item):
         self.mixer.show_item(item, self.project)

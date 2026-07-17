@@ -14,7 +14,24 @@ import wave
 from pathlib import Path
 from typing import Optional, Dict, List
 
-logger = logging.getLogger(__name__)
+def _run_async(coro):
+    """Executa coroutine de forma segura mesmo dentro de um event loop ativo."""
+    import threading
+    result = [None]
+    exc = [None]
+
+    def _run():
+        try:
+            result[0] = asyncio.run(coro)
+        except Exception as e:
+            exc[0] = e
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join()
+    if exc[0]:
+        raise exc[0]
+    return result[0]
 
 
 # ============================================================
@@ -308,7 +325,7 @@ def _generate_with_profile(text: str, output_path: Path, params: dict) -> Option
             pitch = params.get("pitch", 0)
             rate = params.get("rate", 0)
             volume = params.get("volume", 100)
-            asyncio.run(_generate_edge_tts(
+            _run_async(_generate_edge_tts(
                 text=params.get("text", text),
                 output_path=output_path,
                 voice=params.get("voice_id", "pt-BR-AntonioNeural"),
@@ -408,7 +425,7 @@ def _generate_legacy(
     rate = EMOTION_RATE_MAP.get(emotion, "+0%")
 
     try:
-        asyncio.run(_generate_edge_tts(
+        _run_async(_generate_edge_tts(
             text=text, output_path=output_path, voice=voice_id, rate=rate))
         logger.info(f"TTS OK [legacy]: '{text[:30]}' → {output_path.name} ({voice_id})")
         return output_path
@@ -495,7 +512,7 @@ async def list_voices(language_filter: str = "pt-BR") -> List[Dict]:
 def get_available_voices(language: str = "pt-BR") -> List[Dict]:
     """API síncrona para listar vozes."""
     try:
-        return asyncio.run(list_voices(language))
+        return _run_async(list_voices(language))
     except Exception:
         logger.exception("Falha ao listar vozes do edge-tts")
         return []

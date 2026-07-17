@@ -242,7 +242,7 @@ class _ResponsiveActionGrid(QWidget):
         visible = [w for w in self._widgets if w.isVisible()]
         if not visible:
             return
-        available = max(1, self.width())
+        available = max(180, self.width())  # fallback 180px quando oculto
         cols = max(1, available // (90 + self._grid.horizontalSpacing()))
         cols = min(cols, len(visible))
         for index, widget in enumerate(visible):

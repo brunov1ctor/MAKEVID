@@ -127,8 +127,7 @@ class GenerationService:
 
             except Exception as e:
                 import traceback
-                traceback.print_exc()
-                logger.error(f"Generation failed: {e}")
+                logger.exception(f"Generation failed: {e}")
                 log_generation(prompt, engine, 0, "error", str(e))
                 if on_error:
                     on_error(str(e))

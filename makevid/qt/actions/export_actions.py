@@ -11,7 +11,7 @@ from PySide6.QtCore import QTimer
 
 from makevid.qt.theme import C
 from makevid.config import PROJECTS_DIR
-from makevid.core.logger import log_export, log_error
+from makevid.core.logger import log_export, log_export_error, log_error
 
 _log = logging.getLogger("export")
 
@@ -60,7 +60,8 @@ class ExportActionsMixin:
                 preset=get_preset_key(preset_cb.currentText()),
                 resolution=resolution, fps=int(fps_cb.currentText()),
             )
-            log_export(preset_cb.currentText(), str(result), self.project.total_duration())
+            dur = self.project.total_duration()
+            log_export(preset_cb.currentText(), str(result), dur)
             self.generator._status.setText(f"Exportado: {result.name}")
         except Exception as e:
             log_error("export_game_engine", str(e))
@@ -81,7 +82,7 @@ class ExportActionsMixin:
         hdr.addWidget(lbl)
         hdr.addStretch()
         filter_cb = QComboBox()
-        filter_cb.addItems(["Todos", "Erros", "Audio", "Export", "Clip", "Geracao"])
+        filter_cb.addItems(["Todos", "Erros", "Audio", "TTS", "Export", "Clip", "Geracao"])
         filter_cb.setStyleSheet(
             f"background: {C['card']}; color: {C['text']}; border: 1px solid {C['purple']};"
             " border-radius: 3px; padding: 2px 8px;"
@@ -99,7 +100,8 @@ class ExportActionsMixin:
 
         _filters = {
             "Erros":   lambda l: "ERROR" in l or "FALHA" in l or "Erro" in l,
-            "Audio":   lambda l: any(k in l.lower() for k in ("audio", "sound", "tts")),
+            "Audio":   lambda l: any(k in l.lower() for k in ("audio", "rec ", "tts", "sound")),
+            "TTS":     lambda l: "TTS" in l,
             "Export":  lambda l: "export" in l.lower(),
             "Clip":    lambda l: "clip" in l.lower(),
             "Geracao": lambda l: "gen" in l.lower() or "INICIO" in l or "OK [" in l,
@@ -114,6 +116,12 @@ class ExportActionsMixin:
 
         refresh()
         filter_cb.currentTextChanged.connect(lambda _: refresh())
+
+        # auto-refresh a cada 3s enquanto o dialog estiver aberto
+        _timer = QTimer(dlg)
+        _timer.setInterval(3000)
+        _timer.timeout.connect(refresh)
+        _timer.start()
 
         btn_row = QHBoxLayout()
         btn_r = QPushButton("Atualizar")

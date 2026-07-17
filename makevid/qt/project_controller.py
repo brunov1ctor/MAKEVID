@@ -1,7 +1,10 @@
 """ProjectController — troca, criação e carregamento de projetos."""
 
+import logging
 from makevid.config import PROJECTS_DIR
 from makevid.core.project import Project
+
+_log = logging.getLogger("clip")
 
 
 def load_last_project() -> Project:
@@ -9,8 +12,8 @@ def load_last_project() -> Project:
     for f in files:
         try:
             return Project.load(f)
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f"Projeto {f.name} ignorado (corrompido?): {e}")
     return Project.create("")  # projeto em memória, sem salvar em disco
 
 

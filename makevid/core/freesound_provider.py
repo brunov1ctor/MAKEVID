@@ -13,7 +13,6 @@ from typing import Optional, List, Dict
 logger = logging.getLogger(__name__)
 
 # API Key (variavel de ambiente FREESOUND_API_KEY)
-FREESOUND_CLIENT_ID = "4B7zj5Q5IywT0Kdo8MOP"
 FREESOUND_API_KEY = os.environ.get("FREESOUND_API_KEY", "")
 FREESOUND_BASE_URL = "https://freesound.org/apiv2"
 

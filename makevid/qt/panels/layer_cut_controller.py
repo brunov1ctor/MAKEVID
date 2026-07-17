@@ -9,31 +9,20 @@ _log = logging.getLogger(__name__)
 
 
 class LayerCutController:
-    """Gerencia o ciclo de vida do modo de recorte para um conjunto de layers.
+    """Gerencia o ciclo de vida do modo de recorte para um conjunto de layers."""
 
-    Recebe referências ao cut_service, ao dict layer_refs e callbacks do painel
-    orquestrador — sem dependência direta de widgets Qt.
-    """
-
-    def __init__(self, cut_service, layer_refs, commit_fn, changed_signal, playing_dict):
-        """
-        cut_service   : WaveformCutService
-        layer_refs    : dict item_id -> {waveform, cut_btn, cut_confirm, action_row, ...}
-        commit_fn     : callable(item) — salva projeto e emite changed
-        changed_signal: Signal() do painel
-        playing_dict  : dict item_id -> bool (referência ao _playing do painel)
-        """
+    def __init__(self, cut_service, layer_refs, commit_fn, changed_signal, playing_dict, restart_play_fn=None):
         self._svc      = cut_service
         self._refs     = layer_refs
         self._commit   = commit_fn
         self._changed  = changed_signal
         self._playing  = playing_dict
+        self._restart_play = restart_play_fn  # callable(item) opcional
 
     # ── toggle mode ───────────────────────────────────────────────────────────
 
     def toggle_cut_mode(self, item, layer_widget):
         """Ativa ou desativa o modo de recorte interativo na waveform."""
-        from makevid.qt.theme import C
         waveform = self._refs.get(item.id, {}).get("waveform")
         if waveform is None:
             return
@@ -42,20 +31,30 @@ class LayerCutController:
             self._svc.deactivate()
             waveform.set_cut_mode(None)
             layer_widget.set_cut_container_mode("idle")
+            if self._restart_play and self._playing.get(item.id, False):
+                self._restart_play(item)
         else:
             self._svc.activate(item.id)
             waveform.set_cut_mode(self._svc)
             waveform.selection_changed.connect(
                 lambda: self.on_selection_changed(item, layer_widget)
             )
-            layer_widget.set_cut_container_mode("active")
+            # se ja existem cortes aplicados, entra direto no modo confirm
+            # para que o botao Desfazer fique disponivel imediatamente
+            has_existing = bool(getattr(item, 'muted_regions', None))
+            if has_existing:
+                layer_widget.set_cut_container_mode("confirm")
+            else:
+                layer_widget.set_cut_container_mode("active")
 
     def on_selection_changed(self, item, layer_widget):
-        """Alterna o container entre active e confirm conforme há seleção."""
+        """Alterna o container e reinicia o play para preview em tempo real."""
         if self._svc.has_selection():
             layer_widget.set_cut_container_mode("confirm")
         else:
             layer_widget.set_cut_container_mode("active")
+        if self._restart_play and self._playing.get(item.id, False):
+            self._restart_play(item)
 
     # ── apply / undo ──────────────────────────────────────────────────────────
 
@@ -72,12 +71,38 @@ class LayerCutController:
             waveform.update()
 
     def undo_selection(self, item, layer_widget):
-        """Limpa seleções sem aplicar o corte."""
-        self._svc.clear_selection()
+        """Desfaz a última seleção. Se não houver seleções novas, remove a última muted_region salva."""
+        undone = self._svc.undo_last()
         wf = self._refs.get(item.id, {}).get("waveform")
+
+        # se nao havia nada no cut_service, desfaz a ultima muted_region persistida
+        if not undone:
+            muted = list(getattr(item, 'muted_regions', []) or [])
+            if muted:
+                removed = muted.pop()
+                item.muted_regions = muted
+                # recalcula duration: file_duration - total_muted restante
+                file_dur = float((getattr(item, 'params', {}) or {}).get('file_duration', 0.0))
+                if file_dur > 0 and getattr(item, 'clip_index', -1) < 0:
+                    total_muted = sum(
+                        max(0.0, float(r['end']) - float(r['start']))
+                        for r in muted
+                    )
+                    item.duration = max(0.05, round(file_dur - total_muted, 3))
+                self._commit(item)
+                _log.info("[UNDO] removida muted_region=%s | restantes=%s duration=%.3f", removed, muted, item.duration)
+
         if wf:
+            wf._load_waveform()
+            wf.set_playhead(-1)
             wf.update()
-        layer_widget.set_cut_container_mode("active")
+
+        # confirm se ainda ha selecoes novas OU muted_regions persistidas
+        has_anything = self._svc.has_selection() or bool(getattr(item, 'muted_regions', None))
+        if has_anything:
+            layer_widget.set_cut_container_mode("confirm")
+        else:
+            layer_widget.set_cut_container_mode("active")
 
     # ── trim helpers ──────────────────────────────────────────────────────────
 
